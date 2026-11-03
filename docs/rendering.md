@@ -37,9 +37,15 @@ small recursive-descent parser (`struct P`):
 - HTML blocks and front matter (YAML `---` or TOML `+++`) are skipped.
 - Fenced code blocks are highlighted here, once, by `highlight::highlight`
   (see [Syntax highlighting](#syntax-highlighting)).
+- Inline math (`$…$`) is converted to Unicode text by `latex::to_unicode`
+  and pushed into the `RichText`, with variables in italics. Display math
+  (`$$…$$`) splits its paragraph: the text before and after become
+  paragraphs, and the formula becomes a `Block::Math`. A ```` ```math ````
+  code block becomes a `Block::Math` too. See [Math](#math).
 
 Enabled extensions: tables, strikethrough, task lists, footnotes, GFM alerts
-(`> [!NOTE]` and friends), and metadata blocks.
+(`> [!NOTE]` and friends), metadata blocks, and math (`$…$` / `$$…$$`, with
+GitHub's rules, so `$5 and $10` stays text).
 
 ## 2. Virtualization (`src/viewer.rs`)
 
@@ -99,6 +105,50 @@ To support a new language, add a `Lang` to `lang_def` (or an alias to an
 existing one) and a test in `highlight::tests`. Unknown languages are shown
 uncolored.
 
+### Math
+
+Inline and display math are handled differently, because GPUI lays out a
+paragraph as a single run of text and can't put an image inside it.
+
+- **Inline** `$…$` is turned into text while parsing (`src/latex.rs`): Greek
+  letters and symbols become Unicode characters, `x^2` becomes `x²` (or
+  `x^(…)` when there's no superscript character), `\frac{a}{b}` becomes
+  `a/b`, `\mathbb{R}` becomes `ℝ`, and variables are italic. It isn't a
+  typesetter, but common inline math reads well and wraps with the text.
+- **Display** `$$…$$` and ```` ```math ```` blocks are typeset for real by
+  `src/graphics.rs`:
+
+```mermaid
+sequenceDiagram
+    participant R as render_block (main thread)
+    participant C as graphics Cache (GPUI Global)
+    participant BG as background executor
+    R->>C: element(Math, source)
+    alt cached
+        C-->>R: image + size
+    else first time
+        C->>C: slot = Pending
+        C-)BG: RaTeX → SVG (paths only) → resvg → BGRA pixels
+        C-->>R: placeholder
+        BG-->>C: finish(): store image, evict LRU over 128 MB
+        C->>R: notify Viewer → next frame shows the image
+    end
+```
+
+RaTeX is a Rust port of KaTeX and embeds the KaTeX fonts, so formulas look
+like they do on GitHub, and glyphs are emitted as SVG paths (no font lookup).
+The image is rasterized at the window's scale factor and shown at its logical
+size, centered; if it's wider than the column it's scaled down.
+
+The cache key is the source, light/dark, and the scale factor, so switching
+tabs or reloading an unchanged file never re-renders. Old entries are evicted
+(and their GPU textures dropped with `cx.drop_image`) once the cached pixels
+exceed 128 MB, which matters when live-reloading a file while editing it.
+
+If a formula can't be parsed, the block shows the error and the source.
+Renderer panics are caught with `catch_unwind` (that's why the release profile
+uses `panic = "unwind"`) and shown the same way.
+
 ### Typography
 
 | Setting | Value |
@@ -146,4 +196,4 @@ Example: definition lists (`Options::ENABLE_DEFINITION_LIST`).
 ## Known gaps
 
 These are tracked in [roadmap.md](roadmap.md#rendering): remote images, raw
-HTML, text selection, Mermaid and math rendering.
+HTML, text selection, Mermaid diagrams, and real typesetting for inline math.

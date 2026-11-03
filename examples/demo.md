@@ -66,6 +66,16 @@ cargo build --release && MDVIEW_TRACE_STARTUP=1 ./target/release/mdview -n "$HOM
  render(theme);
 ```
 
+## Math
+
+Inline math such as $e^{i\pi} + 1 = 0$ or $\alpha_i \le \beta_{ij}$ flows with the text, and display math is typeset like KaTeX:
+
+$$
+\int_0^\infty e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}
+\qquad
+\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}
+$$
+
 ## Tables
 
 | Feature        | Status | Notes                    |

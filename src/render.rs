@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use crate::{
+    graphics::{self, Kind},
     highlight::{Highlight, Tok},
     markdown::{Align, BOLD, Block, CODE, ITALIC, Image, LINK, RichText, STRIKE},
     theme::Theme,
@@ -49,9 +50,27 @@ impl RenderCx {
     }
 }
 
+/// Per-row rendering state: element ids, plus the window and app, which
+/// math blocks need to fetch their images.
+struct Cx<'a> {
+    ids: IdGen,
+    window: &'a mut Window,
+    app: &'a mut App,
+}
+
 /// Renders top-level block `ix` (one list item).
-pub fn top_block(block: &Block, ix: usize, rcx: &RenderCx) -> AnyElement {
-    let mut ids = IdGen(ix * 100_000);
+pub fn top_block(
+    block: &Block,
+    ix: usize,
+    rcx: &RenderCx,
+    window: &mut Window,
+    app: &mut App,
+) -> AnyElement {
+    let mut c = Cx {
+        ids: IdGen(ix * 100_000),
+        window,
+        app,
+    };
     div()
         .w_full()
         .flex()
@@ -63,7 +82,7 @@ pub fn top_block(block: &Block, ix: usize, rcx: &RenderCx) -> AnyElement {
                 .max_w(px(CONTENT_MAX_WIDTH))
                 .px_8()
                 .pb_4()
-                .child(render_block(block, rcx, &mut ids, 0)),
+                .child(render_block(block, rcx, &mut c, 0)),
         )
         .into_any_element()
 }
@@ -76,7 +95,7 @@ impl IdGen {
     }
 }
 
-fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) -> AnyElement {
+fn render_block(block: &Block, rcx: &RenderCx, c: &mut Cx, depth: usize) -> AnyElement {
     let t = &rcx.theme;
     match block {
         Block::Heading { level, text, .. } => {
@@ -97,12 +116,12 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                 .when(*level <= 2, |d| {
                     d.pb_2().border_b_1().border_color(t.border)
                 })
-                .child(rich_text(text, weight, color, rcx, ids))
+                .child(rich_text(text, weight, color, rcx, &mut c.ids))
                 .into_any_element()
         }
         Block::Paragraph(text) => div()
             .w_full()
-            .child(rich_text(text, FontWeight::NORMAL, t.fg, rcx, ids))
+            .child(rich_text(text, FontWeight::NORMAL, t.fg, rcx, &mut c.ids))
             .into_any_element(),
         Block::Images(images) => div()
             .w_full()
@@ -122,7 +141,7 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
             .relative()
             .child(
                 div()
-                    .id(ids.next())
+                    .id(c.ids.next())
                     .w_full()
                     .overflow_x_scroll()
                     .p_4()
@@ -167,7 +186,7 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                             .child(format!("{c:?}")),
                     )
                 })
-                .children(blocks.iter().map(|b| render_block(b, rcx, ids, depth + 1)))
+                .children(blocks.iter().map(|b| render_block(b, rcx, c, depth + 1)))
                 .into_any_element()
         }
         Block::List { start, items } => div()
@@ -199,7 +218,7 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                         div().flex_1().min_w_0().flex().flex_col().gap_2().children(
                             item.blocks
                                 .iter()
-                                .map(|b| render_block(b, rcx, ids, depth + 1)),
+                                .map(|b| render_block(b, rcx, c, depth + 1)),
                         ),
                     )
             }))
@@ -245,9 +264,13 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                 .border_1()
                 .border_color(t.border)
                 .rounded_md()
-                .child(row(header, true, ids));
+                .child(row(header, true, &mut c.ids));
             for r in rows {
-                el = el.child(row(r, false, ids).border_t_1().border_color(t.border));
+                el = el.child(
+                    row(r, false, &mut c.ids)
+                        .border_t_1()
+                        .border_color(t.border),
+                );
             }
             el.into_any_element()
         }
@@ -264,9 +287,10 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .children(blocks.iter().map(|b| render_block(b, rcx, ids, depth + 1))),
+                    .children(blocks.iter().map(|b| render_block(b, rcx, c, depth + 1))),
             )
             .into_any_element(),
+        Block::Math(tex) => graphics::element(Kind::Math, tex, rcx, c.window, c.app),
         Block::Rule => div()
             .w_full()
             .my_2()

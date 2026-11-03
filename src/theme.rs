@@ -4,6 +4,7 @@ use crate::{highlight::Tok, markdown::Callout};
 
 #[derive(Clone, Copy)]
 pub struct Theme {
+    pub dark: bool,
     pub bg: Hsla,
     pub fg: Hsla,
     pub muted: Hsla,
@@ -51,6 +52,7 @@ impl Theme {
 
     pub fn dark() -> Self {
         Self {
+            dark: true,
             bg: c(0x282c34),
             fg: c(0xdce0e5),
             muted: c(0x878a98),
@@ -83,6 +85,7 @@ impl Theme {
 
     pub fn light() -> Self {
         Self {
+            dark: false,
             bg: c(0xfafafa),
             fg: c(0x242529),
             muted: c(0x7e8087),
