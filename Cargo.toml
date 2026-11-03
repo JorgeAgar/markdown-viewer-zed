@@ -1,0 +1,25 @@
+[package]
+name = "mdview"
+version = "0.1.0"
+edition = "2024"
+description = "A tiny, fast-starting, GPU-rendered Markdown viewer built on GPUI (Zed's UI framework)"
+license = "Apache-2.0"
+
+[dependencies]
+gpui = "0.2.2"
+pulldown-cmark = { version = "0.13", default-features = false }
+futures = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Fast iteration builds that still feel snappy.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
