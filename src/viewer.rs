@@ -8,9 +8,9 @@ use std::{
 
 use gpui::{
     App, Context, ExternalPaths, FocusHandle, Focusable, FontWeight, InteractiveElement,
-    IntoElement, ListAlignment, ListOffset, ListState, MouseButton, ParentElement, PathPromptOptions,
-    Render, SharedString, StatefulInteractiveElement, Styled, Window, actions, div, list,
-    prelude::FluentBuilder, px,
+    IntoElement, ListAlignment, ListOffset, ListState, MouseButton, ParentElement,
+    PathPromptOptions, Render, SharedString, StatefulInteractiveElement, Styled, Window, actions,
+    div, list, prelude::FluentBuilder, px,
 };
 
 use crate::{
@@ -118,7 +118,12 @@ impl Focusable for Viewer {
 }
 
 impl Viewer {
-    pub fn new(loaded: Vec<Loaded>, fonts: Fonts, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        loaded: Vec<Loaded>,
+        fonts: Fonts,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         cx.observe_window_appearance(window, |_, _, cx| cx.notify())
@@ -184,9 +189,12 @@ impl Viewer {
         };
         let Some(tab) = tab else { return };
         let anchor = anchor.to_lowercase();
-        if let Some(ix) = tab.doc.blocks.iter().position(
-            |b| matches!(b, Block::Heading { slug, .. } if *slug == anchor),
-        ) {
+        if let Some(ix) = tab
+            .doc
+            .blocks
+            .iter()
+            .position(|b| matches!(b, Block::Heading { slug, .. } if *slug == anchor))
+        {
             tab.list.scroll_to(ListOffset {
                 item_ix: ix,
                 offset_in_item: px(0.),

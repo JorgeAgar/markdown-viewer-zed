@@ -56,6 +56,12 @@ override the fonts.
   and no editor. The release build uses full LTO, `panic=abort` and is
   stripped.
 
+## Documentation
+
+The architecture, startup performance, rendering pipeline, the GPUI fork, how
+to contribute, and the roadmap are documented, with diagrams, in
+[`docs/`](docs/README.md). AI agents: see [`AGENTS.md`](AGENTS.md).
+
 ## Layout
 
 ```
@@ -66,6 +72,7 @@ src/render.rs    block model -> GPUI elements
 src/theme.rs     light/dark palettes (follows the system appearance)
 crates/gpui/     vendored GPUI 0.2.2 with startup fixes (see MDVIEW.md)
 patches/         those fixes as a diff against upstream gpui 0.2.2
+docs/            documentation for contributors (with diagrams)
 ```
 
 ## Not supported yet

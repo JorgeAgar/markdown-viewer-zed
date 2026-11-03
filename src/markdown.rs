@@ -549,10 +549,7 @@ mod tests {
                 Block::Rule => "hr",
             })
             .collect();
-        assert_eq!(
-            kinds,
-            ["h", "p", "list", "quote", "table", "code", "img"]
-        );
+        assert_eq!(kinds, ["h", "p", "list", "quote", "table", "code", "img"]);
         if let Block::List { items, .. } = &doc.blocks[2] {
             assert_eq!(items[0].checked, Some(true));
             assert_eq!(items[1].checked, Some(false));

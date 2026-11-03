@@ -3,10 +3,10 @@
 use std::{path::Path, sync::Arc};
 
 use gpui::{
-    AnyElement, App, ElementId, InteractiveElement, Font, FontFeatures, FontStyle, FontWeight, Hsla, InteractiveText,
-    IntoElement, ObjectFit, ParentElement, SharedString, StatefulInteractiveElement,
-    StrikethroughStyle, Styled, StyledImage, StyledText, TextRun, UnderlineStyle, WeakEntity,
-    Window, div, img, prelude::FluentBuilder, px, relative,
+    AnyElement, App, ElementId, Font, FontFeatures, FontStyle, FontWeight, Hsla,
+    InteractiveElement, InteractiveText, IntoElement, ObjectFit, ParentElement, SharedString,
+    StatefulInteractiveElement, StrikethroughStyle, Styled, StyledImage, StyledText, TextRun,
+    UnderlineStyle, WeakEntity, Window, div, img, prelude::FluentBuilder, px, relative,
 };
 
 use crate::{
@@ -93,7 +93,9 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                 .when(depth == 0, |d| d.pt(px(BASE_SIZE * 0.75)))
                 .text_size(px(BASE_SIZE * size))
                 .line_height(relative(1.25))
-                .when(*level <= 2, |d| d.pb_2().border_b_1().border_color(t.border))
+                .when(*level <= 2, |d| {
+                    d.pb_2().border_b_1().border_color(t.border)
+                })
                 .child(rich_text(text, weight, color, rcx, ids))
                 .into_any_element()
         }
@@ -122,7 +124,11 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                     .font_family(rcx.mono_font.clone())
                     .text_size(px(13.5))
                     .line_height(relative(1.5))
-                    .child(div().whitespace_nowrap().child(SharedString::from(code.clone()))),
+                    .child(
+                        div()
+                            .whitespace_nowrap()
+                            .child(SharedString::from(code.clone())),
+                    ),
             )
             .when(!lang.is_empty(), |d| {
                 d.child(
@@ -170,9 +176,7 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                     (None, Some(n)) => div()
                         .text_color(t.muted)
                         .child(format!("{}.", n + i as u64)),
-                    (None, None) => div()
-                        .text_color(t.muted)
-                        .child(["•", "◦", "▪"][depth % 3]),
+                    (None, None) => div().text_color(t.muted).child(["•", "◦", "▪"][depth % 3]),
                 };
                 div()
                     .flex()
@@ -187,17 +191,11 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                             .child(marker),
                     )
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .children(
-                                item.blocks
-                                    .iter()
-                                    .map(|b| render_block(b, rcx, ids, depth + 1)),
-                            ),
+                        div().flex_1().min_w_0().flex().flex_col().gap_2().children(
+                            item.blocks
+                                .iter()
+                                .map(|b| render_block(b, rcx, ids, depth + 1)),
+                        ),
                     )
             }))
             .into_any_element(),
@@ -244,11 +242,7 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                 .rounded_md()
                 .child(row(header, true, ids));
             for r in rows {
-                el = el.child(
-                    row(r, false, ids)
-                        .border_t_1()
-                        .border_color(t.border),
-                );
+                el = el.child(row(r, false, ids).border_t_1().border_color(t.border));
             }
             el.into_any_element()
         }
@@ -289,7 +283,12 @@ fn checkbox(done: bool, t: &Theme) -> gpui::Div {
             .justify_center()
             .text_size(px(11.))
             .line_height(px(14.))
-            .when(done, |d| d.bg(t.accent).border_color(t.accent).text_color(t.bg).child("✓"))
+            .when(done, |d| {
+                d.bg(t.accent)
+                    .border_color(t.accent)
+                    .text_color(t.bg)
+                    .child("✓")
+            })
             .when(!done, |d| d.border_color(t.muted)),
     )
 }
@@ -405,7 +404,10 @@ pub fn percent_decode(s: &str) -> String {
     while i < b.len() {
         if b[i] == b'%'
             && i + 2 < b.len()
-            && let (Some(h), Some(l)) = ((b[i + 1] as char).to_digit(16), (b[i + 2] as char).to_digit(16))
+            && let (Some(h), Some(l)) = (
+                (b[i + 1] as char).to_digit(16),
+                (b[i + 2] as char).to_digit(16),
+            )
         {
             out.push((h * 16 + l) as u8);
             i += 3;
@@ -434,10 +436,12 @@ fn open_link(viewer: &WeakEntity<Viewer>, base: &Path, url: &str, _: &mut Window
         None => (url, None),
     };
     let path = base.join(percent_decode(path));
-    let is_md = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "markdown" | "mdx" | "mdown" | "mkd"));
+    let is_md = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        matches!(
+            e.to_ascii_lowercase().as_str(),
+            "md" | "markdown" | "mdx" | "mdown" | "mkd"
+        )
+    });
     if is_md {
         let anchor = anchor.map(percent_decode);
         viewer
