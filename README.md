@@ -46,6 +46,11 @@ override the fonts.
   again.
 - **Virtualized list.** As in Zed's Markdown preview, only the blocks on
   screen get laid out.
+- **Patched GPUI.** GPUI is vendored in `crates/gpui` with three startup
+  fixes: it no longer compiles the render pipelines twice, it compiles them in
+  parallel, and it initializes Vulkan while the fonts load. Time to the first
+  frame dropped from ~105 to ~89 ms on an Intel GPU, and from ~159 to ~103 ms
+  on lavapipe. Details are in [crates/gpui/MDVIEW.md](crates/gpui/MDVIEW.md).
 - **Small dependency footprint.** The only dependencies are GPUI,
   `pulldown-cmark` and `futures`. There's no syntax highlighting, no HTTP stack
   and no editor. The release build uses full LTO, `panic=abort` and is
@@ -59,6 +64,8 @@ src/viewer.rs    window: tabs, actions, live reload, drag & drop
 src/markdown.rs  Markdown -> block model (pulldown-cmark)
 src/render.rs    block model -> GPUI elements
 src/theme.rs     light/dark palettes (follows the system appearance)
+crates/gpui/     vendored GPUI 0.2.2 with startup fixes (see MDVIEW.md)
+patches/         those fixes as a diff against upstream gpui 0.2.2
 ```
 
 ## Not supported yet

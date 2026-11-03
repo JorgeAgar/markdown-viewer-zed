@@ -1,0 +1,422 @@
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/blade/blade_renderer.rs gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs
+--- gpui-0.2.2/src/platform/blade/blade_renderer.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs	2026-11-03 17:10:26.741302295 -0500
+@@ -166,141 +166,172 @@
+             write_mask: gpu::ColorWrites::default(),
+         }];
+ 
+-        Self {
+-            quads: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
+-                name: "quads",
+-                data_layouts: &[&ShaderQuadsData::layout()],
+-                vertex: shader.at("vs_quad"),
+-                vertex_fetches: &[],
+-                primitive: gpu::PrimitiveState {
+-                    topology: gpu::PrimitiveTopology::TriangleStrip,
+-                    ..Default::default()
+-                },
+-                depth_stencil: None,
+-                fragment: Some(shader.at("fs_quad")),
+-                color_targets,
+-                multisample_state: gpu::MultisampleState::default(),
+-            }),
+-            shadows: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
+-                name: "shadows",
+-                data_layouts: &[&ShaderShadowsData::layout()],
+-                vertex: shader.at("vs_shadow"),
+-                vertex_fetches: &[],
+-                primitive: gpu::PrimitiveState {
+-                    topology: gpu::PrimitiveTopology::TriangleStrip,
+-                    ..Default::default()
+-                },
+-                depth_stencil: None,
+-                fragment: Some(shader.at("fs_shadow")),
+-                color_targets,
+-                multisample_state: gpu::MultisampleState::default(),
+-            }),
+-            path_rasterization: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
+-                name: "path_rasterization",
+-                data_layouts: &[&ShaderPathRasterizationData::layout()],
+-                vertex: shader.at("vs_path_rasterization"),
+-                vertex_fetches: &[],
+-                primitive: gpu::PrimitiveState {
+-                    topology: gpu::PrimitiveTopology::TriangleList,
+-                    ..Default::default()
+-                },
+-                depth_stencil: None,
+-                fragment: Some(shader.at("fs_path_rasterization")),
+-                // The original implementation was using ADDITIVE blende mode,
+-                // I don't know why
+-                // color_targets: &[gpu::ColorTargetState {
+-                //     format: PATH_TEXTURE_FORMAT,
+-                //     blend: Some(gpu::BlendState::ADDITIVE),
+-                //     write_mask: gpu::ColorWrites::default(),
+-                // }],
+-                color_targets: &[gpu::ColorTargetState {
+-                    format: surface_info.format,
+-                    blend: Some(gpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+-                    write_mask: gpu::ColorWrites::default(),
+-                }],
+-                multisample_state: gpu::MultisampleState {
+-                    sample_count: path_sample_count,
+-                    ..Default::default()
+-                },
+-            }),
+-            paths: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
+-                name: "paths",
+-                data_layouts: &[&ShaderPathsData::layout()],
+-                vertex: shader.at("vs_path"),
+-                vertex_fetches: &[],
+-                primitive: gpu::PrimitiveState {
+-                    topology: gpu::PrimitiveTopology::TriangleStrip,
+-                    ..Default::default()
+-                },
+-                depth_stencil: None,
+-                fragment: Some(shader.at("fs_path")),
+-                color_targets: &[gpu::ColorTargetState {
+-                    format: surface_info.format,
+-                    blend: Some(gpu::BlendState {
+-                        color: gpu::BlendComponent::OVER,
+-                        alpha: gpu::BlendComponent::ADDITIVE,
+-                    }),
+-                    write_mask: gpu::ColorWrites::default(),
+-                }],
+-                multisample_state: gpu::MultisampleState::default(),
+-            }),
+-            underlines: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
+-                name: "underlines",
+-                data_layouts: &[&ShaderUnderlinesData::layout()],
+-                vertex: shader.at("vs_underline"),
+-                vertex_fetches: &[],
+-                primitive: gpu::PrimitiveState {
+-                    topology: gpu::PrimitiveTopology::TriangleStrip,
+-                    ..Default::default()
+-                },
+-                depth_stencil: None,
+-                fragment: Some(shader.at("fs_underline")),
+-                color_targets,
+-                multisample_state: gpu::MultisampleState::default(),
+-            }),
+-            mono_sprites: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
+-                name: "mono-sprites",
+-                data_layouts: &[&ShaderMonoSpritesData::layout()],
+-                vertex: shader.at("vs_mono_sprite"),
+-                vertex_fetches: &[],
+-                primitive: gpu::PrimitiveState {
+-                    topology: gpu::PrimitiveTopology::TriangleStrip,
+-                    ..Default::default()
+-                },
+-                depth_stencil: None,
+-                fragment: Some(shader.at("fs_mono_sprite")),
+-                color_targets,
+-                multisample_state: gpu::MultisampleState::default(),
+-            }),
+-            poly_sprites: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
+-                name: "poly-sprites",
+-                data_layouts: &[&ShaderPolySpritesData::layout()],
+-                vertex: shader.at("vs_poly_sprite"),
+-                vertex_fetches: &[],
+-                primitive: gpu::PrimitiveState {
+-                    topology: gpu::PrimitiveTopology::TriangleStrip,
+-                    ..Default::default()
+-                },
+-                depth_stencil: None,
+-                fragment: Some(shader.at("fs_poly_sprite")),
+-                color_targets,
+-                multisample_state: gpu::MultisampleState::default(),
+-            }),
+-            surfaces: gpu.create_render_pipeline(gpu::RenderPipelineDesc {
+-                name: "surfaces",
+-                data_layouts: &[&ShaderSurfacesData::layout()],
+-                vertex: shader.at("vs_surface"),
+-                vertex_fetches: &[],
+-                primitive: gpu::PrimitiveState {
+-                    topology: gpu::PrimitiveTopology::TriangleStrip,
+-                    ..Default::default()
+-                },
+-                depth_stencil: None,
+-                fragment: Some(shader.at("fs_surface")),
+-                color_targets,
+-                multisample_state: gpu::MultisampleState::default(),
+-            }),
+-        }
++        // mdview: compile the pipelines concurrently. Pipeline creation is
++        // thread-safe in Vulkan and dominates window-open time on cold
++        // shader caches (and always on software rasterizers).
++        std::thread::scope(|s| {
++            let quads = s.spawn(|| {
++                gpu.create_render_pipeline(gpu::RenderPipelineDesc {
++                    name: "quads",
++                    data_layouts: &[&ShaderQuadsData::layout()],
++                    vertex: shader.at("vs_quad"),
++                    vertex_fetches: &[],
++                    primitive: gpu::PrimitiveState {
++                        topology: gpu::PrimitiveTopology::TriangleStrip,
++                        ..Default::default()
++                    },
++                    depth_stencil: None,
++                    fragment: Some(shader.at("fs_quad")),
++                    color_targets,
++                    multisample_state: gpu::MultisampleState::default(),
++                })
++            });
++            let shadows = s.spawn(|| {
++                gpu.create_render_pipeline(gpu::RenderPipelineDesc {
++                    name: "shadows",
++                    data_layouts: &[&ShaderShadowsData::layout()],
++                    vertex: shader.at("vs_shadow"),
++                    vertex_fetches: &[],
++                    primitive: gpu::PrimitiveState {
++                        topology: gpu::PrimitiveTopology::TriangleStrip,
++                        ..Default::default()
++                    },
++                    depth_stencil: None,
++                    fragment: Some(shader.at("fs_shadow")),
++                    color_targets,
++                    multisample_state: gpu::MultisampleState::default(),
++                })
++            });
++            let path_rasterization = s.spawn(|| {
++                gpu.create_render_pipeline(gpu::RenderPipelineDesc {
++                    name: "path_rasterization",
++                    data_layouts: &[&ShaderPathRasterizationData::layout()],
++                    vertex: shader.at("vs_path_rasterization"),
++                    vertex_fetches: &[],
++                    primitive: gpu::PrimitiveState {
++                        topology: gpu::PrimitiveTopology::TriangleList,
++                        ..Default::default()
++                    },
++                    depth_stencil: None,
++                    fragment: Some(shader.at("fs_path_rasterization")),
++                    // The original implementation was using ADDITIVE blende mode,
++                    // I don't know why
++                    // color_targets: &[gpu::ColorTargetState {
++                    //     format: PATH_TEXTURE_FORMAT,
++                    //     blend: Some(gpu::BlendState::ADDITIVE),
++                    //     write_mask: gpu::ColorWrites::default(),
++                    // }],
++                    color_targets: &[gpu::ColorTargetState {
++                        format: surface_info.format,
++                        blend: Some(gpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
++                        write_mask: gpu::ColorWrites::default(),
++                    }],
++                    multisample_state: gpu::MultisampleState {
++                        sample_count: path_sample_count,
++                        ..Default::default()
++                    },
++                })
++            });
++            let paths = s.spawn(|| {
++                gpu.create_render_pipeline(gpu::RenderPipelineDesc {
++                    name: "paths",
++                    data_layouts: &[&ShaderPathsData::layout()],
++                    vertex: shader.at("vs_path"),
++                    vertex_fetches: &[],
++                    primitive: gpu::PrimitiveState {
++                        topology: gpu::PrimitiveTopology::TriangleStrip,
++                        ..Default::default()
++                    },
++                    depth_stencil: None,
++                    fragment: Some(shader.at("fs_path")),
++                    color_targets: &[gpu::ColorTargetState {
++                        format: surface_info.format,
++                        blend: Some(gpu::BlendState {
++                            color: gpu::BlendComponent::OVER,
++                            alpha: gpu::BlendComponent::ADDITIVE,
++                        }),
++                        write_mask: gpu::ColorWrites::default(),
++                    }],
++                    multisample_state: gpu::MultisampleState::default(),
++                })
++            });
++            let underlines = s.spawn(|| {
++                gpu.create_render_pipeline(gpu::RenderPipelineDesc {
++                    name: "underlines",
++                    data_layouts: &[&ShaderUnderlinesData::layout()],
++                    vertex: shader.at("vs_underline"),
++                    vertex_fetches: &[],
++                    primitive: gpu::PrimitiveState {
++                        topology: gpu::PrimitiveTopology::TriangleStrip,
++                        ..Default::default()
++                    },
++                    depth_stencil: None,
++                    fragment: Some(shader.at("fs_underline")),
++                    color_targets,
++                    multisample_state: gpu::MultisampleState::default(),
++                })
++            });
++            let mono_sprites = s.spawn(|| {
++                gpu.create_render_pipeline(gpu::RenderPipelineDesc {
++                    name: "mono-sprites",
++                    data_layouts: &[&ShaderMonoSpritesData::layout()],
++                    vertex: shader.at("vs_mono_sprite"),
++                    vertex_fetches: &[],
++                    primitive: gpu::PrimitiveState {
++                        topology: gpu::PrimitiveTopology::TriangleStrip,
++                        ..Default::default()
++                    },
++                    depth_stencil: None,
++                    fragment: Some(shader.at("fs_mono_sprite")),
++                    color_targets,
++                    multisample_state: gpu::MultisampleState::default(),
++                })
++            });
++            let poly_sprites = s.spawn(|| {
++                gpu.create_render_pipeline(gpu::RenderPipelineDesc {
++                    name: "poly-sprites",
++                    data_layouts: &[&ShaderPolySpritesData::layout()],
++                    vertex: shader.at("vs_poly_sprite"),
++                    vertex_fetches: &[],
++                    primitive: gpu::PrimitiveState {
++                        topology: gpu::PrimitiveTopology::TriangleStrip,
++                        ..Default::default()
++                    },
++                    depth_stencil: None,
++                    fragment: Some(shader.at("fs_poly_sprite")),
++                    color_targets,
++                    multisample_state: gpu::MultisampleState::default(),
++                })
++            });
++            let surfaces = s.spawn(|| {
++                gpu.create_render_pipeline(gpu::RenderPipelineDesc {
++                    name: "surfaces",
++                    data_layouts: &[&ShaderSurfacesData::layout()],
++                    vertex: shader.at("vs_surface"),
++                    vertex_fetches: &[],
++                    primitive: gpu::PrimitiveState {
++                        topology: gpu::PrimitiveTopology::TriangleStrip,
++                        ..Default::default()
++                    },
++                    depth_stencil: None,
++                    fragment: Some(shader.at("fs_surface")),
++                    color_targets,
++                    multisample_state: gpu::MultisampleState::default(),
++                })
++            });
++            Self {
++                quads: quads.join().expect("pipeline compilation panicked"),
++                shadows: shadows.join().expect("pipeline compilation panicked"),
++                path_rasterization: path_rasterization
++                    .join()
++                    .expect("pipeline compilation panicked"),
++                paths: paths.join().expect("pipeline compilation panicked"),
++                underlines: underlines.join().expect("pipeline compilation panicked"),
++                mono_sprites: mono_sprites.join().expect("pipeline compilation panicked"),
++                poly_sprites: poly_sprites.join().expect("pipeline compilation panicked"),
++                surfaces: surfaces.join().expect("pipeline compilation panicked"),
++            }
++        })
+     }
+ 
+     fn destroy(&mut self, gpu: &gpu::Context) {
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/client.rs gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
+--- gpui-0.2.2/src/platform/linux/wayland/client.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs	2026-11-03 17:10:21.744612505 -0500
+@@ -446,6 +446,9 @@
+ 
+ impl WaylandClient {
+     pub(crate) fn new() -> Self {
++        // mdview: Vulkan instance/device creation is independent of the
++        // display connection and the font database; overlap them.
++        let gpu_init = std::thread::spawn(BladeContext::new);
+         let conn = Connection::connect_to_env().unwrap();
+ 
+         let (globals, mut event_queue) =
+@@ -498,7 +501,10 @@
+             })
+             .unwrap();
+ 
+-        let gpu_context = BladeContext::new().expect("Unable to init GPU context");
++        let gpu_context = gpu_init
++            .join()
++            .expect("GPU init thread panicked")
++            .expect("Unable to init GPU context");
+ 
+         let seat = seat.unwrap();
+         let globals = Globals::new(
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/window.rs gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs
+--- gpui-0.2.2/src/platform/linux/wayland/window.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs	2026-11-03 17:10:26.747302295 -0500
+@@ -152,7 +152,14 @@
+                     height: options.bounds.size.height.0 as u32,
+                     depth: 1,
+                 },
+-                transparent: true,
++                // mdview: start with the transparency `update_window` will
++                // settle on, instead of always `true`. Otherwise an opaque
++                // window compiles every render pipeline twice at startup.
++                transparent: options
++                    .window_decorations
++                    .unwrap_or(WindowDecorations::Server)
++                    == WindowDecorations::Client
++                    || options.window_background != WindowBackgroundAppearance::Opaque,
+             };
+             BladeRenderer::new(gpu_context, &raw_window, config)?
+         };
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/x11/client.rs gpui-0.2.2-mdview/src/platform/linux/x11/client.rs
+--- gpui-0.2.2/src/platform/linux/x11/client.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/x11/client.rs	2026-11-03 17:10:21.744834536 -0500
+@@ -302,6 +302,9 @@
+ 
+ impl X11Client {
+     pub(crate) fn new() -> anyhow::Result<Self> {
++        // mdview: Vulkan instance/device creation is independent of the
++        // display connection and the font database; overlap them.
++        let gpu_init = std::thread::spawn(BladeContext::new);
+         let event_loop = EventLoop::try_new()?;
+ 
+         let (common, main_receiver) = LinuxCommon::new(event_loop.get_signal());
+@@ -411,7 +414,10 @@
+             .to_string();
+         let keyboard_layout = LinuxKeyboardLayout::new(layout_name.into());
+ 
+-        let gpu_context = BladeContext::new().context("Unable to init GPU context")?;
++        let gpu_context = gpu_init
++            .join()
++            .map_err(|_| anyhow::anyhow!("GPU init thread panicked"))?
++            .context("Unable to init GPU context")?;
+ 
+         let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection)
+             .context("Failed to create resource database")?;
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/window.rs gpui-0.2.2-mdview/src/platform/mac/window.rs
+--- gpui-0.2.2/src/platform/mac/window.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/mac/window.rs	2026-11-03 17:10:21.743888830 -0500
+@@ -582,6 +582,7 @@
+             display_id,
+             window_min_size,
+             tabbing_identifier,
++            ..
+         }: WindowParams,
+         executor: ForegroundExecutor,
+         renderer_context: renderer::Context,
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform.rs gpui-0.2.2-mdview/src/platform.rs
+--- gpui-0.2.2/src/platform.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform.rs	2026-11-03 17:09:51.707966040 -0500
+@@ -1181,6 +1181,15 @@
+     pub window_min_size: Option<Size<Pixels>>,
+     #[cfg(target_os = "macos")]
+     pub tabbing_identifier: Option<String>,
++
++    /// Requested decorations, so the renderer can be created with the right
++    /// surface transparency up front (mdview: avoids a pipeline rebuild).
++    #[allow(dead_code)]
++    pub window_decorations: Option<WindowDecorations>,
++
++    /// Requested background, see `window_decorations`.
++    #[allow(dead_code)]
++    pub window_background: WindowBackgroundAppearance,
+ }
+ 
+ /// Represents the status of how a window should be opened.
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/window.rs gpui-0.2.2-mdview/src/window.rs
+--- gpui-0.2.2/src/window.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/window.rs	2026-11-03 17:09:51.708357251 -0500
+@@ -968,6 +968,8 @@
+                 window_min_size,
+                 #[cfg(target_os = "macos")]
+                 tabbing_identifier,
++                window_decorations,
++                window_background,
+             },
+         )?;
+ 

@@ -23,3 +23,7 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# Vendored GPUI 0.2.2 with mdview's startup fixes (see crates/gpui/MDVIEW.md).
+[patch.crates-io]
+gpui = { path = "crates/gpui" }
