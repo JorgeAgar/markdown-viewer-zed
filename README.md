@@ -52,9 +52,10 @@ override the fonts.
   frame dropped from ~105 to ~89 ms on an Intel GPU, and from ~159 to ~103 ms
   on lavapipe. Details are in [crates/gpui/MDVIEW.md](crates/gpui/MDVIEW.md).
 - **Small dependency footprint.** The only dependencies are GPUI,
-  `pulldown-cmark` and `futures`. There's no syntax highlighting, no HTTP stack
-  and no editor. The release build uses full LTO, `panic=abort` and is
-  stripped.
+  `pulldown-cmark` and `futures`. Syntax highlighting is a small built-in
+  lexer that runs while parsing, so it loads nothing at startup. There's no
+  HTTP stack and no editor. The release build uses full LTO, `panic=abort` and
+  is stripped.
 
 ## Documentation
 
@@ -68,6 +69,7 @@ to contribute, and the roadmap are documented, with diagrams, in
 src/main.rs      startup, single-instance socket, key bindings, font pick
 src/viewer.rs    window: tabs, actions, live reload, drag & drop
 src/markdown.rs  Markdown -> block model (pulldown-cmark)
+src/highlight.rs syntax highlighting for code blocks (built-in lexers)
 src/render.rs    block model -> GPUI elements
 src/theme.rs     light/dark palettes (follows the system appearance)
 crates/gpui/     vendored GPUI 0.2.2 with startup fixes (see MDVIEW.md)
@@ -79,5 +81,4 @@ docs/            documentation for contributors (with diagrams)
 
 - Remote (`http://`) images. They show up as links.
 - Raw HTML blocks. They're skipped.
-- Syntax highlighting in code blocks.
 - Text selection and copy.

@@ -29,9 +29,41 @@ A **tiny** Markdown viewer, rendered on the GPU with *GPUI* — the same UI fram
 ## Code
 
 ```rust
-fn main() {
-    println!("Hello from mdview!");
+/// Greets everyone in `names`.
+#[inline]
+fn greet<'a>(names: &[&'a str]) -> Vec<String> {
+    let mut out = Vec::with_capacity(names.len());
+    for n in names {
+        out.push(format!("Hello, {n}!")); // one line each
+    }
+    out
 }
+```
+
+```python
+@dataclass
+class Point:
+    x: float = 0.0
+
+    def norm(self) -> float:
+        """Distance to the origin."""
+        return math.hypot(self.x, 0)  # 2D for now
+```
+
+```sh
+# Build and open a file in a separate instance
+cargo build --release && MDVIEW_TRACE_STARTUP=1 ./target/release/mdview -n "$HOME/notes.md"
+```
+
+```json
+{ "name": "mdview", "version": "0.1.0", "private": true, "tags": ["gpui", null] }
+```
+
+```diff
+@@ -1,3 +1,3 @@
+-let theme = Theme::dark();
++let theme = Theme::for_appearance(window.appearance());
+ render(theme);
 ```
 
 ## Tables

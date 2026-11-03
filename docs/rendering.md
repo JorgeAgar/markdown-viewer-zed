@@ -35,6 +35,8 @@ small recursive-descent parser (`struct P`):
 - A paragraph made only of images becomes `Block::Images`. In any other
   paragraph, an image appears inline as `[alt]` and links to the image.
 - HTML blocks and front matter (YAML `---` or TOML `+++`) are skipped.
+- Fenced code blocks are highlighted here, once, by `highlight::highlight`
+  (see [Syntax highlighting](#syntax-highlighting)).
 
 Enabled extensions: tables, strikethrough, task lists, footnotes, GFM alerts
 (`> [!NOTE]` and friends), and metadata blocks.
@@ -78,6 +80,24 @@ calls `StyledText::with_runs`. If the text contains links, it's wrapped in
 `IdGen(ix * 100_000)` generates them: row `ix` gets ids starting at
 `ix * 100_000 + 1`. Code blocks also take ids from it, because horizontal
 scrolling needs one.
+
+### Syntax highlighting
+
+`src/highlight.rs` is a set of small hand-written lexers, not a grammar
+engine: a generic lexer configured per language (keywords, types, comment and
+string syntax, and a few flags such as "capitalized words are types"), plus
+line-based lexers for shell sessions, diffs, HTML/XML and YAML/TOML/INI. It
+returns sorted `Highlight { range, tok }` spans, which `render::code_text`
+turns into `TextRun`s colored by `Theme::token`.
+
+It runs inside `markdown::parse`, so code is already colored in the first frame
+and nothing is loaded at startup. Lexing takes microseconds per block. That's
+why it doesn't use `syntect` (loading its syntax set takes tens of
+milliseconds) or tree-sitter (large grammars, slow to build).
+
+To support a new language, add a `Lang` to `lang_def` (or an alias to an
+existing one) and a test in `highlight::tests`. Unknown languages are shown
+uncolored.
 
 ### Typography
 
@@ -126,4 +146,4 @@ Example: definition lists (`Options::ENABLE_DEFINITION_LIST`).
 ## Known gaps
 
 These are tracked in [roadmap.md](roadmap.md#rendering): remote images, raw
-HTML, syntax highlighting, text selection, Mermaid and math rendering.
+HTML, text selection, Mermaid and math rendering.

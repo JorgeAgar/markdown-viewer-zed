@@ -8,6 +8,7 @@
 │   ├── main.rs        Entry point: arguments, single-instance socket, key bindings, font choice, window creation
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── markdown.rs    Markdown → block model (pulldown-cmark), plus parser tests
+│   ├── highlight.rs   Syntax highlighting for code blocks (hand-written lexers, no GPUI)
 │   ├── render.rs      Block model → GPUI elements; link handling
 │   └── theme.rs       Light and dark palettes
 ├── crates/gpui/       Vendored GPUI 0.2.2 with startup fixes (see gpui-fork.md)
@@ -23,6 +24,7 @@ flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
     markdown["markdown.rs<br/>parse() → Document"]
+    highlight["highlight.rs<br/>highlight() → Vec of Highlight"]
     render["render.rs<br/>top_block() → AnyElement"]
     theme["theme.rs<br/>Theme"]
     gpui[("crates/gpui<br/>GPUI (vendored)")]
@@ -38,11 +40,13 @@ flowchart TD
     render --> gpui
     viewer --> gpui
     markdown --> cmark
+    markdown --> highlight
+    theme --> highlight
 ```
 
 Rules that keep this structure simple:
 
-- **`markdown.rs` knows nothing about GPUI.** It turns text into plain data
+- **`markdown.rs` and `highlight.rs` know nothing about GPUI.** It turns text into plain data
   (`Document`). That keeps it fast, easy to unit-test and safe to run on any
   thread.
 - **`render.rs` only reads that data.** It never parses Markdown again. It's
@@ -65,7 +69,7 @@ classDiagram
         Heading(level, RichText, slug)
         Paragraph(RichText)
         Images(Vec~Image~)
-        Code(lang, code)
+        Code(lang, code, highlights)
         Quote(Option~Callout~, Vec~Block~)
         List(start, Vec~ListItem~)
         Table(aligns, header, rows)

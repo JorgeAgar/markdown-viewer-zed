@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use crate::{
+    highlight::{Highlight, Tok},
     markdown::{Align, BOLD, Block, CODE, ITALIC, Image, LINK, RichText, STRIKE},
     theme::Theme,
     viewer::Viewer,
@@ -110,7 +111,11 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
             .gap_2()
             .children(images.iter().map(|i| image(i, rcx)))
             .into_any_element(),
-        Block::Code { lang, code } => div()
+        Block::Code {
+            lang,
+            code,
+            highlights,
+        } => div()
             .w_full()
             .rounded_md()
             .bg(t.code_bg)
@@ -127,7 +132,7 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
                     .child(
                         div()
                             .whitespace_nowrap()
-                            .child(SharedString::from(code.clone())),
+                            .child(code_text(code, highlights, rcx)),
                     ),
             )
             .when(!lang.is_empty(), |d| {
@@ -269,6 +274,32 @@ fn render_block(block: &Block, rcx: &RenderCx, ids: &mut IdGen, depth: usize) ->
             .bg(t.border)
             .into_any_element(),
     }
+}
+
+/// A code block's text, colored with the highlights computed at parse time.
+fn code_text(code: &str, highlights: &[Highlight], rcx: &RenderCx) -> StyledText {
+    let t = &rcx.theme;
+    let run = |len, color, italic| TextRun {
+        len,
+        font: rcx.font(true, FontWeight::NORMAL, italic),
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let mut runs = Vec::with_capacity(highlights.len() * 2 + 1);
+    let mut pos = 0;
+    for h in highlights {
+        if h.range.start > pos {
+            runs.push(run(h.range.start - pos, t.fg, false));
+        }
+        runs.push(run(h.range.len(), t.token(h.tok), h.tok == Tok::Comment));
+        pos = h.range.end;
+    }
+    if pos < code.len() {
+        runs.push(run(code.len() - pos, t.fg, false));
+    }
+    StyledText::new(SharedString::from(code.to_owned())).with_runs(runs)
 }
 
 fn checkbox(done: bool, t: &Theme) -> gpui::Div {

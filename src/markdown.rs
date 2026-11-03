@@ -6,6 +6,8 @@
 
 use std::ops::Range;
 
+use crate::highlight::{Highlight, highlight};
+
 use pulldown_cmark::{
     Alignment, BlockQuoteKind, CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag,
     TagEnd,
@@ -122,6 +124,8 @@ pub enum Block {
     Code {
         lang: String,
         code: String,
+        /// Syntax highlighting, computed once here (see `highlight.rs`).
+        highlights: Vec<Highlight>,
     },
     Quote {
         callout: Option<Callout>,
@@ -280,7 +284,12 @@ impl<'a> P<'a> {
                 if code.ends_with('\n') {
                     code.pop();
                 }
-                out.push(Block::Code { lang, code });
+                let highlights = highlight(&lang, &code);
+                out.push(Block::Code {
+                    lang,
+                    code,
+                    highlights,
+                });
             }
             Tag::List(start) => {
                 let mut items = Vec::new();
