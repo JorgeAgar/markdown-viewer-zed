@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1" # weekly, Monday 04:17 UTC: mutation testing only
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # Build-time and runtime libraries GPUI needs on Linux: xkbcommon and xcb
+  # are linked; fontconfig, freetype, Wayland and the Vulkan loader are
+  # loaded or built against.
+  GPUI_DEPS: >-
+    pkg-config libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev
+    libfontconfig-dev libfreetype-dev libvulkan1
+
+jobs:
+  check:
+    name: scripts/check.sh
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $GPUI_DEPS
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Run the checks (fmt, guards, clippy, tests)
+        run: scripts/check.sh
+
+  gpui-patch:
+    name: GPUI patch matches crates/gpui
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Needs no Rust: downloads gpui 0.2.2 from crates.io, checks its sha256
+      # and diffs it against crates/gpui.
+      - run: scripts/guards/gpui-patch.sh
+
+  e2e:
+    name: Window tests (Xvfb + lavapipe)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    # Not verified on GitHub's runners yet (written and tested locally on
+    # Wayland only). Make it blocking once it has passed reliably for a while.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries, Xvfb, Mesa lavapipe and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $GPUI_DEPS \
+            xvfb xauth mesa-vulkan-drivers fonts-dejavu-core
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the tests
+        run: cargo test --locked --test cli --no-run
+      - name: Run the window tests on X11
+        env:
+          MDVIEW_E2E: "1"
+          # Software Vulkan; the only ICD installed, but be explicit.
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: |
+          unset WAYLAND_DISPLAY
+          xvfb-run -a -s "-screen 0 1920x1080x24" \
+            cargo test --locked --test cli -- --nocapture --test-threads=1
+
+  mutants:
+    name: Mutation testing (mdview-core)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+      # mdview-core has no GPUI dependency, so no system libraries are needed.
+      # Surviving mutants make cargo-mutants exit non-zero; that's a report,
+      # not a CI failure.
+      - name: Run cargo mutants
+        continue-on-error: true
+        run: cargo mutants --package mdview-core --test-package mdview-core --jobs 2 --timeout 300
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants.out
+          path: mutants.out
+          if-no-files-found: warn
