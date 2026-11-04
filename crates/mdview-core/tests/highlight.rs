@@ -576,3 +576,51 @@ fn parser_uses_the_info_string() {
         }
     }
 }
+
+/// One line per construct any lexer knows. Each language's result shows
+/// which of them it supports (comment styles, quotes, decorators,
+/// variables, constants, function keywords...), so changing a language's
+/// configuration changes this snapshot.
+const PROBE: &str = r##"/* block */ x
+(* ml *) x
+{- hs -} x
+--[[ lua ]] x
+<!-- html --> x
+// line
+# hash
+-- dash
+; semi
+"dq" x
+'sq' x
+`bt` x
+"""tdq
+""" x
+'''tsq''' x
+@attr @a.b-c x
+$var ${braced} $(paren) $
+#include <x>
+  #define X
+#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>
+true false null nil None NULL nullptr undefined NaN Infinity this self Self super cls it iota
+True False Nothing Just TRUE FALSE Some Ok Err
+fn f def g func h function i fun j defp k class C
+Foo FOO_BAR X1 fooBar(1) x
+0x1F 1.5e-3 .5 1_000 10n 1e+5 0..10 x.5
+SELECT Select select from Where int VARCHAR
+a { color: red; -webkit-x: 1; } #fff .b:hover x
+{"key": "value", "n": 1}
+if else for while return import let const var
+int char void bool string number String u8 i32 float str
+"##;
+
+#[test]
+fn probe_every_language() {
+    let mut out = String::new();
+    for group in LANG_GROUPS {
+        let lang = group[0];
+        let hs = highlight_and_check(lang, PROBE);
+        out.push_str(&format!("== {lang}\n"));
+        dump::source(&mut out, &dump::tokens(PROBE, &hs), 0);
+    }
+    insta::assert_snapshot!(out);
+}
