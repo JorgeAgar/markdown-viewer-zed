@@ -1,0 +1,38 @@
+//! Crate docs.
+#![allow(dead_code)]
+use std::{collections::HashMap, ops::Range};
+
+/// A struct.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Span<'a> {
+    pub range: Range<usize>,
+    name: &'a str,
+}
+
+impl<'a> Span<'a> {
+    pub const MAX: u32 = 0xFF_FF;
+
+    fn new(name: &'a str) -> Self {
+        let c = 'x';
+        let esc = '\n';
+        let uni = 'é';
+        let raw = r#"raw "string""#;
+        let bytes = br"bytes";
+        let s = "escaped \" quote";
+        let f = 1.5e-3 + 2E+10 - 0x1e+5;
+        for i in 0..10 {}
+        let v = Vec::<u8>::new();
+        let m: HashMap<String, Option<i64>> = HashMap::new();
+        println!("{name} {}", s);
+        assert!(x != y);
+        /* block
+           comment */
+        Self { range: 0..1, name }
+    }
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let r#type = Some(self::NONE);
+    'outer: loop { break 'outer; }
+    Ok(())
+}

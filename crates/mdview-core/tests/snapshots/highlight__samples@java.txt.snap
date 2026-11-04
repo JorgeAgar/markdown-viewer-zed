@@ -1,0 +1,26 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/java.txt
+---
+|⟦kw|package⟧ com.example;
+|
+|⟦kw|import⟧ java.util.⟦ty|List⟧;
+|
+|⟦com|/** Javadoc. */⟧
+|⟦attr|@FunctionalInterface⟧
+|⟦kw|public⟧ ⟦kw|interface⟧ ⟦ty|Shape⟧ {
+|    ⟦ty|double⟧ ⟦fn|area⟧();
+|}
+|
+|⟦kw|public⟧ ⟦kw|final⟧ ⟦kw|class⟧ ⟦ty|Circle⟧ ⟦kw|implements⟧ ⟦ty|Shape⟧ {
+|    ⟦kw|private⟧ ⟦kw|static⟧ ⟦kw|final⟧ ⟦ty|double⟧ ⟦const|PI_ISH⟧ = ⟦num|3.14159d⟧;
+|    ⟦attr|@Override⟧
+|    ⟦kw|public⟧ ⟦ty|double⟧ ⟦fn|area⟧() {
+|        ⟦ty|List⟧<⟦ty|String⟧> names = ⟦ty|List⟧.⟦fn|of⟧(⟦str|"a"⟧, ⟦str|"b"⟧);
+|        ⟦ty|char⟧ c = ⟦str|'c'⟧;
+|        ⟦ty|long⟧ big = ⟦num|1_000_000L⟧;
+|        ⟦kw|return⟧ ⟦const|this⟧.r * ⟦const|this⟧.r * ⟦const|PI_ISH⟧; ⟦com|// comment⟧
+|    }
+|}
+|

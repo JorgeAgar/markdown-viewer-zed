@@ -5,6 +5,7 @@ Run them all with `cargo test -p mdview-core` (a few seconds; no GPUI).
 | File | What it checks |
 | --- | --- |
 | `snapshots.rs` | Every `fixtures/*.md` parsed and dumped as text, compared with `snapshots/*.snap` |
+| `highlight.rs` | A token snapshot of `code/<lang>.txt` for every lexer; the language list, aliases and samples stay in sync with `src/highlight.rs`; edge cases per lexer |
 | `common/` | Shared helpers: the dump format (`dump.rs`), the invariants (`invariants.rs`), the language list (`langs.rs`) |
 
 ## Snapshots
@@ -18,6 +19,10 @@ cargo insta test -p mdview-core --review   # or: cargo insta review
 # without cargo-insta:
 INSTA_UPDATE=always cargo test -p mdview-core && git diff tests/snapshots
 ```
+
+A new language in `src/highlight.rs` must be added to `common/langs.rs`
+(the test `language_list_matches_the_source` fails otherwise) and get a
+sample in `code/<canonical name>.txt`.
 
 Read every changed snapshot before accepting it: a snapshot records what
 the parser *should* produce, not just what it does.

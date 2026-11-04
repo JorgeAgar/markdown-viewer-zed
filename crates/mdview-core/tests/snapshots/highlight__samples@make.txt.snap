@@ -1,0 +1,24 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/make.txt
+---
+|⟦com|# Build rules⟧
+|⟦const|CC⟧ ?= gcc
+|⟦const|CFLAGS⟧ := -⟦const|O2⟧ -Wall
+|⟦const|SRCS⟧ = ⟦var|$(wildcard src/*.c)⟧
+|⟦const|OBJS⟧ = ⟦var|${SRCS:.c=.o}⟧
+|
+|.⟦const|PHONY⟧: all clean
+|all: app
+|
+|app: ⟦var|$(OBJS)⟧
+|⇥⟦var|$(CC)⟧ ⟦var|$(CFLAGS)⟧ -o $@ $^
+|
+|⟦kw|ifeq⟧ (⟦var|$(DEBUG)⟧,⟦num|1⟧)
+|⟦const|CFLAGS⟧ += -g
+|⟦kw|endif⟧
+|
+|clean:
+|⇥rm -f ⟦var|$(OBJS)⟧ app ⟦com|# remove⟧
+|

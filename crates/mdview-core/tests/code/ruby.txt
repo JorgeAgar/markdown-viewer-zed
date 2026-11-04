@@ -1,0 +1,21 @@
+# frozen_string_literal: true
+require "json"
+
+module Greeting
+  class Greeter < Base
+    attr_reader :name
+    DEFAULT = "World"
+
+    def initialize(name = DEFAULT)
+      @name = name
+    end
+
+    def greet!
+      puts "Hello, #{@name}!" unless name.nil?
+      `echo shell`
+      defined?(foo) ? :sym : nil
+    end
+  end
+end
+
+Greeting::Greeter.new.greet! if __FILE__ == $0 # run

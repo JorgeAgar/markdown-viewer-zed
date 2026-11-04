@@ -1,0 +1,18 @@
+# Build rules
+CC ?= gcc
+CFLAGS := -O2 -Wall
+SRCS = $(wildcard src/*.c)
+OBJS = ${SRCS:.c=.o}
+
+.PHONY: all clean
+all: app
+
+app: $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^
+
+ifeq ($(DEBUG),1)
+CFLAGS += -g
+endif
+
+clean:
+	rm -f $(OBJS) app # remove

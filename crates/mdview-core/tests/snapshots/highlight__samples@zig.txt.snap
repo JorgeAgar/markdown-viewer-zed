@@ -1,0 +1,22 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/zig.txt
+---
+|⟦kw|const⟧ std = @⟦fn|import⟧(⟦str|"std"⟧);
+|
+|⟦com|/// Doc comment.⟧
+|⟦kw|pub⟧ ⟦kw|fn⟧ ⟦fn|main⟧() !⟦ty|void⟧ {
+|    ⟦kw|const⟧ allocator = std.heap.page_allocator;
+|    ⟦kw|var⟧ list = std.⟦fn|ArrayList⟧(⟦ty|u8⟧).⟦fn|init⟧(allocator);
+|    ⟦kw|defer⟧ list.⟦fn|deinit⟧();
+|    ⟦kw|try⟧ list.⟦fn|append⟧(⟦str|'x'⟧);
+|    ⟦kw|const⟧ ⟦const|MAX_LEN⟧: ⟦ty|usize⟧ = ⟦num|0xFF⟧;
+|    ⟦kw|if⟧ (list.items.len > ⟦const|MAX_LEN⟧) ⟦kw|return⟧ ⟦kw|error⟧.⟦ty|TooLong⟧;
+|    std.debug.⟦fn|print⟧(⟦str|"{s}\n"⟧, .{list.items});
+|    ⟦kw|const⟧ x: ?⟦ty|i32⟧ = ⟦const|null⟧;
+|    _ = x ⟦kw|orelse⟧ ⟦const|undefined⟧;
+|}
+|
+|⟦kw|test⟧ ⟦str|"basic"⟧ { ⟦kw|try⟧ std.testing.⟦fn|expect⟧(⟦const|true⟧); }
+|

@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- A comment
+       over two lines -->
+  <title>Caf&eacute; &amp; &#169; &#x1F600; & not-an-entity</title>
+</head>
+<body class='main' data-x="1" hidden>
+  <svg:rect xlink:href="#a" />
+  <p title="spans
+two lines">Text &lt;not a tag&gt; 3 < 4</p>
+  <?xml-stylesheet href="s.css"?>
+  <unclosed attr="x

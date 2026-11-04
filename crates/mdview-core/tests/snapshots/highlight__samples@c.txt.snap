@@ -1,0 +1,25 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/c.txt
+---
+|⟦attr|#include⟧ <stdio.h>
+|⟦attr|#include⟧ ⟦str|"local.h"⟧
+|⟦attr|#define⟧ ⟦fn|MAX⟧(a, b) ((a) > (b) ? (a) : (b))
+|  ⟦attr|#  ifdef⟧ ⟦const|DEBUG⟧
+|⟦attr|#endif⟧
+|
+|⟦com|/* Block comment */⟧
+|⟦kw|static⟧ ⟦kw|const⟧ ⟦ty|char⟧ *names[] = {⟦str|"a"⟧, ⟦str|"b\n"⟧};
+|
+|⟦kw|typedef⟧ ⟦kw|struct⟧ { ⟦ty|uint32_t⟧ len; ⟦ty|size_t⟧ cap; } buf_t;
+|
+|⟦ty|int⟧ ⟦fn|main⟧(⟦ty|int⟧ argc, ⟦ty|char⟧ **argv) {
+|    ⟦ty|unsigned⟧ ⟦ty|long⟧ n = ⟦num|42UL⟧;
+|    ⟦ty|double⟧ d = ⟦num|3.14f⟧, e = ⟦num|1e-9⟧, h = ⟦num|0x1Fu⟧;
+|    ⟦ty|char⟧ c = ⟦str|'\''⟧;
+|    ⟦kw|if⟧ (argv == ⟦const|NULL⟧) ⟦kw|return⟧ -⟦num|1⟧; ⟦com|// line comment⟧
+|    ⟦fn|printf⟧(⟦str|"%d\n"⟧, ⟦fn|MAX⟧(n, ⟦num|7⟧));
+|    ⟦kw|return⟧ ⟦num|0⟧;
+|}
+|

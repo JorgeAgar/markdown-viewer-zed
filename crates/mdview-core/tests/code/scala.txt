@@ -1,0 +1,15 @@
+package demo
+
+import scala.concurrent.Future
+
+@main def hello(): Unit =
+  val xs = List(1, 2, 3)
+  xs.foreach(x => println(s"value: $x"))
+
+sealed trait Animal
+case class Dog(name: String) extends Animal
+
+object Animal:
+  def describe(a: Animal): String = a match
+    case Dog(n) => s"""Dog "$n""""
+    case null => "none"

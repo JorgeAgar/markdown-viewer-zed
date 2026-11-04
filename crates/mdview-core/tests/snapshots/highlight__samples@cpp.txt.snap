@@ -1,0 +1,27 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/cpp.txt
+---
+|⟦attr|#pragma⟧ once
+|⟦attr|#include⟧ <vector>
+|
+|⟦kw|namespace⟧ app {
+|⟦kw|template⟧ <⟦kw|typename⟧ ⟦ty|T⟧>
+|⟦kw|class⟧ ⟦ty|Widget⟧ ⟦kw|final⟧ : ⟦kw|public⟧ ⟦ty|Base⟧ {
+|⟦kw|public⟧:
+|    ⟦kw|explicit⟧ ⟦fn|Widget⟧(std::vector<⟦ty|T⟧> items) ⟦kw|noexcept⟧ : ⟦fn|items_⟧(std::⟦fn|move⟧(items)) {}
+|    ⟦kw|virtual⟧ ~⟦fn|Widget⟧() ⟦kw|override⟧ = ⟦kw|default⟧;
+|    ⟦kw|constexpr⟧ ⟦kw|static⟧ ⟦ty|int⟧ kSize = ⟦num|0b1010⟧;
+|    ⟦ty|auto⟧ ⟦fn|get⟧() ⟦kw|const⟧ -> ⟦kw|const⟧ ⟦ty|T⟧& { ⟦kw|return⟧ items_[⟦num|0⟧]; }
+|⟦kw|private⟧:
+|    std::vector<⟦ty|T⟧> items_;
+|};
+|}  ⟦com|// namespace app⟧
+|
+|⟦ty|int⟧ ⟦fn|main⟧() {
+|    ⟦ty|auto⟧ w = ⟦kw|new⟧ ⟦ty|Widget⟧<⟦ty|int⟧>({⟦num|1⟧, ⟦num|2⟧, ⟦num|3⟧});
+|    ⟦kw|if⟧ (w != ⟦const|nullptr⟧) ⟦kw|delete⟧ w;
+|    ⟦kw|co_return⟧;
+|}
+|

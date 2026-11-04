@@ -1,0 +1,21 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/dockerfile.txt
+---
+|⟦com|# syntax=docker/dockerfile:1⟧
+|⟦kw|FROM⟧ rust:⟦num|1.90⟧ ⟦kw|AS⟧ build
+|⟦kw|WORKDIR⟧ /src
+|⟦kw|ARG⟧ ⟦const|FEATURES⟧=⟦str|""⟧
+|⟦kw|ENV⟧ ⟦const|CARGO_TERM_COLOR⟧=always ⟦const|PATH⟧=⟦var|$PATH⟧:/opt/bin
+|⟦kw|COPY⟧ . .
+|⟦kw|RUN⟧ cargo build --release --features ⟦str|"${FEATURES}"⟧ \
+|    && strip target/release/mdview
+|
+|⟦kw|FROM⟧ debian:stable-slim
+|⟦kw|COPY⟧ --from=build /src/target/release/mdview /usr/local/bin/
+|⟦kw|EXPOSE⟧ ⟦num|8080⟧
+|⟦kw|USER⟧ nobody
+|⟦kw|ENTRYPOINT⟧ [⟦str|"mdview"⟧]
+|⟦kw|CMD⟧ [⟦str|"--help"⟧]
+|

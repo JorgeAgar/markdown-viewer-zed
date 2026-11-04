@@ -1,0 +1,14 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/ini.txt
+---
+|⟦com|; INI comment⟧
+|⟦ty|[Desktop Entry]⟧
+|⟦prop|Name⟧=mdview
+|⟦prop|Exec⟧=mdview %F
+|⟦prop|Terminal⟧=⟦const|false⟧
+|⟦prop|MimeType⟧=text/markdown;
+|⟦com|# hash comment⟧
+|key with spaces = value
+|

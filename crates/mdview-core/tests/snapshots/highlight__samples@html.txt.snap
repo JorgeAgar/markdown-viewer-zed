@@ -1,0 +1,20 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/html.txt
+---
+|<!⟦tag|DOCTYPE⟧ ⟦prop|html⟧>
+|<⟦tag|html⟧ ⟦prop|lang⟧=⟦str|"en"⟧>
+|<⟦tag|head⟧>
+|  <⟦tag|meta⟧ ⟦prop|charset⟧=⟦str|"utf-8"⟧>
+|  ⟦com|<!-- A comment
+|       over two lines -->⟧
+|  <⟦tag|title⟧>Caf⟦const|&eacute;⟧ ⟦const|&amp;⟧ ⟦const|&#169;⟧ ⟦const|&#x1F600;⟧ & not-an-entity</⟦tag|title⟧>
+|</⟦tag|head⟧>
+|<⟦tag|body⟧ ⟦prop|class⟧=⟦str|'main'⟧ ⟦prop|data-x⟧=⟦str|"1"⟧ ⟦prop|hidden⟧>
+|  <⟦tag|svg:rect⟧ ⟦prop|xlink:href⟧=⟦str|"#a"⟧ />
+|  <⟦tag|p⟧ ⟦prop|title⟧=⟦str|"spans
+|two lines"⟧>Text ⟦const|&lt;⟧not a tag⟦const|&gt;⟧ 3 < 4</⟦tag|p⟧>
+|  <?⟦tag|xml-stylesheet⟧ ⟦prop|href⟧=⟦str|"s.css"⟧?>
+|  <⟦tag|unclosed⟧ ⟦prop|attr⟧=⟦str|"x
+|⟧

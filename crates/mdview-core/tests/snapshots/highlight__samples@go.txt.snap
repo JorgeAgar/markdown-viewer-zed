@@ -1,0 +1,30 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/go.txt
+---
+|⟦kw|package⟧ main
+|
+|⟦kw|import⟧ (
+|⇥⟦str|"fmt"⟧
+|⇥⟦str|"strings"⟧
+|)
+|
+|⟦com|// Greeter greets.⟧
+|⟦kw|type⟧ Greeter ⟦kw|interface⟧ {
+|⇥⟦fn|Greet⟧(name ⟦ty|string⟧) (⟦ty|string⟧, ⟦ty|error⟧)
+|}
+|
+|⟦kw|func⟧ (g *greeter) ⟦fn|Greet⟧(name ⟦ty|string⟧) (⟦ty|string⟧, ⟦ty|error⟧) {
+|⇥raw := ⟦str|`raw
+|string`⟧
+|⇥⟦kw|var⟧ r ⟦ty|rune⟧ = ⟦str|'x'⟧
+|⇥m := ⟦kw|map⟧[⟦ty|string⟧]⟦ty|int⟧{⟦str|"a"⟧: ⟦num|1⟧}
+|⇥⟦kw|for⟧ i := ⟦kw|range⟧ ⟦num|10⟧ {
+|⇥⇥⟦kw|go⟧ ⟦kw|func⟧() { ⟦kw|defer⟧ fmt.⟦fn|Println⟧(i, r, raw, m) }()
+|⇥}
+|⇥⟦kw|return⟧ strings.⟦fn|ToUpper⟧(name), ⟦const|nil⟧
+|}
+|
+|⟦kw|func⟧ ⟦fn|main⟧() { _ = ⟦const|iota⟧; x := ⟦num|1.5e3⟧; fmt.⟦fn|Println⟧(x, ⟦const|true⟧, ⟦const|MAX_SIZE⟧) }
+|

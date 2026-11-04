@@ -1,0 +1,19 @@
+<?php
+declare(strict_types=1);
+
+namespace App;
+
+use App\Models\User;
+
+# Hash comment
+final class Controller
+{
+    public function __construct(private readonly array $config = []) {}
+
+    public function show(int $id): ?User
+    {
+        $user = User::find($id) ?? null; // lookup
+        echo "Hello {$user->name} and ${var}";
+        return $user instanceof User ? $user : NULL;
+    }
+}

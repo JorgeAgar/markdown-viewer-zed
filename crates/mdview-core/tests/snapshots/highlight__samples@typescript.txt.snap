@@ -1,0 +1,23 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/typescript.txt
+---
+|⟦kw|import⟧ ⟦kw|type⟧ { ⟦ty|Options⟧ } ⟦kw|from⟧ ⟦str|"./options"⟧;
+|
+|⟦kw|export⟧ ⟦kw|interface⟧ ⟦ty|Point⟧ { x: ⟦ty|number⟧; y: ⟦ty|number⟧ }
+|⟦kw|type⟧ ⟦ty|Maybe⟧<⟦ty|T⟧> = ⟦ty|T⟧ | ⟦const|undefined⟧;
+|
+|⟦kw|enum⟧ ⟦ty|Color⟧ { ⟦ty|Red⟧ = ⟦str|"RED"⟧, ⟦ty|Green⟧ = ⟦str|"GREEN"⟧ }
+|
+|⟦attr|@Component⟧({ selector: ⟦str|"app"⟧ })
+|⟦kw|export⟧ ⟦kw|abstract⟧ ⟦kw|class⟧ ⟦ty|Shape⟧ ⟦kw|implements⟧ ⟦ty|Drawable⟧ {
+|  ⟦kw|private⟧ ⟦kw|readonly⟧ id: ⟦ty|string⟧ = crypto.⟦fn|randomUUID⟧();
+|  ⟦kw|protected⟧ ⟦kw|abstract⟧ ⟦fn|area⟧(): ⟦ty|number⟧;
+|  ⟦kw|public⟧ ⟦kw|static⟧ ⟦kw|from⟧(p: ⟦ty|Point⟧): ⟦ty|Shape⟧ | ⟦const|null⟧ { ⟦kw|return⟧ ⟦const|null⟧ ⟦kw|as⟧ ⟦ty|unknown⟧ ⟦kw|as⟧ ⟦ty|Shape⟧; }
+|}
+|
+|⟦kw|function⟧ ⟦fn|assertIsString⟧(val: ⟦ty|any⟧): asserts val ⟦kw|is⟧ ⟦ty|string⟧ {}
+|⟦kw|const⟧ n: ⟦ty|bigint⟧ = ⟦num|10n⟧;
+|⟦kw|let⟧ tuple: [⟦ty|string⟧, ⟦ty|boolean⟧] = [⟦str|"a"⟧, ⟦const|true⟧] ⟦kw|satisfies⟧ ⟦kw|readonly⟧ ⟦ty|unknown⟧[];
+|

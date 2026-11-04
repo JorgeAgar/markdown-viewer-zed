@@ -1,0 +1,13 @@
+# Flake
+{ pkgs ? import <nixpkgs> {}, lib, ... }:
+let
+  version = "1.0";
+  /* block */
+in
+pkgs.stdenv.mkDerivation rec {
+  pname = "mdview";
+  inherit version;
+  src = ./.;
+  doCheck = true;
+  meta = with lib; { license = licenses.asl20; platforms = null; };
+}

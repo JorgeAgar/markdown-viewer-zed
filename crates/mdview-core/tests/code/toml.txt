@@ -1,0 +1,14 @@
+[package]
+name = "mdview"
+version = "0.1.0"
+edition = 2024
+
+[dependencies]
+pulldown-cmark = { version = "0.13", default-features = false }
+list = [1, 2.5, -3, +4, 0x1F, 1_000]
+dotted.key = true
+"quoted key" = 'literal'
+
+[[bin]]
+path = "src/main.rs" # comment
+date = 2026-11-04T12:00:00Z
