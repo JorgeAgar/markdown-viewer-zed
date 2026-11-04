@@ -458,6 +458,9 @@ impl Render for Viewer {
 }
 
 #[cfg(test)]
+mod app_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{markdown::Block, test_util::TempDir};

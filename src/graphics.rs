@@ -512,5 +512,23 @@ fn rasterize(
     })
 }
 
+/// Number of (ready, failed, pending) cache entries for each kind, for tests.
+#[cfg(test)]
+pub(crate) fn cache_stats(cx: &App, kind: Kind) -> (usize, usize, usize) {
+    let mut stats = (0, 0, 0);
+    if let Some(cache) = cx.try_global::<Cache>() {
+        for (k, slot) in &cache.slots {
+            if k.kind == kind {
+                match slot {
+                    Slot::Ready { .. } => stats.0 += 1,
+                    Slot::Failed(_) => stats.1 += 1,
+                    Slot::Pending => stats.2 += 1,
+                }
+            }
+        }
+    }
+    stats
+}
+
 #[cfg(test)]
 mod tests;

@@ -454,7 +454,13 @@ fn rich_text(
         .into_any_element()
 }
 
-fn open_link(viewer: &WeakEntity<Viewer>, base: &Path, url: &str, _: &mut Window, cx: &mut App) {
+pub(crate) fn open_link(
+    viewer: &WeakEntity<Viewer>,
+    base: &Path,
+    url: &str,
+    _: &mut Window,
+    cx: &mut App,
+) {
     match classify_link(base, url) {
         LinkTarget::Anchor(anchor) => {
             viewer
