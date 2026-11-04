@@ -3297,8 +3297,8 @@ dependencies = [
  "futures",
  "gpui",
  "image",
+ "mdview-core",
  "merman",
- "pulldown-cmark",
  "ratex-layout",
  "ratex-parser",
  "ratex-svg",
@@ -3306,6 +3306,13 @@ dependencies = [
  "resvg",
  "serde_json",
  "ttf-parser 0.25.1",
+]
+
+[[package]]
+name = "mdview-core"
+version = "0.1.0"
+dependencies = [
+ "pulldown-cmark",
 ]
 
 [[package]]

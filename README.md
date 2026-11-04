@@ -77,12 +77,13 @@ to contribute, and the roadmap are documented, with diagrams, in
 ```
 src/main.rs      startup, single-instance socket, key bindings, font pick
 src/viewer.rs    window: tabs, actions, live reload, drag & drop
-src/markdown.rs  Markdown -> block model (pulldown-cmark)
-src/highlight.rs syntax highlighting for code blocks (built-in lexers)
-src/latex.rs     inline math -> Unicode text
 src/graphics.rs  display math and Mermaid -> images, rendered in the background and cached
 src/render.rs    block model -> GPUI elements
 src/theme.rs     light/dark palettes (follows the system appearance)
+crates/mdview-core/  the GUI-free core (no GPUI dependency, fast tests):
+  src/markdown.rs   Markdown -> block model (pulldown-cmark)
+  src/highlight.rs  syntax highlighting for code blocks (built-in lexers)
+  src/latex.rs      inline math -> Unicode text
 crates/gpui/     vendored GPUI 0.2.2 with startup fixes (see MDVIEW.md)
 patches/         those fixes as a diff against upstream gpui 0.2.2
 docs/            documentation for contributors (with diagrams)

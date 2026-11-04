@@ -7,12 +7,14 @@
 ├── src/
 │   ├── main.rs        Entry point: arguments, single-instance socket, key bindings, font choice, window creation
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
-│   ├── markdown.rs    Markdown → block model (pulldown-cmark), plus parser tests
-│   ├── highlight.rs   Syntax highlighting for code blocks (hand-written lexers, no GPUI)
-│   ├── latex.rs       Inline math: LaTeX → Unicode text (no GPUI)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model → GPUI elements; link handling
 │   └── theme.rs       Light and dark palettes
+├── crates/mdview-core/  The GUI-free core, a separate crate so it can't depend on GPUI
+│   └── src/
+│       ├── markdown.rs    Markdown → block model (pulldown-cmark), plus parser tests
+│       ├── highlight.rs   Syntax highlighting for code blocks (hand-written lexers)
+│       └── latex.rs       Inline math: LaTeX → Unicode text
 ├── crates/gpui/       Vendored GPUI 0.2.2 with startup fixes (see gpui-fork.md)
 ├── patches/           Those fixes as a diff against upstream GPUI
 ├── examples/          Sample Markdown files for manual testing
@@ -25,9 +27,11 @@
 flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
-    markdown["markdown.rs<br/>parse() → Document"]
-    highlight["highlight.rs<br/>highlight() → Vec of Highlight"]
-    latex["latex.rs<br/>to_unicode() → MathText"]
+    subgraph core["crates/mdview-core (no GPUI)"]
+        markdown["markdown.rs<br/>parse() → Document"]
+        highlight["highlight.rs<br/>highlight() → Vec of Highlight"]
+        latex["latex.rs<br/>to_unicode() → MathText"]
+    end
     graphics["graphics.rs<br/>element() → image, async + cached"]
     ratex[("RaTeX<br/>(KaTeX port)")]
     merman[("merman<br/>(Mermaid)")]
@@ -59,9 +63,13 @@ flowchart TD
 
 Rules that keep this structure simple:
 
-- **`markdown.rs`, `highlight.rs` and `latex.rs` know nothing about GPUI.** It turns text into plain data
-  (`Document`). That keeps it fast, easy to unit-test and safe to run on any
-  thread.
+- **`markdown.rs`, `highlight.rs` and `latex.rs` know nothing about GPUI.**
+  They live in their own crate, `crates/mdview-core`, which doesn't depend on
+  GPUI, so the compiler enforces this. They turn text into plain data
+  (`Document`). That keeps them fast, easy to unit-test (`cargo test -p
+  mdview-core` builds and runs in seconds) and safe to run on any thread. The
+  app re-exports them at its crate root, so app code still writes
+  `crate::markdown`.
 - **`render.rs` only reads that data.** It never parses Markdown again. It's
   the only place where Markdown concepts become visual elements.
 - **`viewer.rs` owns all state**: tabs, which tab is active, scroll positions

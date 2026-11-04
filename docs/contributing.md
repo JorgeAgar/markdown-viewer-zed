@@ -74,8 +74,8 @@ Startup is the product, so these rules come first:
 - `cargo fmt` before committing. Fix any new `cargo clippy` warnings in
   `src/`.
 - Keep the module boundaries described in
-  [architecture.md](architecture.md). In particular, `markdown.rs` must not
-  depend on GPUI.
+  [architecture.md](architecture.md). In particular, `crates/mdview-core`
+  (`markdown.rs`, `highlight.rs`, `latex.rs`) must not depend on GPUI.
 - Comments explain **why**, not what.
 - Changes to `crates/gpui` follow [gpui-fork.md](gpui-fork.md): a
   `// mdview:` comment, a regenerated patch, and updated `MDVIEW.md`.

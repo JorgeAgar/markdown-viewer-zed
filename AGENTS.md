@@ -23,7 +23,8 @@ framework) and optimized for **startup time**. The full docs are in
 3. **Respect the scope.** No editing, no showing the Markdown source, no
    settings UI. If a request conflicts with
    [the goals](docs/README.md#what-the-project-is-and-isnt), ask first.
-4. **`markdown.rs` must not depend on GPUI.** Parse once in `markdown.rs`;
+4. **`crates/mdview-core` must not depend on GPUI.** It holds `markdown.rs`,
+   `highlight.rs` and `latex.rs`. Parse once in `markdown.rs`;
    only read the result in `render.rs`.
 5. **Changes to `crates/gpui`** need a `// mdview:` comment, a regenerated
    `patches/gpui-0.2.2-startup.patch`, and updated `crates/gpui/MDVIEW.md`.

@@ -7,9 +7,6 @@
 //!    (Wayland/X11 connection, font database, GPU context) on the main thread.
 
 mod graphics;
-mod highlight;
-mod latex;
-mod markdown;
 mod render;
 mod theme;
 mod viewer;
@@ -21,10 +18,13 @@ use std::{
 };
 
 use futures::{StreamExt, channel::mpsc};
+// Re-exported at the crate root so the rest of the app can keep writing
+// `crate::markdown`.
 use gpui::{
     App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds,
     WindowDecorations, WindowOptions, px, size,
 };
+use mdview_core::{highlight, markdown};
 
 use viewer::{
     Bottom, CloseTab, Fonts, NextTab, Open, PageDown, PageUp, PrevTab, Quit, Reload, ScrollDown,

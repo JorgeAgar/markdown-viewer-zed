@@ -5,9 +5,15 @@ edition = "2024"
 description = "A tiny, fast-starting, GPU-rendered Markdown viewer built on GPUI (Zed's UI framework)"
 license = "Apache-2.0"
 
+[workspace]
+members = [".", "crates/mdview-core"]
+# The vendored GPUI is a patch, not part of mdview's own code: keep it out of
+# workspace-wide fmt, clippy and tests.
+exclude = ["crates/gpui"]
+
 [dependencies]
+mdview-core = { path = "crates/mdview-core" }
 gpui = "0.2.2"
-pulldown-cmark = { version = "0.13", default-features = false }
 futures = "0.3"
 # Display math: RaTeX (a Rust port of KaTeX), with the KaTeX fonts embedded.
 ratex-parser = "0.1.15"
