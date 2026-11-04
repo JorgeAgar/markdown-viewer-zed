@@ -7,6 +7,7 @@
 //!    (Wayland/X11 connection, font database, GPU context) on the main thread.
 
 mod graphics;
+mod links;
 mod render;
 mod tabs;
 mod theme;

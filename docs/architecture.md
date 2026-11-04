@@ -10,6 +10,7 @@
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model → GPUI elements; link handling
+│   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (GUI-free)
 │   └── theme.rs       Light and dark palettes
 ├── crates/mdview-core/  The GUI-free core, a separate crate so it can't depend on GPUI
 │   └── src/
@@ -39,6 +40,7 @@ flowchart TD
     merman[("merman<br/>(Mermaid)")]
     resvg[("resvg")]
     render["render.rs<br/>top_block() → AnyElement"]
+    links["links.rs<br/>classify_link() → LinkTarget"]
     theme["theme.rs<br/>Theme"]
     gpui[("crates/gpui<br/>GPUI (vendored)")]
     cmark[("pulldown-cmark")]
@@ -51,6 +53,8 @@ flowchart TD
     viewer --> theme
     render --> markdown
     render --> theme
+    render --> links
+    viewer --> links
     render --> gpui
     viewer --> gpui
     markdown --> cmark
@@ -224,7 +228,8 @@ for benchmarks and debugging.
 
 ## Links
 
-`render::open_link` decides what clicking a link does:
+`links::classify_link` decides what clicking a link does (it returns a
+`LinkTarget`, which `render::open_link` acts on):
 
 | Link | Action |
 | --- | --- |
@@ -233,5 +238,8 @@ for benchmarks and debugging.
 | Relative or absolute `*.md` (with an optional `#anchor`) | Open in a tab (or switch to it), then scroll to the anchor |
 | Any other local file | Open with the system handler (`file://…`) |
 
-Anchor slugs follow GitHub's rules (`markdown::slugify`). Only top-level
-headings can be anchor targets.
+Anchor slugs follow GitHub's rules (`markdown::slugify`) and are matched
+case-insensitively (`links::heading_index`). Only top-level headings can be
+anchor targets. The path and the anchor are percent-decoded separately, so
+`a%23b.md` is a file named `a#b.md`. Only `://` and `mailto:` count as
+external; a query string (`b.md?x=1`) stays part of the file name.

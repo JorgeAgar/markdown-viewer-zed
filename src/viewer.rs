@@ -14,7 +14,8 @@ use gpui::{
 };
 
 use crate::{
-    markdown::{self, Block, Document},
+    links,
+    markdown::{self, Document},
     render::{self, RenderCx},
     tabs::Tabs,
     theme::Theme,
@@ -182,13 +183,7 @@ impl Viewer {
             None => self.tabs.active(),
         };
         let Some(tab) = tab else { return };
-        let anchor = anchor.to_lowercase();
-        if let Some(ix) = tab
-            .doc
-            .blocks
-            .iter()
-            .position(|b| matches!(b, Block::Heading { slug, .. } if *slug == anchor))
-        {
+        if let Some(ix) = links::heading_index(&tab.doc.blocks, anchor) {
             tab.list.scroll_to(ListOffset {
                 item_ix: ix,
                 offset_in_item: px(0.),
