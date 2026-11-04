@@ -37,6 +37,16 @@ the start of client construction. Meanwhile the main thread connects to the
 display and builds the font database (`cosmic_text::FontSystem::new()` scans
 every system font). The two are joined where the context used to be created.
 
+## 4. Build fix: typed float literals
+
+`taffy.rs`
+
+`to_grid_repeat` passed `0.0` and `1.0` where the type is only inferred
+through `From<f32>`. rustc warns that this fallback to `f32` is being
+phased out and will become a hard error
+([#154024](https://github.com/rust-lang/rust/issues/154024)), so the
+literals are now `0.0_f32` and `1.0_f32`. No behavior change.
+
 ## Measurements
 
 Time from `main()` to the first frame submitted and presented. Medians;

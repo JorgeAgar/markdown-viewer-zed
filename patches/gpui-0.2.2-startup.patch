@@ -408,6 +408,20 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  }
  
  /// Represents the status of how a window should be opened.
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/taffy.rs gpui-0.2.2-mdview/src/taffy.rs
+--- gpui-0.2.2/src/taffy.rs
++++ gpui-0.2.2-mdview/src/taffy.rs
+@@ -309,7 +309,9 @@
+             unit: &Option<u16>,
+         ) -> Vec<taffy::GridTemplateComponent<T>> {
+             // grid-template-columns: repeat(<number>, minmax(0, 1fr));
+-            unit.map(|count| vec![repeat(count, vec![minmax(length(0.0), fr(1.0))])])
++            // mdview: typed literals. Untyped ones relied on the f32 fallback
++            // that rustc is phasing out (float_literal_f32_fallback, #154024).
++            unit.map(|count| vec![repeat(count, vec![minmax(length(0.0_f32), fr(1.0_f32))])])
+                 .unwrap_or_default()
+         }
+ 
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/window.rs gpui-0.2.2-mdview/src/window.rs
 --- gpui-0.2.2/src/window.rs
 +++ gpui-0.2.2-mdview/src/window.rs
