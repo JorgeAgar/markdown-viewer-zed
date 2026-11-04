@@ -186,6 +186,9 @@ pub struct Document {
 }
 
 pub fn parse(src: &str) -> Document {
+    // Editors on Windows like to start UTF-8 files with a byte order mark;
+    // left in, it would turn a first `# Heading` into a paragraph.
+    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
     let opts = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
@@ -759,6 +762,20 @@ mod tests {
                 "me@x.y"
             ]
         );
+    }
+
+    #[test]
+    fn leading_byte_order_mark_is_ignored() {
+        let doc = parse("\u{feff}# Title\n\nText \u{feff} kept.");
+        let Block::Heading { text, slug, .. } = &doc.blocks[0] else {
+            panic!("expected a heading, got {:?}", doc.blocks[0])
+        };
+        assert_eq!((text.text.as_str(), slug.as_str()), ("Title", "title"));
+        let Block::Paragraph(p) = &doc.blocks[1] else {
+            panic!("expected a paragraph")
+        };
+        // Only a leading BOM is a BOM.
+        assert_eq!(p.text, "Text \u{feff} kept.");
     }
 
     #[test]
