@@ -516,7 +516,7 @@ impl<'a> P<'a> {
                 Event::Code(t) => rich.push(&t, style | CODE, link),
                 Event::InlineMath(t) | Event::DisplayMath(t) => rich.push_math(&t, style, link),
                 Event::InlineHtml(h) => {
-                    if h.eq_ignore_ascii_case("<br>") || h.eq_ignore_ascii_case("<br/>") {
+                    if is_br(&h) {
                         rich.push("\n", style, link);
                     }
                 }
@@ -564,6 +564,14 @@ impl<'a> P<'a> {
         }
         (rich, images)
     }
+}
+
+/// `<br>`, `<br/>`, `<br />`, `<BR >`...
+fn is_br(html: &str) -> bool {
+    html.strip_prefix('<')
+        .and_then(|h| h.strip_suffix('>'))
+        .map(|h| h.trim_end().strip_suffix('/').unwrap_or(h).trim_end())
+        .is_some_and(|h| h.eq_ignore_ascii_case("br"))
 }
 
 fn cow(s: CowStr) -> String {
@@ -751,5 +759,15 @@ mod tests {
                 "me@x.y"
             ]
         );
+    }
+
+    #[test]
+    fn br_tags_are_line_breaks() {
+        let doc = parse("a<br>b<br/>c<br />d<BR >e<Br/ >f<br\n/>g<bR\t/>h<brx>i<br x>j</br>k");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected a paragraph")
+        };
+        // `<Br/ >` isn't an HTML tag for CommonMark, so it stays text.
+        assert_eq!(p.text, "a\nb\nc\nd\ne<Br/ >f\ng\nhijk");
     }
 }
