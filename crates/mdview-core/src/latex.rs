@@ -547,8 +547,9 @@ impl Parser<'_> {
             j += 1;
         }
         match self.t.get(j) {
-            Some(T::Ch('(')) | Some(T::Sup) | Some(T::Sub) | None => {}
-            Some(T::Cmd(c)) if c == "left" || c == "limits" => {}
+            // Nothing follows inside this group (`{\arg\min}_x`) either.
+            Some(T::Ch('(')) | Some(T::Sup) | Some(T::Sub) | Some(T::Close) | None => {}
+            Some(T::Cmd(c)) if c == "left" || c == "right" || c == "limits" => {}
             _ => w.space("\u{2009}"),
         }
     }
@@ -1165,6 +1166,14 @@ mod tests {
         assert_eq!(u(r"\sum_{i=1}^n i"), "∑ᵢ₌₁ⁿi");
         assert_eq!(u(r"\foo"), "\\foo");
         assert_eq!(u(r"f(x, y)"), "f(x,\u{2009}y)");
+    }
+
+    #[test]
+    fn no_thin_space_after_a_function_that_ends_a_group() {
+        assert_eq!(u(r"\underset{x}{\arg\min} f"), "arg\u{2009}minₓf");
+        assert_eq!(u(r"{\sin}^2 x"), "sin²x");
+        assert_eq!(u(r"\left( \sin \right)"), "(sin)");
+        assert_eq!(u(r"\sin x"), "sin\u{2009}x");
     }
 
     #[test]
