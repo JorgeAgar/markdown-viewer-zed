@@ -30,6 +30,11 @@ resvg = { version = "0.45", default-features = false, features = ["text", "syste
 image = { version = "0.25", default-features = false }
 ttf-parser = "0.25"
 
+[dev-dependencies]
+# Golden images for display math (src/graphics/tests.rs). Already compiled
+# in through GPUI, with these features; listed so the tests don't rely on it.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 [profile.release]
 opt-level = 3
 lto = "fat"

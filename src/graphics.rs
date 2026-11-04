@@ -70,10 +70,49 @@ struct Cache {
 
 impl Global for Cache {}
 
+/// What [`Cache::lookup`] found.
+enum Lookup {
+    Ready(Arc<Graphic>),
+    Failed(SharedString),
+    /// Being rendered.
+    Pending,
+    /// Wasn't cached: it's now marked pending, and the caller must render it.
+    Missing,
+}
+
 impl Cache {
+    /// Looks `key` up and marks it as just used.
+    fn lookup(&mut self, key: &Key) -> Lookup {
+        self.clock += 1;
+        let clock = self.clock;
+        match self.slots.get_mut(key) {
+            Some(Slot::Ready { graphic, used }) => {
+                *used = clock;
+                Lookup::Ready(graphic.clone())
+            }
+            Some(Slot::Failed(e)) => Lookup::Failed(e.clone()),
+            Some(Slot::Pending) => Lookup::Pending,
+            None => {
+                self.slots.insert(key.clone(), Slot::Pending);
+                Lookup::Missing
+            }
+        }
+    }
+
     /// Stores a finished render and returns the images evicted to stay under
     /// the memory budget (their GPU textures must be dropped too).
     fn finish(&mut self, key: Key, result: Result<Graphic, String>) -> Vec<Arc<RenderImage>> {
+        self.finish_within(key, result, CACHE_BYTES)
+    }
+
+    /// [`Self::finish`] with an explicit budget, in bytes. The image just
+    /// stored is never evicted, even if it alone exceeds the budget.
+    fn finish_within(
+        &mut self,
+        key: Key,
+        result: Result<Graphic, String>,
+        budget: usize,
+    ) -> Vec<Arc<RenderImage>> {
         self.clock += 1;
         let slot = match result {
             Ok(g) => {
@@ -88,7 +127,7 @@ impl Cache {
         self.slots.insert(key.clone(), slot);
 
         let mut evicted = Vec::new();
-        while self.bytes > CACHE_BYTES {
+        while self.bytes > budget {
             let oldest = self
                 .slots
                 .iter()
@@ -128,18 +167,11 @@ pub fn element(
         dark: rcx.theme.dark,
         scale: (window.scale_factor() * 100.).round() as u32,
     };
-    let cache = cx.default_global::<Cache>();
-    cache.clock += 1;
-    let clock = cache.clock;
-    let state = match cache.slots.get_mut(&key) {
-        Some(Slot::Ready { graphic, used }) => {
-            *used = clock;
-            Ok(Some(graphic.clone()))
-        }
-        Some(Slot::Failed(e)) => Err(e.clone()),
-        Some(Slot::Pending) => Ok(None),
-        None => {
-            cache.slots.insert(key.clone(), Slot::Pending);
+    let state = match cx.default_global::<Cache>().lookup(&key) {
+        Lookup::Ready(graphic) => Ok(Some(graphic)),
+        Lookup::Failed(e) => Err(e),
+        Lookup::Pending => Ok(None),
+        Lookup::Missing => {
             spawn(key, rcx, cx);
             Ok(None)
         }
@@ -201,12 +233,9 @@ fn spawn(key: Key, rcx: &RenderCx, cx: &mut App) {
     let theme = rcx.theme;
     let font = rcx.ui_font.clone();
     let job = key.clone();
-    let task = cx.background_executor().spawn(async move {
-        // The renderers are third-party code fed with arbitrary input; a bug
-        // in one must cost a block, not the whole app (hence panic=unwind).
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render(&job, &theme, &font)))
-            .unwrap_or_else(|_| Err("Could not render this block (renderer crashed)".into()))
-    });
+    let task = cx
+        .background_executor()
+        .spawn(async move { guarded(|| render(&job, &theme, &font)) });
     let viewer = rcx.viewer.clone();
     cx.spawn(async move |cx| {
         let result = task.await;
@@ -220,6 +249,14 @@ fn spawn(key: Key, rcx: &RenderCx, cx: &mut App) {
         .ok();
     })
     .detach();
+}
+
+/// Runs a renderer. The renderers are third-party code fed with arbitrary
+/// input; a bug in one must cost a block, not the whole app (hence
+/// `panic = "unwind"` in the release profile), so a panic becomes an error.
+fn guarded(render: impl FnOnce() -> Result<Graphic, String>) -> Result<Graphic, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(render))
+        .unwrap_or_else(|_| Err("Could not render this block (renderer crashed)".into()))
 }
 
 fn rgb(c: Hsla) -> [f32; 3] {
@@ -474,3 +511,6 @@ fn rasterize(
         size: size(px(pw as f32 / scale), px(ph as f32 / scale)),
     })
 }
+
+#[cfg(test)]
+mod tests;
