@@ -5,7 +5,8 @@
 ```
 .
 ├── src/
-│   ├── main.rs        Entry point: arguments, single-instance socket, key bindings, font choice, window creation
+│   ├── main.rs        Entry point: single-instance socket, key bindings, font choice, window creation
+│   ├── cli.rs         Argument parsing, help text, socket path and message format (GUI-free)
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
@@ -28,6 +29,7 @@
 ```mermaid
 flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
+    cli["cli.rs<br/>parse_args(), encode/decode_paths()"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
     tabs["tabs.rs<br/>Tabs: list + active index"]
     subgraph core["crates/mdview-core (no GPUI)"]
@@ -45,6 +47,7 @@ flowchart TD
     gpui[("crates/gpui<br/>GPUI (vendored)")]
     cmark[("pulldown-cmark")]
 
+    main --> cli
     main --> viewer
     viewer --> tabs
     main --> gpui
@@ -203,6 +206,9 @@ The socket lives at `$XDG_RUNTIME_DIR/mdview.sock`, or
 `$TMPDIR/mdview-$USER.sock` when `XDG_RUNTIME_DIR` isn't set. The protocol is
 deliberately trivial: the client writes absolute paths separated by `\n` and
 closes the connection. An empty message just raises the window.
+`cli::encode_paths` / `cli::decode_paths` implement it. Because it's text,
+it can't carry every path: non-UTF-8 bytes arrive as U+FFFD, a `\n` inside
+a path splits it, and a `\r` before a `\n` is dropped.
 
 ```mermaid
 sequenceDiagram
