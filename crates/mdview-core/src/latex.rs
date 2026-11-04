@@ -261,18 +261,13 @@ impl Parser<'_> {
             return s;
         }
         self.i += 1;
+        // Inner braces only group, as in TeX: `\text{a {b}}` is "a b".
         let mut depth = 0;
         while let Some(t) = self.next() {
             match t {
-                T::Open => {
-                    depth += 1;
-                    s.push('{');
-                }
+                T::Open => depth += 1,
                 T::Close if depth == 0 => break,
-                T::Close => {
-                    depth -= 1;
-                    s.push('}');
-                }
+                T::Close => depth -= 1,
                 T::Ch(c) => s.push(c),
                 T::Cmd(c) => match symbol(&c) {
                     Some((sym, _)) => s.push_str(sym),
@@ -1169,6 +1164,13 @@ mod tests {
         assert_eq!(u(r"\sum_{i=1}^n i"), "∑ᵢ₌₁ⁿi");
         assert_eq!(u(r"\foo"), "\\foo");
         assert_eq!(u(r"f(x, y)"), "f(x,\u{2009}y)");
+    }
+
+    #[test]
+    fn braces_inside_text_only_group() {
+        assert_eq!(u(r"\text{a {nested} \{b\} c}"), "a nested {b} c");
+        assert_eq!(u(r"\mathbb{{R}}"), "ℝ");
+        assert_eq!(u(r"\text{a {b"), "a b");
     }
 
     #[test]
