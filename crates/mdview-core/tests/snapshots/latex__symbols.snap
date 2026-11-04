@@ -1,0 +1,454 @@
+---
+source: crates/mdview-core/tests/latex.rs
+expression: "table(SYMBOLS.iter().flat_map(|s|\n{ [format!(\"\\\\{s}\"), format!(\"a \\\\{s} b\")] }))"
+---
+\alpha ⇒ ⟦I|α⟧
+a \alpha b ⇒ ⟦I|aαb⟧
+\beta ⇒ ⟦I|β⟧
+a \beta b ⇒ ⟦I|aβb⟧
+\gamma ⇒ ⟦I|γ⟧
+a \gamma b ⇒ ⟦I|aγb⟧
+\delta ⇒ ⟦I|δ⟧
+a \delta b ⇒ ⟦I|aδb⟧
+\epsilon ⇒ ⟦I|ϵ⟧
+a \epsilon b ⇒ ⟦I|aϵb⟧
+\varepsilon ⇒ ⟦I|ε⟧
+a \varepsilon b ⇒ ⟦I|aεb⟧
+\zeta ⇒ ⟦I|ζ⟧
+a \zeta b ⇒ ⟦I|aζb⟧
+\eta ⇒ ⟦I|η⟧
+a \eta b ⇒ ⟦I|aηb⟧
+\theta ⇒ ⟦I|θ⟧
+a \theta b ⇒ ⟦I|aθb⟧
+\vartheta ⇒ ⟦I|ϑ⟧
+a \vartheta b ⇒ ⟦I|aϑb⟧
+\iota ⇒ ⟦I|ι⟧
+a \iota b ⇒ ⟦I|aιb⟧
+\kappa ⇒ ⟦I|κ⟧
+a \kappa b ⇒ ⟦I|aκb⟧
+\lambda ⇒ ⟦I|λ⟧
+a \lambda b ⇒ ⟦I|aλb⟧
+\mu ⇒ ⟦I|μ⟧
+a \mu b ⇒ ⟦I|aμb⟧
+\nu ⇒ ⟦I|ν⟧
+a \nu b ⇒ ⟦I|aνb⟧
+\xi ⇒ ⟦I|ξ⟧
+a \xi b ⇒ ⟦I|aξb⟧
+\omicron ⇒ ⟦I|ο⟧
+a \omicron b ⇒ ⟦I|aοb⟧
+\pi ⇒ ⟦I|π⟧
+a \pi b ⇒ ⟦I|aπb⟧
+\varpi ⇒ ⟦I|ϖ⟧
+a \varpi b ⇒ ⟦I|aϖb⟧
+\rho ⇒ ⟦I|ρ⟧
+a \rho b ⇒ ⟦I|aρb⟧
+\varrho ⇒ ⟦I|ϱ⟧
+a \varrho b ⇒ ⟦I|aϱb⟧
+\sigma ⇒ ⟦I|σ⟧
+a \sigma b ⇒ ⟦I|aσb⟧
+\varsigma ⇒ ⟦I|ς⟧
+a \varsigma b ⇒ ⟦I|aςb⟧
+\tau ⇒ ⟦I|τ⟧
+a \tau b ⇒ ⟦I|aτb⟧
+\upsilon ⇒ ⟦I|υ⟧
+a \upsilon b ⇒ ⟦I|aυb⟧
+\phi ⇒ ⟦I|ϕ⟧
+a \phi b ⇒ ⟦I|aϕb⟧
+\varphi ⇒ ⟦I|φ⟧
+a \varphi b ⇒ ⟦I|aφb⟧
+\chi ⇒ ⟦I|χ⟧
+a \chi b ⇒ ⟦I|aχb⟧
+\psi ⇒ ⟦I|ψ⟧
+a \psi b ⇒ ⟦I|aψb⟧
+\omega ⇒ ⟦I|ω⟧
+a \omega b ⇒ ⟦I|aωb⟧
+\Gamma ⇒ Γ
+a \Gamma b ⇒ ⟦I|a⟧Γ⟦I|b⟧
+\Delta ⇒ Δ
+a \Delta b ⇒ ⟦I|a⟧Δ⟦I|b⟧
+\Theta ⇒ Θ
+a \Theta b ⇒ ⟦I|a⟧Θ⟦I|b⟧
+\Lambda ⇒ Λ
+a \Lambda b ⇒ ⟦I|a⟧Λ⟦I|b⟧
+\Xi ⇒ Ξ
+a \Xi b ⇒ ⟦I|a⟧Ξ⟦I|b⟧
+\Pi ⇒ Π
+a \Pi b ⇒ ⟦I|a⟧Π⟦I|b⟧
+\Sigma ⇒ Σ
+a \Sigma b ⇒ ⟦I|a⟧Σ⟦I|b⟧
+\Upsilon ⇒ Υ
+a \Upsilon b ⇒ ⟦I|a⟧Υ⟦I|b⟧
+\Phi ⇒ Φ
+a \Phi b ⇒ ⟦I|a⟧Φ⟦I|b⟧
+\Psi ⇒ Ψ
+a \Psi b ⇒ ⟦I|a⟧Ψ⟦I|b⟧
+\Omega ⇒ Ω
+a \Omega b ⇒ ⟦I|a⟧Ω⟦I|b⟧
+\pm ⇒ ±
+a \pm b ⇒ ⟦I|a⟧ ± ⟦I|b⟧
+\mp ⇒ ∓
+a \mp b ⇒ ⟦I|a⟧ ∓ ⟦I|b⟧
+\times ⇒ ×
+a \times b ⇒ ⟦I|a⟧ × ⟦I|b⟧
+\div ⇒ ÷
+a \div b ⇒ ⟦I|a⟧ ÷ ⟦I|b⟧
+\cdot ⇒ ⋅
+a \cdot b ⇒ ⟦I|a⟧ ⋅ ⟦I|b⟧
+\ast ⇒ ∗
+a \ast b ⇒ ⟦I|a⟧ ∗ ⟦I|b⟧
+\star ⇒ ⋆
+a \star b ⇒ ⟦I|a⟧ ⋆ ⟦I|b⟧
+\circ ⇒ ∘
+a \circ b ⇒ ⟦I|a⟧ ∘ ⟦I|b⟧
+\bullet ⇒ ∙
+a \bullet b ⇒ ⟦I|a⟧ ∙ ⟦I|b⟧
+\oplus ⇒ ⊕
+a \oplus b ⇒ ⟦I|a⟧ ⊕ ⟦I|b⟧
+\ominus ⇒ ⊖
+a \ominus b ⇒ ⟦I|a⟧ ⊖ ⟦I|b⟧
+\otimes ⇒ ⊗
+a \otimes b ⇒ ⟦I|a⟧ ⊗ ⟦I|b⟧
+\odot ⇒ ⊙
+a \odot b ⇒ ⟦I|a⟧ ⊙ ⟦I|b⟧
+\cup ⇒ ∪
+a \cup b ⇒ ⟦I|a⟧ ∪ ⟦I|b⟧
+\cap ⇒ ∩
+a \cap b ⇒ ⟦I|a⟧ ∩ ⟦I|b⟧
+\sqcup ⇒ ⊔
+a \sqcup b ⇒ ⟦I|a⟧ ⊔ ⟦I|b⟧
+\sqcap ⇒ ⊓
+a \sqcap b ⇒ ⟦I|a⟧ ⊓ ⟦I|b⟧
+\wedge ⇒ ∧
+a \wedge b ⇒ ⟦I|a⟧ ∧ ⟦I|b⟧
+\land ⇒ ∧
+a \land b ⇒ ⟦I|a⟧ ∧ ⟦I|b⟧
+\vee ⇒ ∨
+a \vee b ⇒ ⟦I|a⟧ ∨ ⟦I|b⟧
+\lor ⇒ ∨
+a \lor b ⇒ ⟦I|a⟧ ∨ ⟦I|b⟧
+\setminus ⇒ ∖
+a \setminus b ⇒ ⟦I|a⟧ ∖ ⟦I|b⟧
+\dagger ⇒ †
+a \dagger b ⇒ ⟦I|a⟧ † ⟦I|b⟧
+\ddagger ⇒ ‡
+a \ddagger b ⇒ ⟦I|a⟧ ‡ ⟦I|b⟧
+\amalg ⇒ ⨿
+a \amalg b ⇒ ⟦I|a⟧ ⨿ ⟦I|b⟧
+\le ⇒ ≤
+a \le b ⇒ ⟦I|a⟧ ≤ ⟦I|b⟧
+\leq ⇒ ≤
+a \leq b ⇒ ⟦I|a⟧ ≤ ⟦I|b⟧
+\ge ⇒ ≥
+a \ge b ⇒ ⟦I|a⟧ ≥ ⟦I|b⟧
+\geq ⇒ ≥
+a \geq b ⇒ ⟦I|a⟧ ≥ ⟦I|b⟧
+\leqslant ⇒ ⩽
+a \leqslant b ⇒ ⟦I|a⟧ ⩽ ⟦I|b⟧
+\geqslant ⇒ ⩾
+a \geqslant b ⇒ ⟦I|a⟧ ⩾ ⟦I|b⟧
+\ne ⇒ ≠
+a \ne b ⇒ ⟦I|a⟧ ≠ ⟦I|b⟧
+\neq ⇒ ≠
+a \neq b ⇒ ⟦I|a⟧ ≠ ⟦I|b⟧
+\approx ⇒ ≈
+a \approx b ⇒ ⟦I|a⟧ ≈ ⟦I|b⟧
+\equiv ⇒ ≡
+a \equiv b ⇒ ⟦I|a⟧ ≡ ⟦I|b⟧
+\sim ⇒ ∼
+a \sim b ⇒ ⟦I|a⟧ ∼ ⟦I|b⟧
+\simeq ⇒ ≃
+a \simeq b ⇒ ⟦I|a⟧ ≃ ⟦I|b⟧
+\cong ⇒ ≅
+a \cong b ⇒ ⟦I|a⟧ ≅ ⟦I|b⟧
+\propto ⇒ ∝
+a \propto b ⇒ ⟦I|a⟧ ∝ ⟦I|b⟧
+\ll ⇒ ≪
+a \ll b ⇒ ⟦I|a⟧ ≪ ⟦I|b⟧
+\gg ⇒ ≫
+a \gg b ⇒ ⟦I|a⟧ ≫ ⟦I|b⟧
+\prec ⇒ ≺
+a \prec b ⇒ ⟦I|a⟧ ≺ ⟦I|b⟧
+\succ ⇒ ≻
+a \succ b ⇒ ⟦I|a⟧ ≻ ⟦I|b⟧
+\preceq ⇒ ⪯
+a \preceq b ⇒ ⟦I|a⟧ ⪯ ⟦I|b⟧
+\succeq ⇒ ⪰
+a \succeq b ⇒ ⟦I|a⟧ ⪰ ⟦I|b⟧
+\subset ⇒ ⊂
+a \subset b ⇒ ⟦I|a⟧ ⊂ ⟦I|b⟧
+\supset ⇒ ⊃
+a \supset b ⇒ ⟦I|a⟧ ⊃ ⟦I|b⟧
+\subseteq ⇒ ⊆
+a \subseteq b ⇒ ⟦I|a⟧ ⊆ ⟦I|b⟧
+\supseteq ⇒ ⊇
+a \supseteq b ⇒ ⟦I|a⟧ ⊇ ⟦I|b⟧
+\subsetneq ⇒ ⊊
+a \subsetneq b ⇒ ⟦I|a⟧ ⊊ ⟦I|b⟧
+\supsetneq ⇒ ⊋
+a \supsetneq b ⇒ ⟦I|a⟧ ⊋ ⟦I|b⟧
+\in ⇒ ∈
+a \in b ⇒ ⟦I|a⟧ ∈ ⟦I|b⟧
+\notin ⇒ ∉
+a \notin b ⇒ ⟦I|a⟧ ∉ ⟦I|b⟧
+\ni ⇒ ∋
+a \ni b ⇒ ⟦I|a⟧ ∋ ⟦I|b⟧
+\mid ⇒ ∣
+a \mid b ⇒ ⟦I|a⟧ ∣ ⟦I|b⟧
+\nmid ⇒ ∤
+a \nmid b ⇒ ⟦I|a⟧ ∤ ⟦I|b⟧
+\parallel ⇒ ∥
+a \parallel b ⇒ ⟦I|a⟧ ∥ ⟦I|b⟧
+\perp ⇒ ⊥
+a \perp b ⇒ ⟦I|a⟧ ⊥ ⟦I|b⟧
+\vdash ⇒ ⊢
+a \vdash b ⇒ ⟦I|a⟧ ⊢ ⟦I|b⟧
+\dashv ⇒ ⊣
+a \dashv b ⇒ ⟦I|a⟧ ⊣ ⟦I|b⟧
+\models ⇒ ⊨
+a \models b ⇒ ⟦I|a⟧ ⊨ ⟦I|b⟧
+\coloneqq ⇒ ≔
+a \coloneqq b ⇒ ⟦I|a⟧ ≔ ⟦I|b⟧
+\coloneq ⇒ ≔
+a \coloneq b ⇒ ⟦I|a⟧ ≔ ⟦I|b⟧
+\doteq ⇒ ≐
+a \doteq b ⇒ ⟦I|a⟧ ≐ ⟦I|b⟧
+\triangleq ⇒ ≜
+a \triangleq b ⇒ ⟦I|a⟧ ≜ ⟦I|b⟧
+\to ⇒ →
+a \to b ⇒ ⟦I|a⟧ → ⟦I|b⟧
+\rightarrow ⇒ →
+a \rightarrow b ⇒ ⟦I|a⟧ → ⟦I|b⟧
+\gets ⇒ ←
+a \gets b ⇒ ⟦I|a⟧ ← ⟦I|b⟧
+\leftarrow ⇒ ←
+a \leftarrow b ⇒ ⟦I|a⟧ ← ⟦I|b⟧
+\leftrightarrow ⇒ ↔
+a \leftrightarrow b ⇒ ⟦I|a⟧ ↔ ⟦I|b⟧
+\Rightarrow ⇒ ⇒
+a \Rightarrow b ⇒ ⟦I|a⟧ ⇒ ⟦I|b⟧
+\Leftarrow ⇒ ⇐
+a \Leftarrow b ⇒ ⟦I|a⟧ ⇐ ⟦I|b⟧
+\Leftrightarrow ⇒ ⇔
+a \Leftrightarrow b ⇒ ⟦I|a⟧ ⇔ ⟦I|b⟧
+\implies ⇒ ⟹
+a \implies b ⇒ ⟦I|a⟧ ⟹ ⟦I|b⟧
+\Longrightarrow ⇒ ⟹
+a \Longrightarrow b ⇒ ⟦I|a⟧ ⟹ ⟦I|b⟧
+\impliedby ⇒ ⟸
+a \impliedby b ⇒ ⟦I|a⟧ ⟸ ⟦I|b⟧
+\Longleftarrow ⇒ ⟸
+a \Longleftarrow b ⇒ ⟦I|a⟧ ⟸ ⟦I|b⟧
+\iff ⇒ ⟺
+a \iff b ⇒ ⟦I|a⟧ ⟺ ⟦I|b⟧
+\Longleftrightarrow ⇒ ⟺
+a \Longleftrightarrow b ⇒ ⟦I|a⟧ ⟺ ⟦I|b⟧
+\longrightarrow ⇒ ⟶
+a \longrightarrow b ⇒ ⟦I|a⟧ ⟶ ⟦I|b⟧
+\longleftarrow ⇒ ⟵
+a \longleftarrow b ⇒ ⟦I|a⟧ ⟵ ⟦I|b⟧
+\longleftrightarrow ⇒ ⟷
+a \longleftrightarrow b ⇒ ⟦I|a⟧ ⟷ ⟦I|b⟧
+\mapsto ⇒ ↦
+a \mapsto b ⇒ ⟦I|a⟧ ↦ ⟦I|b⟧
+\longmapsto ⇒ ⟼
+a \longmapsto b ⇒ ⟦I|a⟧ ⟼ ⟦I|b⟧
+\hookrightarrow ⇒ ↪
+a \hookrightarrow b ⇒ ⟦I|a⟧ ↪ ⟦I|b⟧
+\hookleftarrow ⇒ ↩
+a \hookleftarrow b ⇒ ⟦I|a⟧ ↩ ⟦I|b⟧
+\uparrow ⇒ ↑
+a \uparrow b ⇒ ⟦I|a⟧ ↑ ⟦I|b⟧
+\downarrow ⇒ ↓
+a \downarrow b ⇒ ⟦I|a⟧ ↓ ⟦I|b⟧
+\updownarrow ⇒ ↕
+a \updownarrow b ⇒ ⟦I|a⟧ ↕ ⟦I|b⟧
+\Uparrow ⇒ ⇑
+a \Uparrow b ⇒ ⟦I|a⟧ ⇑ ⟦I|b⟧
+\Downarrow ⇒ ⇓
+a \Downarrow b ⇒ ⟦I|a⟧ ⇓ ⟦I|b⟧
+\nearrow ⇒ ↗
+a \nearrow b ⇒ ⟦I|a⟧ ↗ ⟦I|b⟧
+\searrow ⇒ ↘
+a \searrow b ⇒ ⟦I|a⟧ ↘ ⟦I|b⟧
+\rightleftharpoons ⇒ ⇌
+a \rightleftharpoons b ⇒ ⟦I|a⟧ ⇌ ⟦I|b⟧
+\sum ⇒ ∑
+a \sum b ⇒ ⟦I|a⟧∑⟦I|b⟧
+\prod ⇒ ∏
+a \prod b ⇒ ⟦I|a⟧∏⟦I|b⟧
+\coprod ⇒ ∐
+a \coprod b ⇒ ⟦I|a⟧∐⟦I|b⟧
+\int ⇒ ∫
+a \int b ⇒ ⟦I|a⟧∫⟦I|b⟧
+\iint ⇒ ∬
+a \iint b ⇒ ⟦I|a⟧∬⟦I|b⟧
+\iiint ⇒ ∭
+a \iiint b ⇒ ⟦I|a⟧∭⟦I|b⟧
+\oint ⇒ ∮
+a \oint b ⇒ ⟦I|a⟧∮⟦I|b⟧
+\bigcup ⇒ ⋃
+a \bigcup b ⇒ ⟦I|a⟧⋃⟦I|b⟧
+\bigcap ⇒ ⋂
+a \bigcap b ⇒ ⟦I|a⟧⋂⟦I|b⟧
+\bigoplus ⇒ ⨁
+a \bigoplus b ⇒ ⟦I|a⟧⨁⟦I|b⟧
+\bigotimes ⇒ ⨂
+a \bigotimes b ⇒ ⟦I|a⟧⨂⟦I|b⟧
+\bigvee ⇒ ⋁
+a \bigvee b ⇒ ⟦I|a⟧⋁⟦I|b⟧
+\bigwedge ⇒ ⋀
+a \bigwedge b ⇒ ⟦I|a⟧⋀⟦I|b⟧
+\bigsqcup ⇒ ⨆
+a \bigsqcup b ⇒ ⟦I|a⟧⨆⟦I|b⟧
+\langle ⇒ ⟨
+a \langle b ⇒ ⟦I|a⟧⟨⟦I|b⟧
+\rangle ⇒ ⟩
+a \rangle b ⇒ ⟦I|a⟧⟩⟦I|b⟧
+\lceil ⇒ ⌈
+a \lceil b ⇒ ⟦I|a⟧⌈⟦I|b⟧
+\rceil ⇒ ⌉
+a \rceil b ⇒ ⟦I|a⟧⌉⟦I|b⟧
+\lfloor ⇒ ⌊
+a \lfloor b ⇒ ⟦I|a⟧⌊⟦I|b⟧
+\rfloor ⇒ ⌋
+a \rfloor b ⇒ ⟦I|a⟧⌋⟦I|b⟧
+\lvert ⇒ |
+a \lvert b ⇒ ⟦I|a⟧|⟦I|b⟧
+\rvert ⇒ |
+a \rvert b ⇒ ⟦I|a⟧|⟦I|b⟧
+\lVert ⇒ ‖
+a \lVert b ⇒ ⟦I|a⟧‖⟦I|b⟧
+\rVert ⇒ ‖
+a \rVert b ⇒ ⟦I|a⟧‖⟦I|b⟧
+\vert ⇒ |
+a \vert b ⇒ ⟦I|a⟧|⟦I|b⟧
+\Vert ⇒ ‖
+a \Vert b ⇒ ⟦I|a⟧‖⟦I|b⟧
+\| ⇒ ‖
+a \| b ⇒ ⟦I|a⟧‖⟦I|b⟧
+\{ ⇒ {
+a \{ b ⇒ ⟦I|a⟧{⟦I|b⟧
+\lbrace ⇒ {
+a \lbrace b ⇒ ⟦I|a⟧{⟦I|b⟧
+\} ⇒ }
+a \} b ⇒ ⟦I|a⟧}⟦I|b⟧
+\rbrace ⇒ }
+a \rbrace b ⇒ ⟦I|a⟧}⟦I|b⟧
+\lbrack ⇒ [
+a \lbrack b ⇒ ⟦I|a⟧[⟦I|b⟧
+\rbrack ⇒ ]
+a \rbrack b ⇒ ⟦I|a⟧]⟦I|b⟧
+\backslash ⇒ \
+a \backslash b ⇒ ⟦I|a⟧\⟦I|b⟧
+\infty ⇒ ∞
+a \infty b ⇒ ⟦I|a⟧∞⟦I|b⟧
+\partial ⇒ ∂
+a \partial b ⇒ ⟦I|a⟧∂⟦I|b⟧
+\nabla ⇒ ∇
+a \nabla b ⇒ ⟦I|a⟧∇⟦I|b⟧
+\forall ⇒ ∀
+a \forall b ⇒ ⟦I|a⟧∀⟦I|b⟧
+\exists ⇒ ∃
+a \exists b ⇒ ⟦I|a⟧∃⟦I|b⟧
+\nexists ⇒ ∄
+a \nexists b ⇒ ⟦I|a⟧∄⟦I|b⟧
+\emptyset ⇒ ∅
+a \emptyset b ⇒ ⟦I|a⟧∅⟦I|b⟧
+\varnothing ⇒ ∅
+a \varnothing b ⇒ ⟦I|a⟧∅⟦I|b⟧
+\neg ⇒ ¬
+a \neg b ⇒ ⟦I|a⟧¬⟦I|b⟧
+\lnot ⇒ ¬
+a \lnot b ⇒ ⟦I|a⟧¬⟦I|b⟧
+\ldots ⇒ …
+a \ldots b ⇒ ⟦I|a⟧…⟦I|b⟧
+\dots ⇒ …
+a \dots b ⇒ ⟦I|a⟧…⟦I|b⟧
+\dotsc ⇒ …
+a \dotsc b ⇒ ⟦I|a⟧…⟦I|b⟧
+\dotsb ⇒ …
+a \dotsb b ⇒ ⟦I|a⟧…⟦I|b⟧
+\cdots ⇒ ⋯
+a \cdots b ⇒ ⟦I|a⟧⋯⟦I|b⟧
+\vdots ⇒ ⋮
+a \vdots b ⇒ ⟦I|a⟧⋮⟦I|b⟧
+\ddots ⇒ ⋱
+a \ddots b ⇒ ⟦I|a⟧⋱⟦I|b⟧
+\prime ⇒ ′
+a \prime b ⇒ ⟦I|a⟧′⟦I|b⟧
+\angle ⇒ ∠
+a \angle b ⇒ ⟦I|a⟧∠⟦I|b⟧
+\measuredangle ⇒ ∡
+a \measuredangle b ⇒ ⟦I|a⟧∡⟦I|b⟧
+\triangle ⇒ △
+a \triangle b ⇒ ⟦I|a⟧△⟦I|b⟧
+\square ⇒ □
+a \square b ⇒ ⟦I|a⟧□⟦I|b⟧
+\Box ⇒ □
+a \Box b ⇒ ⟦I|a⟧□⟦I|b⟧
+\blacksquare ⇒ ■
+a \blacksquare b ⇒ ⟦I|a⟧■⟦I|b⟧
+\qed ⇒ ■
+a \qed b ⇒ ⟦I|a⟧■⟦I|b⟧
+\Diamond ⇒ ◇
+a \Diamond b ⇒ ⟦I|a⟧◇⟦I|b⟧
+\hbar ⇒ ⟦I|ℏ⟧
+a \hbar b ⇒ ⟦I|aℏb⟧
+\hslash ⇒ ⟦I|ℏ⟧
+a \hslash b ⇒ ⟦I|aℏb⟧
+\ell ⇒ ⟦I|ℓ⟧
+a \ell b ⇒ ⟦I|aℓb⟧
+\wp ⇒ ℘
+a \wp b ⇒ ⟦I|a⟧℘⟦I|b⟧
+\Re ⇒ ℜ
+a \Re b ⇒ ⟦I|a⟧ℜ⟦I|b⟧
+\Im ⇒ ℑ
+a \Im b ⇒ ⟦I|a⟧ℑ⟦I|b⟧
+\aleph ⇒ ℵ
+a \aleph b ⇒ ⟦I|a⟧ℵ⟦I|b⟧
+\beth ⇒ ℶ
+a \beth b ⇒ ⟦I|a⟧ℶ⟦I|b⟧
+\top ⇒ ⊤
+a \top b ⇒ ⟦I|a⟧⊤⟦I|b⟧
+\bot ⇒ ⊥
+a \bot b ⇒ ⟦I|a⟧⊥⟦I|b⟧
+\therefore ⇒ ∴
+a \therefore b ⇒ ⟦I|a⟧∴⟦I|b⟧
+\because ⇒ ∵
+a \because b ⇒ ⟦I|a⟧∵⟦I|b⟧
+\checkmark ⇒ ✓
+a \checkmark b ⇒ ⟦I|a⟧✓⟦I|b⟧
+\degree ⇒ °
+a \degree b ⇒ ⟦I|a⟧°⟦I|b⟧
+\flat ⇒ ♭
+a \flat b ⇒ ⟦I|a⟧♭⟦I|b⟧
+\sharp ⇒ ♯
+a \sharp b ⇒ ⟦I|a⟧♯⟦I|b⟧
+\natural ⇒ ♮
+a \natural b ⇒ ⟦I|a⟧♮⟦I|b⟧
+\clubsuit ⇒ ♣
+a \clubsuit b ⇒ ⟦I|a⟧♣⟦I|b⟧
+\diamondsuit ⇒ ♢
+a \diamondsuit b ⇒ ⟦I|a⟧♢⟦I|b⟧
+\heartsuit ⇒ ♡
+a \heartsuit b ⇒ ⟦I|a⟧♡⟦I|b⟧
+\spadesuit ⇒ ♠
+a \spadesuit b ⇒ ⟦I|a⟧♠⟦I|b⟧
+\imath ⇒ ⟦I|ı⟧
+a \imath b ⇒ ⟦I|aıb⟧
+\jmath ⇒ ⟦I|ȷ⟧
+a \jmath b ⇒ ⟦I|aȷb⟧
+\S ⇒ §
+a \S b ⇒ ⟦I|a⟧§⟦I|b⟧
+\P ⇒ ¶
+a \P b ⇒ ⟦I|a⟧¶⟦I|b⟧
+\% ⇒ %
+a \% b ⇒ ⟦I|a⟧%⟦I|b⟧
+\$ ⇒ $
+a \$ b ⇒ ⟦I|a⟧$⟦I|b⟧
+\& ⇒ &
+a \& b ⇒ ⟦I|a⟧&⟦I|b⟧
+\# ⇒ #
+a \# b ⇒ ⟦I|a⟧#⟦I|b⟧
+\_ ⇒ _
+a \_ b ⇒ ⟦I|a⟧_⟦I|b⟧

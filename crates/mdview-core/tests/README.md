@@ -6,6 +6,7 @@ Run them all with `cargo test -p mdview-core` (a few seconds; no GPUI).
 | --- | --- |
 | `snapshots.rs` | Every `fixtures/*.md` parsed and dumped as text, compared with `snapshots/*.snap` |
 | `highlight.rs` | A token snapshot of `code/<lang>.txt` for every lexer; the language list, aliases and samples stay in sync with `src/highlight.rs`; edge cases per lexer |
+| `latex.rs` | Snapshot tables (`input ⇒ output`, italics marked) for every symbol, function and accent `src/latex.rs` knows (kept in sync with the source), structures, environments and malformed input |
 | `common/` | Shared helpers: the dump format (`dump.rs`), the invariants (`invariants.rs`), the language list (`langs.rs`) |
 
 ## Snapshots
