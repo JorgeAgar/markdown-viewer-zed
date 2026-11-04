@@ -927,7 +927,8 @@ fn shell(code: &str, out: &mut Out) {
             continue;
         }
         if c == b'\\' {
-            i += 2;
+            // Skip the escaped character, which may be multi-byte.
+            i += 1 + b.get(i + 1).map_or(0, |&n| utf8_len(n));
             continue;
         }
         // A word.
@@ -1252,5 +1253,13 @@ mod tests {
         assert_eq!(t[1], ("-a".into(), Tok::Deleted));
         assert_eq!(t[2], ("+b".into(), Tok::Inserted));
         assert!(highlight("brainfuck", "+++").is_empty());
+    }
+
+    #[test]
+    fn shell_escape_before_multibyte_char() {
+        // `\é` used to skip only one byte of the `é`, then slice the code in
+        // the middle of it, which panicked.
+        let t = toks("sh", "echo \\é x\\");
+        assert_eq!(t, [("echo".into(), Tok::Function)]);
     }
 }
