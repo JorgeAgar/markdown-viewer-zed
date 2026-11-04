@@ -189,14 +189,17 @@ pub fn parse(src: &str) -> Document {
     // Editors on Windows like to start UTF-8 files with a byte order mark;
     // left in, it would turn a first `# Heading` into a paragraph.
     let src = src.strip_prefix('\u{feff}').unwrap_or(src);
+    // Front matter isn't shown. pulldown-cmark's metadata-block options
+    // would also swallow a `---` line, text and a `---` line anywhere in the
+    // document (really a rule and a setext heading), so cut it off here and
+    // parse the rest without them.
+    let src = &src[front_matter_len(src)..];
     let opts = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_GFM
-        | Options::ENABLE_MATH
-        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
-        | Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS;
+        | Options::ENABLE_MATH;
     let events: Vec<Event> = Parser::new_ext(src, opts).collect();
     let mut p = P { ev: events, i: 0 };
     let mut blocks = Vec::new();
@@ -394,7 +397,7 @@ impl<'a> P<'a> {
                     blocks,
                 });
             }
-            Tag::HtmlBlock | Tag::MetadataBlock(_) => self.skip_to_end(),
+            Tag::HtmlBlock => self.skip_to_end(),
             // Anything else we don't specifically render: keep its children.
             _ => self.blocks(out),
         }
@@ -567,6 +570,63 @@ impl<'a> P<'a> {
         }
         (rich, images)
     }
+}
+
+/// Length of the YAML (`---`) or TOML (`+++`) front matter at the start of
+/// `src`, including its closing line; 0 if there is none. Same rules as
+/// pulldown-cmark's metadata blocks: an opening line of exactly three
+/// delimiters (plus whitespace), a first line that is neither blank nor the
+/// closing line, and a closing line of exactly three delimiters (or `...`
+/// for YAML) followed only by spaces.
+fn front_matter_len(src: &str) -> usize {
+    let delim = match src.as_bytes().first() {
+        Some(b'-') => "---",
+        Some(b'+') => "+++",
+        _ => return 0,
+    };
+    let mut lines = src.split_inclusive('\n');
+    let Some(rest) = lines.next().and_then(|l| l.strip_prefix(delim)) else {
+        return 0;
+    };
+    if !rest.bytes().all(|b| b.is_ascii_whitespace()) {
+        return 0;
+    }
+    // Length of `line` up to the end of its line ending if it closes the
+    // block. (Lines are split at `\n` only, like pulldown-cmark does, but a
+    // lone `\r` also ends a closing line.)
+    let closing = |line: &str| {
+        let rest = line
+            .strip_prefix(delim)
+            .or_else(|| (delim == "---").then(|| line.strip_prefix("...")).flatten())?
+            .trim_start_matches(' ');
+        let eol = if rest.starts_with("\r\n") {
+            2
+        } else if rest.starts_with(['\r', '\n']) {
+            1
+        } else if rest.is_empty() {
+            0
+        } else {
+            return None;
+        };
+        Some(line.len() - rest.len() + eol)
+    };
+    let mut len = delim.len() + rest.len();
+    for (i, line) in lines.enumerate() {
+        let close = closing(line);
+        if i == 0
+            && (close.is_some()
+                || line
+                    .trim_start_matches([' ', '\t'])
+                    .starts_with(['\n', '\r']))
+        {
+            return 0;
+        }
+        if let Some(n) = close {
+            return len + n;
+        }
+        len += line.len();
+    }
+    0
 }
 
 /// `<br>`, `<br/>`, `<br />`, `<BR >`...
@@ -762,6 +822,80 @@ mod tests {
                 "me@x.y"
             ]
         );
+    }
+
+    #[test]
+    fn front_matter_only_at_the_start() {
+        fn texts(src: &str) -> Vec<String> {
+            parse(src)
+                .blocks
+                .iter()
+                .map(|b| match b {
+                    Block::Heading { level, text, .. } => format!("h{level}:{}", text.text),
+                    Block::Paragraph(p) => format!("p:{}", p.text),
+                    Block::Rule => "hr".into(),
+                    other => format!("{other:?}"),
+                })
+                .collect()
+        }
+        // Front matter is hidden...
+        assert_eq!(texts("---\ntitle: x\n---\nText"), ["p:Text"]);
+        assert_eq!(texts("---\r\na: 1\r\n...\r\nText"), ["p:Text"]);
+        assert_eq!(texts("+++ \nb = 2\n+++  \n# H"), ["h1:H"]);
+        assert_eq!(texts("---\na\n\nb\n---\n"), Vec::<String>::new());
+        // ...but only at the very start: later it's a rule and a heading.
+        assert_eq!(
+            texts("Intro\n\n---\ntitle: x\n---\n\nAfter"),
+            ["p:Intro", "hr", "h2:title: x", "p:After"]
+        );
+        assert_eq!(texts("# H\n\n+++\nb\n+++\n"), ["h1:H", "p:+++ b +++"]);
+        // Not front matter: blank or closing first line, wrong delimiters,
+        // indentation, never closed.
+        assert_eq!(texts("---\n\nx\n---\n"), ["hr", "h2:x"]);
+        assert_eq!(texts("---\n---\n"), ["hr", "hr"]);
+        assert_eq!(texts("----\nx\n----\n"), ["hr", "h2:x"]);
+        assert_eq!(texts("--- x\ny\n---\n"), ["h2:--- x y"]);
+        assert_eq!(texts("---\nx\n ---\n"), ["hr", "h2:x"]);
+        assert_eq!(texts("---\nx\n----\n"), ["hr", "h2:x"]);
+        assert_eq!(texts("+++\nx\n...\n"), ["p:+++ x ..."]);
+        assert_eq!(texts("---\nx\n"), ["hr", "p:x"]);
+        assert_eq!(texts("---"), ["hr"]);
+        assert_eq!(texts("--"), ["p:--"]);
+        assert_eq!(texts(""), Vec::<String>::new());
+    }
+
+    proptest::proptest! {
+        /// `front_matter_len` agrees with pulldown-cmark's own metadata-block
+        /// scanner on what the document starts with.
+        #[test]
+        fn front_matter_len_matches_pulldown(
+            parts in proptest::collection::vec(
+                proptest::sample::select(&[
+                    "---", "+++", "...", "-", "+", ".", "\n", "\r\n", "\r", " ", "\t",
+                    "x", "a: 1", "#",
+                ][..]),
+                0..16,
+            )
+        ) {
+            let src = parts.concat();
+            let opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+                | Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS;
+            let pulldown = match Parser::new_ext(&src, opts).into_offset_iter().next() {
+                // pulldown-cmark also accepts it after blank lines; GitHub
+                // (and Jekyll) only on the first line, like us.
+                Some((Event::Start(Tag::MetadataBlock(_)), r)) if r.start == 0 => Some(r.end),
+                _ => None,
+            };
+            let len = front_matter_len(&src);
+            match pulldown {
+                // pulldown's range stops before the closing line's ending.
+                Some(end) => proptest::prop_assert!(
+                    len >= end && matches!(&src[end..len], "" | "\n" | "\r" | "\r\n"),
+                    "pulldown: ..{end}, ours: ..{len}"
+                ),
+                None => proptest::prop_assert_eq!(len, 0),
+            }
+        }
     }
 
     #[test]
