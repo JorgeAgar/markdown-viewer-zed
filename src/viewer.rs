@@ -33,11 +33,12 @@ pub type Loaded = (PathBuf, Result<(Document, Option<SystemTime>), String>);
 
 /// Read + parse a file. Safe to call from any thread.
 pub fn load(path: PathBuf) -> Loaded {
+    // Stat before reading: if the file changes in between, the content is
+    // newer than the mtime and the next live-reload poll reads it again.
+    // The other order would pair the new mtime with the old content.
+    let mtime = modified(&path);
     let res = std::fs::read(&path)
-        .map(|bytes| {
-            let mtime = modified(&path);
-            (markdown::parse(&String::from_utf8_lossy(&bytes)), mtime)
-        })
+        .map(|bytes| (markdown::parse(&String::from_utf8_lossy(&bytes)), mtime))
         .map_err(|e| e.to_string());
     (path, res)
 }
@@ -485,6 +486,42 @@ mod tests {
         assert_eq!(heading(&doc, 0), "Title");
         assert_eq!(mtime, modified(&path));
         assert!(mtime.is_some());
+    }
+
+    /// The mtime must be taken *before* reading. Otherwise a save that lands
+    /// between the read and the stat is recorded with the old content, and
+    /// live reload never picks it up. A FIFO makes that race deterministic:
+    /// reading blocks until a writer comes, and the write bumps the mtime.
+    #[test]
+    fn load_takes_the_mtime_before_reading() {
+        let dir = TempDir::new("fifo");
+        let fifo = dir.join("pipe.md");
+        let ok = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|s| s.success());
+        assert!(ok, "mkfifo failed");
+        let before = modified(&fifo).unwrap();
+        let writer = {
+            let fifo = fifo.clone();
+            std::thread::spawn(move || {
+                // Coarse timestamps: make sure the write gets a later one.
+                std::thread::sleep(Duration::from_millis(50));
+                std::fs::write(&fifo, "# Saved\n").unwrap();
+            })
+        };
+        let (doc, mtime) = load(fifo.clone()).1.unwrap();
+        writer.join().unwrap();
+        assert_eq!(heading(&doc, 0), "Saved");
+        assert!(
+            modified(&fifo).unwrap() > before,
+            "the write bumps the mtime"
+        );
+        assert_eq!(
+            mtime,
+            Some(before),
+            "mtime read after the content: the next live-reload poll would miss the change"
+        );
     }
 
     #[test]
