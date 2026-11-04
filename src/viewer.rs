@@ -16,6 +16,7 @@ use gpui::{
 use crate::{
     markdown::{self, Block, Document},
     render::{self, RenderCx},
+    tabs::Tabs,
     theme::Theme,
 };
 
@@ -103,8 +104,7 @@ pub struct Fonts {
 }
 
 pub struct Viewer {
-    tabs: Vec<Tab>,
-    active: usize,
+    tabs: Tabs<Tab>,
     focus: FocusHandle,
     fonts: Fonts,
     window_title: SharedString,
@@ -143,8 +143,7 @@ impl Viewer {
         .detach();
 
         let mut this = Self {
-            tabs: Vec::new(),
-            active: 0,
+            tabs: Tabs::default(),
             focus,
             fonts,
             window_title: SharedString::default(),
@@ -156,12 +155,9 @@ impl Viewer {
 
     fn add_loaded(&mut self, loaded: Vec<Loaded>) {
         for (path, res) in loaded {
-            if let Some(ix) = self.tabs.iter().position(|t| t.path == path) {
-                self.active = ix;
-                continue;
+            if !self.tabs.activate_first(|t| t.path == path) {
+                self.tabs.push(Tab::new(path, res));
             }
-            self.tabs.push(Tab::new(path, res));
-            self.active = self.tabs.len() - 1;
         }
     }
 
@@ -172,9 +168,7 @@ impl Viewer {
             if p.is_dir() {
                 continue;
             }
-            if let Some(ix) = self.tabs.iter().position(|t| t.path == p) {
-                self.active = ix;
-            } else {
+            if !self.tabs.activate_first(|t| t.path == p) {
                 loaded.push(load(p));
             }
         }
@@ -185,7 +179,7 @@ impl Viewer {
     pub fn scroll_to_anchor(&mut self, path: Option<&Path>, anchor: &str, cx: &mut Context<Self>) {
         let tab = match path {
             Some(p) => self.tabs.iter().find(|t| t.path == normalize(p)),
-            None => self.tabs.get(self.active),
+            None => self.tabs.active(),
         };
         let Some(tab) = tab else { return };
         let anchor = anchor.to_lowercase();
@@ -205,7 +199,7 @@ impl Viewer {
 
     fn poll_changes(&mut self, cx: &mut Context<Self>) {
         let mut changed = false;
-        for tab in &mut self.tabs {
+        for tab in self.tabs.iter_mut() {
             let mtime = std::fs::metadata(&tab.path).and_then(|m| m.modified()).ok();
             if mtime.is_some() && mtime != tab.mtime {
                 let (_, res) = load(tab.path.clone());
@@ -219,18 +213,13 @@ impl Viewer {
     }
 
     fn close_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if ix >= self.tabs.len() {
-            return;
+        if self.tabs.close(ix).is_some() {
+            cx.notify();
         }
-        self.tabs.remove(ix);
-        if self.active > ix || self.active >= self.tabs.len() {
-            self.active = self.active.saturating_sub(1);
-        }
-        cx.notify();
     }
 
     fn active_list(&self) -> Option<&ListState> {
-        self.tabs.get(self.active).map(|t| &t.list)
+        self.tabs.active().map(|t| &t.list)
     }
 
     fn scroll(&mut self, dy: f32, cx: &mut Context<Self>) {
@@ -257,7 +246,7 @@ impl Viewer {
             .border_b_1()
             .border_color(theme.border)
             .children(self.tabs.iter().enumerate().map(|(ix, tab)| {
-                let active = ix == self.active;
+                let active = ix == self.tabs.active_index();
                 div()
                     .id(("tab", ix))
                     .group("tab")
@@ -294,7 +283,7 @@ impl Viewer {
                             })),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.active = ix;
+                        this.tabs.activate(ix);
                         cx.notify();
                     }))
                     .on_mouse_down(
@@ -340,7 +329,7 @@ impl Render for Viewer {
             }
         }
 
-        let title: SharedString = match self.tabs.get(self.active) {
+        let title: SharedString = match self.tabs.active() {
             Some(t) => format!("{} — mdview", t.title).into(),
             None => "mdview".into(),
         };
@@ -349,7 +338,7 @@ impl Render for Viewer {
             self.window_title = title;
         }
 
-        let content = match self.tabs.get(self.active) {
+        let content = match self.tabs.active() {
             Some(tab) => {
                 let rcx = RenderCx {
                     theme,
@@ -402,23 +391,23 @@ impl Render for Viewer {
                 if this.tabs.is_empty() {
                     window.remove_window();
                 } else {
-                    this.close_tab(this.active, cx);
+                    this.close_tab(this.tabs.active_index(), cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &NextTab, _, cx| {
                 if !this.tabs.is_empty() {
-                    this.active = (this.active + 1) % this.tabs.len();
+                    this.tabs.next();
                     cx.notify();
                 }
             }))
             .on_action(cx.listener(|this, _: &PrevTab, _, cx| {
                 if !this.tabs.is_empty() {
-                    this.active = (this.active + this.tabs.len() - 1) % this.tabs.len();
+                    this.tabs.prev();
                     cx.notify();
                 }
             }))
             .on_action(cx.listener(|this, _: &Reload, _, cx| {
-                if let Some(tab) = this.tabs.get_mut(this.active) {
+                if let Some(tab) = this.tabs.active_mut() {
                     let (_, res) = load(tab.path.clone());
                     tab.replace(res);
                     cx.notify();

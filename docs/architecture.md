@@ -7,6 +7,7 @@
 ├── src/
 │   ├── main.rs        Entry point: arguments, single-instance socket, key bindings, font choice, window creation
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
+│   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model → GPUI elements; link handling
 │   └── theme.rs       Light and dark palettes
@@ -27,6 +28,7 @@
 flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
+    tabs["tabs.rs<br/>Tabs: list + active index"]
     subgraph core["crates/mdview-core (no GPUI)"]
         markdown["markdown.rs<br/>parse() → Document"]
         highlight["highlight.rs<br/>highlight() → Vec of Highlight"]
@@ -42,6 +44,7 @@ flowchart TD
     cmark[("pulldown-cmark")]
 
     main --> viewer
+    viewer --> tabs
     main --> gpui
     viewer --> markdown
     viewer --> render
@@ -129,8 +132,7 @@ as part of their parent's row.
 ```mermaid
 classDiagram
     class Viewer {
-        tabs: Vec~Tab~
-        active: usize
+        tabs: Tabs~Tab~
         focus: FocusHandle
         fonts: Fonts
         window_title: SharedString
@@ -142,11 +144,19 @@ classDiagram
         mtime: Option~SystemTime~
         list: ListState  scroll + measured heights
     }
-    Viewer "1" --> "*" Tab
+    class Tabs~T~ {
+        items: Vec~T~
+        active: usize
+    }
+    Viewer --> Tabs
+    Tabs "1" --> "*" Tab
 ```
 
 - Paths are canonicalized (`normalize`), so opening the same file twice just
-  switches to its tab.
+  switches to its tab (`Tabs::activate_first`).
+- Closing a tab keeps the active tab if it's still open. Closing the active
+  tab activates its right neighbor, or its left one if it was the last
+  (`Tabs::close`). Next/previous tab wrap around.
 - `Tab::replace` swaps in a newly parsed document and keeps the scroll
   position. Live reload and `Ctrl+R` both use it.
 

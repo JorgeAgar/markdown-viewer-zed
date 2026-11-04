@@ -8,6 +8,7 @@
 
 mod graphics;
 mod render;
+mod tabs;
 mod theme;
 mod viewer;
 
