@@ -7,6 +7,7 @@ Run them all with `cargo test -p mdview-core` (a few seconds; no GPUI).
 | `snapshots.rs` | Every `fixtures/*.md` parsed and dumped as text, compared with `snapshots/*.snap` |
 | `highlight.rs` | A token snapshot of `code/<lang>.txt` for every lexer; the language list, aliases and samples stay in sync with `src/highlight.rs`; edge cases per lexer |
 | `latex.rs` | Snapshot tables (`input ⇒ output`, italics marked) for every symbol, function and accent `src/latex.rs` knows (kept in sync with the source), structures, environments and malformed input |
+| `props.rs` | Property tests (proptest) with Markdown-, TeX- and code-shaped generators: no panics, all invariants, determinism, CRLF = LF, no lost text, inline styles vs a model, slugs, every highlighter language, inline math mapping |
 | `common/` | Shared helpers: the dump format (`dump.rs`), the invariants (`invariants.rs`), the language list (`langs.rs`) |
 
 ## Snapshots
@@ -31,3 +32,11 @@ the parser *should* produce, not just what it does.
 Fixtures are byte-exact (`fixtures/.gitattributes` disables line-ending
 conversion; `crlf.md` has CRLFs, `breaks.md` and `headings.md` have
 meaningful trailing whitespace), so don't let an editor "clean them up".
+
+## Property tests
+
+`cargo test` runs 512 cases per property. For a deeper run:
+`PROPTEST_CASES=100000 cargo test -p mdview-core --release --test props`.
+A failure is minimized and saved in `tests/props.proptest-regressions`;
+commit that file (it replays the case first on every run) along with the
+fix and an explicit regression test.

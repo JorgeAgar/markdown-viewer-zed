@@ -176,12 +176,16 @@ pub fn check_rich(rt: &RichText, at: &str) {
     assert_eq!(got, expected, "{at}: link_ranges() disagrees with spans");
 }
 
-/// GitHub-style slugs: lowercase alphanumerics, `-` and `_` (plus the
-/// combining dot that lowercasing `İ` produces).
+/// GitHub-style slugs: lowercased alphanumerics, `-` and `_` (plus the
+/// combining dot that lowercasing `İ` produces). Some uppercase letters,
+/// like `𝕁`, have no lowercase form and stay.
 pub fn check_slug(slug: &str, at: &str) {
     for c in slug.chars() {
         assert!(
-            c == '-' || c == '_' || c == '\u{307}' || (c.is_alphanumeric() && !c.is_uppercase()),
+            c == '-'
+                || c == '_'
+                || c == '\u{307}'
+                || (c.is_alphanumeric() && c.to_lowercase().eq([c])),
             "{at}: slug {slug:?} contains {c:?}"
         );
     }
