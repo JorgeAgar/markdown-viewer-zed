@@ -16,17 +16,12 @@ open an issue (or ask the maintainer) so the scope gets agreed first.
 - [ ] **Text selection and copy.** GPUI has selection support in Zed's editor
       crates, but not in plain `StyledText`. This needs a custom element or a
       selectable-text component.
-- [ ] **Syntax highlighting in code blocks.** It has to be cheap: no
-      tree-sitter grammars bundled by default. Options: `syntect` with a
-      minimal set of syntaxes, loaded lazily on first use; or
-      highlight on a background thread and patch the result in. Must not
-      affect startup.
 - [ ] **Remote images.** This needs an HTTP client (GPUI has a pluggable
       `HttpClient`). Load lazily and never block startup.
 - [ ] **Raw HTML.** At least `<img>`, `<br>`, `<details>`, and
       `<p align="center">`, which are common in READMEs.
-- [ ] **Mermaid diagrams**, so these docs render in mdview too.
-- [ ] **Math** (`$…$`). It's parsed today but shown as code.
+- [ ] **Typeset inline math.** Inline `$…$` is Unicode text today. Typesetting
+      it needs inline images inside text, which GPUI's `StyledText` can't do.
 - [ ] Split very large blocks (huge tables or code) into several list rows, so
       virtualization still helps.
 - [ ] Find in page (`Ctrl+F`).
@@ -63,5 +58,9 @@ See [startup.md](startup.md) for the current breakdown.
 - [x] Tabs, drag & drop, the `Ctrl+O` picker, live reload, links between
       documents, anchors
 - [x] Single instance over a Unix socket (~4 ms warm path)
+- [x] Syntax highlighting in code blocks (built-in lexers, run at parse time)
+- [x] Math: display math typeset with RaTeX in the background, inline math as
+      Unicode text
+- [x] Mermaid diagrams (merman), rendered in the background
 - [x] GPUI startup fixes: no double pipeline build, parallel pipelines,
       Vulkan init in parallel with fonts

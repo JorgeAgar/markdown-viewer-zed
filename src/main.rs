@@ -6,6 +6,9 @@
 //! 2. Otherwise, read + parse the files on a worker thread while GPUI boots
 //!    (Wayland/X11 connection, font database, GPU context) on the main thread.
 
+mod graphics;
+mod highlight;
+mod latex;
 mod markdown;
 mod render;
 mod theme;

@@ -62,7 +62,9 @@ Startup is the product, so these rules come first:
    `fc-match`, no D-Bus calls on the critical path, and no network.
 4. **Parse once, render many times.** Expensive work belongs in
    `markdown::parse` (which runs once per load), not in `render_block` (which
-   runs every frame for the visible rows).
+   runs every frame for the visible rows). Work that's too slow even for
+   parsing (typesetting math) goes on the background executor and into a
+   cache, like `graphics.rs` does.
 5. **Back up performance claims with numbers.** Use the method in
    [startup.md](startup.md), compare medians, and put the numbers in the
    commit message.

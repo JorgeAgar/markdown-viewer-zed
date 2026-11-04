@@ -14,6 +14,14 @@ The warm path skips GPUI, Vulkan, the display connection and fonts entirely,
 which is why it's so much faster. Don't add work before the socket check in
 `main()`.
 
+The warm path still pays for loading the executable, and that grows with the
+binary: the dynamic loader applies every relocation and the kernel maps every
+page it touches. Adding RaTeX and merman (math and Mermaid) took the binary
+from ~15 to ~38 MB and the relocations from ~25k to ~61k, which made
+`mdview --help` (process start to exit, nothing else) go from 1.50 to 1.97 ms
+median. Cold start didn't change measurably. Keep an eye on this when adding
+dependencies.
+
 ## Cold start, step by step
 
 ```mermaid

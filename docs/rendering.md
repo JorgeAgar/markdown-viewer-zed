@@ -35,9 +35,19 @@ small recursive-descent parser (`struct P`):
 - A paragraph made only of images becomes `Block::Images`. In any other
   paragraph, an image appears inline as `[alt]` and links to the image.
 - HTML blocks and front matter (YAML `---` or TOML `+++`) are skipped.
+- Fenced code blocks are highlighted here, once, by `highlight::highlight`
+  (see [Syntax highlighting](#syntax-highlighting)).
+- Inline math (`$…$`) is converted to Unicode text by `latex::to_unicode`
+  and pushed into the `RichText`, with variables in italics. Display math
+  (`$$…$$`) splits its paragraph: the text before and after become
+  paragraphs, and the formula becomes a `Block::Math`. A ```` ```math ````
+  code block becomes a `Block::Math` too. See [Math](#math).
+- A ```` ```mermaid ```` code block becomes a `Block::Mermaid`. See
+  [Mermaid diagrams](#mermaid-diagrams).
 
 Enabled extensions: tables, strikethrough, task lists, footnotes, GFM alerts
-(`> [!NOTE]` and friends), and metadata blocks.
+(`> [!NOTE]` and friends), metadata blocks, and math (`$…$` / `$$…$$`, with
+GitHub's rules, so `$5 and $10` stays text).
 
 ## 2. Virtualization (`src/viewer.rs`)
 
@@ -78,6 +88,95 @@ calls `StyledText::with_runs`. If the text contains links, it's wrapped in
 `IdGen(ix * 100_000)` generates them: row `ix` gets ids starting at
 `ix * 100_000 + 1`. Code blocks also take ids from it, because horizontal
 scrolling needs one.
+
+### Syntax highlighting
+
+`src/highlight.rs` is a set of small hand-written lexers, not a grammar
+engine: a generic lexer configured per language (keywords, types, comment and
+string syntax, and a few flags such as "capitalized words are types"), plus
+line-based lexers for shell sessions, diffs, HTML/XML and YAML/TOML/INI. It
+returns sorted `Highlight { range, tok }` spans, which `render::code_text`
+turns into `TextRun`s colored by `Theme::token`.
+
+It runs inside `markdown::parse`, so code is already colored in the first frame
+and nothing is loaded at startup. Lexing takes microseconds per block. That's
+why it doesn't use `syntect` (loading its syntax set takes tens of
+milliseconds) or tree-sitter (large grammars, slow to build).
+
+To support a new language, add a `Lang` to `lang_def` (or an alias to an
+existing one) and a test in `highlight::tests`. Unknown languages are shown
+uncolored.
+
+### Math
+
+Inline and display math are handled differently, because GPUI lays out a
+paragraph as a single run of text and can't put an image inside it.
+
+- **Inline** `$…$` is turned into text while parsing (`src/latex.rs`): Greek
+  letters and symbols become Unicode characters, `x^2` becomes `x²` (or
+  `x^(…)` when there's no superscript character), `\frac{a}{b}` becomes
+  `a/b`, `\mathbb{R}` becomes `ℝ`, and variables are italic. It isn't a
+  typesetter, but common inline math reads well and wraps with the text.
+- **Display** `$$…$$` and ```` ```math ```` blocks are typeset for real by
+  RaTeX, a Rust port of KaTeX that embeds the KaTeX fonts, so formulas look
+  like they do on GitHub. Glyphs are emitted as SVG paths, so no font lookup
+  is needed. See [Images rendered in the background](#images-rendered-in-the-background).
+
+### Mermaid diagrams
+
+```` ```mermaid ```` blocks are laid out and drawn to SVG by
+[merman](https://github.com/Latias94/merman), a headless Rust implementation
+of Mermaid that aims for parity with mermaid.js (Zed uses it too). All
+diagram families are enabled except the ELK layout engine.
+
+- **Theme.** Mermaid's `base` theme, with colors taken from `Theme`
+  (`mermaid_config`), so diagrams match the light or dark palette.
+- **Fonts.** Labels use the UI font. merman measures them with that very font
+  (its `native-fonts` feature, fed with the UI font's regular and bold faces);
+  with its built-in metrics, which assume "trebuchet ms", wider fonts would
+  overflow their boxes. The system font database for resvg is loaded once, on
+  a background thread, the first time a diagram is drawn (~10–15 ms), with
+  `sans-serif` mapped to the UI font. Missing characters (say `→` in Noto
+  Sans) fall back to a proportional font of the same style
+  (`fallback_font`), not to whatever face comes first.
+- **Size.** Diagrams are shown at their natural size, centered, and scaled
+  down to the column width when wider, like on GitHub.
+
+### Images rendered in the background
+
+Display math and diagrams go through the same pipeline in
+`src/graphics.rs`:
+
+```mermaid
+sequenceDiagram
+    participant R as render_block (main thread)
+    participant C as graphics Cache (GPUI Global)
+    participant BG as background executor
+    R->>C: element(kind, source)
+    alt cached
+        C-->>R: image + size
+    else first time
+        C->>C: slot = Pending
+        C-)BG: RaTeX or merman → SVG → resvg → BGRA pixels
+        C-->>R: placeholder
+        BG-->>C: finish(): store image, evict LRU over 128 MB
+        C->>R: notify Viewer → next frame shows the image
+    end
+```
+
+The image is rasterized at the window's scale factor (capped at 4096 px per
+side) and shown at its logical size.
+
+The cache key is the kind, the source, light/dark, and the scale factor, so
+switching tabs or reloading an unchanged file never re-renders. Old entries
+are evicted (and their GPU textures dropped with `cx.drop_image`) once the
+cached pixels exceed 128 MB, which matters when live-reloading a file while
+editing it.
+
+If a formula or diagram can't be parsed, the block shows the error and the
+source. The renderers are third-party code fed with arbitrary input, so
+their panics are caught with `catch_unwind` (that's why the release profile
+uses `panic = "unwind"`) and shown the same way.
 
 ### Typography
 
@@ -126,4 +225,4 @@ Example: definition lists (`Options::ENABLE_DEFINITION_LIST`).
 ## Known gaps
 
 These are tracked in [roadmap.md](roadmap.md#rendering): remote images, raw
-HTML, syntax highlighting, text selection, Mermaid and math rendering.
+HTML, text selection, and real typesetting for inline math.

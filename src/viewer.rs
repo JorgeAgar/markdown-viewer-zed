@@ -363,8 +363,8 @@ impl Render for Viewer {
                     viewer: cx.weak_entity(),
                 };
                 let doc = tab.doc.clone();
-                list(tab.list.clone(), move |ix, _, _| {
-                    render::top_block(&doc.blocks[ix], ix, &rcx)
+                list(tab.list.clone(), move |ix, window, cx| {
+                    render::top_block(&doc.blocks[ix], ix, &rcx, window, cx)
                 })
                 .size_full()
                 .into_any_element()

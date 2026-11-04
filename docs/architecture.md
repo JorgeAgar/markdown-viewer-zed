@@ -8,6 +8,9 @@
 │   ├── main.rs        Entry point: arguments, single-instance socket, key bindings, font choice, window creation
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── markdown.rs    Markdown → block model (pulldown-cmark), plus parser tests
+│   ├── highlight.rs   Syntax highlighting for code blocks (hand-written lexers, no GPUI)
+│   ├── latex.rs       Inline math: LaTeX → Unicode text (no GPUI)
+│   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model → GPUI elements; link handling
 │   └── theme.rs       Light and dark palettes
 ├── crates/gpui/       Vendored GPUI 0.2.2 with startup fixes (see gpui-fork.md)
@@ -23,6 +26,12 @@ flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
     markdown["markdown.rs<br/>parse() → Document"]
+    highlight["highlight.rs<br/>highlight() → Vec of Highlight"]
+    latex["latex.rs<br/>to_unicode() → MathText"]
+    graphics["graphics.rs<br/>element() → image, async + cached"]
+    ratex[("RaTeX<br/>(KaTeX port)")]
+    merman[("merman<br/>(Mermaid)")]
+    resvg[("resvg")]
     render["render.rs<br/>top_block() → AnyElement"]
     theme["theme.rs<br/>Theme"]
     gpui[("crates/gpui<br/>GPUI (vendored)")]
@@ -38,11 +47,19 @@ flowchart TD
     render --> gpui
     viewer --> gpui
     markdown --> cmark
+    markdown --> highlight
+    markdown --> latex
+    theme --> highlight
+    render --> graphics
+    graphics --> ratex
+    graphics --> merman
+    graphics --> resvg
+    graphics --> gpui
 ```
 
 Rules that keep this structure simple:
 
-- **`markdown.rs` knows nothing about GPUI.** It turns text into plain data
+- **`markdown.rs`, `highlight.rs` and `latex.rs` know nothing about GPUI.** It turns text into plain data
   (`Document`). That keeps it fast, easy to unit-test and safe to run on any
   thread.
 - **`render.rs` only reads that data.** It never parses Markdown again. It's
@@ -65,11 +82,13 @@ classDiagram
         Heading(level, RichText, slug)
         Paragraph(RichText)
         Images(Vec~Image~)
-        Code(lang, code)
+        Code(lang, code, highlights)
         Quote(Option~Callout~, Vec~Block~)
         List(start, Vec~ListItem~)
         Table(aligns, header, rows)
         Footnote(label, Vec~Block~)
+        Math(Arc~str~)
+        Mermaid(Arc~str~)
         Rule
     }
     class ListItem {
@@ -137,7 +156,7 @@ flowchart LR
     end
     subgraph Long["Long-lived"]
         IPC["IPC listener: accept() on the Unix socket"]
-        BG["GPUI background executor<br/>(sized to the number of CPUs)"]
+        BG["GPUI background executor<br/>(sized to the number of CPUs)<br/>also renders math and diagrams"]
     end
     IPC -->|"mpsc channel: Vec of PathBuf"| UI
     P -->|"join() before the window opens"| UI
@@ -150,6 +169,9 @@ flowchart LR
 - All `Viewer` state lives on the main thread. Work on other threads talks to
   it only through a channel (`futures::channel::mpsc`), or through
   `WeakEntity::update` from an async task.
+- `graphics.rs` renders math and diagrams on the background executor and stores the
+  result in a GPUI `Global` cache from the main thread, then notifies the
+  `Viewer`. See [rendering.md](rendering.md#images-rendered-in-the-background).
 - Live reload is an async task on the main thread: a 750 ms timer, then
   `stat()` on each open file. It doesn't use a file-watcher thread.
 

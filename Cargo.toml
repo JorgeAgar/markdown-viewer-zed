@@ -9,12 +9,27 @@ license = "Apache-2.0"
 gpui = "0.2.2"
 pulldown-cmark = { version = "0.13", default-features = false }
 futures = "0.3"
+# Display math: RaTeX (a Rust port of KaTeX), with the KaTeX fonts embedded.
+ratex-parser = "0.1.15"
+ratex-layout = "0.1.15"
+ratex-types = "0.1.15"
+ratex-svg = { version = "0.1.15", features = ["embed-fonts"] }
+# Mermaid diagrams: merman, the Rust Mermaid implementation Zed uses. No ELK
+# layout; native-fonts measures labels with the UI font (see graphics.rs).
+merman = { version = "0.9.3", default-features = false, features = ["svg", "all-diagrams", "layout-cytoscape", "native-fonts"] }
+serde_json = "1"
+# Already in GPUI's dependency tree (same versions and features): rasterize
+# math SVGs and hand the pixels to GPUI.
+resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+image = { version = "0.25", default-features = false }
+ttf-parser = "0.25"
 
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+# Not "abort": graphics.rs catches panics from the math/diagram renderers.
+panic = "unwind"
 strip = true
 
 # Fast iteration builds that still feel snappy.

@@ -4,7 +4,12 @@
 //! files). Rendering then only walks this pre-digested tree, so a frame never
 //! touches the raw Markdown again.
 
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
+
+use crate::{
+    highlight::{Highlight, highlight},
+    latex,
+};
 
 use pulldown_cmark::{
     Alignment, BlockQuoteKind, CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag,
@@ -71,6 +76,31 @@ impl RichText {
         (ranges, ids)
     }
 
+    /// Appends inline math, converted to Unicode text (see `latex.rs`).
+    fn push_math(&mut self, tex: &str, style: u8, link: Option<u32>) {
+        let m = latex::to_unicode(tex);
+        let mut pos = 0;
+        for r in &m.italic {
+            self.push(&m.text[pos..r.start], style, link);
+            self.push(&m.text[r.clone()], style | ITALIC, link);
+            pos = r.end;
+        }
+        self.push(&m.text[pos..], style, link);
+    }
+
+    fn trim_start(&mut self) {
+        let cut = self.text.len() - self.text.trim_start().len();
+        if cut == 0 {
+            return;
+        }
+        self.text.drain(..cut);
+        self.spans.retain_mut(|s| {
+            s.range.start = s.range.start.saturating_sub(cut);
+            s.range.end = s.range.end.saturating_sub(cut);
+            s.range.start < s.range.end
+        });
+    }
+
     fn trim_end(&mut self) {
         let trimmed = self.text.trim_end().len();
         self.text.truncate(trimmed);
@@ -122,6 +152,8 @@ pub enum Block {
     Code {
         lang: String,
         code: String,
+        /// Syntax highlighting, computed once here (see `highlight.rs`).
+        highlights: Vec<Highlight>,
     },
     Quote {
         callout: Option<Callout>,
@@ -140,6 +172,12 @@ pub enum Block {
         label: String,
         blocks: Vec<Block>,
     },
+    /// Display math (`$$…$$` or a ```` ```math ```` block): LaTeX source,
+    /// typeset as an image by `graphics.rs`.
+    Math(Arc<str>),
+    /// A ```` ```mermaid ```` block: diagram source, rendered as an image by
+    /// `graphics.rs`.
+    Mermaid(Arc<str>),
     Rule,
 }
 
@@ -153,6 +191,7 @@ pub fn parse(src: &str) -> Document {
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_GFM
+        | Options::ENABLE_MATH
         | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
         | Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS;
     let events: Vec<Event> = Parser::new_ext(src, opts).collect();
@@ -218,8 +257,7 @@ impl<'a> P<'a> {
         while let Some(ev) = self.peek() {
             if is_inline(ev) {
                 // Tight list items emit inline content without a Paragraph.
-                let (rich, images) = self.inlines();
-                push_paragraph(out, rich, images);
+                self.paragraph(out);
                 continue;
             }
             match self.next().unwrap() {
@@ -235,12 +273,11 @@ impl<'a> P<'a> {
     fn block(&mut self, tag: Tag<'a>, out: &mut Vec<Block>) {
         match tag {
             Tag::Paragraph => {
-                let (rich, images) = self.inlines();
+                self.paragraph(out);
                 self.next(); // End(Paragraph)
-                push_paragraph(out, rich, images);
             }
             Tag::Heading { level, .. } => {
-                let (mut text, _) = self.inlines();
+                let (mut text, _) = self.inlines(false);
                 self.next();
                 text.trim_end();
                 let slug = slugify(&text.text);
@@ -280,7 +317,20 @@ impl<'a> P<'a> {
                 if code.ends_with('\n') {
                     code.pop();
                 }
-                out.push(Block::Code { lang, code });
+                if lang.eq_ignore_ascii_case("math") {
+                    out.push(Block::Math(code.into()));
+                    return;
+                }
+                if lang.eq_ignore_ascii_case("mermaid") {
+                    out.push(Block::Mermaid(code.into()));
+                    return;
+                }
+                let highlights = highlight(&lang, &code);
+                out.push(Block::Code {
+                    lang,
+                    code,
+                    highlights,
+                });
             }
             Tag::List(start) => {
                 let mut items = Vec::new();
@@ -364,7 +414,7 @@ impl<'a> P<'a> {
         while let Some(ev) = self.next() {
             match ev {
                 Event::Start(Tag::TableCell) => {
-                    let (rich, _) = self.inlines();
+                    let (rich, _) = self.inlines(false);
                     self.next();
                     cells.push(rich);
                 }
@@ -374,9 +424,27 @@ impl<'a> P<'a> {
         cells
     }
 
+    /// A paragraph's inline content. Display math (`$$…$$`) splits it: the
+    /// text before and after become paragraphs and the math its own block.
+    fn paragraph(&mut self, out: &mut Vec<Block>) {
+        loop {
+            let (rich, images) = self.inlines(true);
+            push_paragraph(out, rich, images);
+            match self.peek() {
+                Some(Event::DisplayMath(_)) => {
+                    if let Some(Event::DisplayMath(tex)) = self.next() {
+                        out.push(Block::Math(tex.trim().into()));
+                    }
+                }
+                Some(ev) if is_inline(ev) => {}
+                _ => return,
+            }
+        }
+    }
+
     /// Consume inline events. Stops (without consuming) at the first
-    /// non-inline event.
-    fn inlines(&mut self) -> (RichText, Vec<Image>) {
+    /// non-inline event, or at display math when `split_display` is set.
+    fn inlines(&mut self, split_display: bool) -> (RichText, Vec<Image>) {
         let mut rich = RichText::default();
         let mut images = Vec::new();
         let mut style = 0u8;
@@ -389,7 +457,7 @@ impl<'a> P<'a> {
         }
 
         while let Some(ev) = self.peek() {
-            if !is_inline(ev) {
+            if !is_inline(ev) || (split_display && matches!(ev, Event::DisplayMath(_))) {
                 break;
             }
             let ev = self.next().unwrap();
@@ -414,7 +482,7 @@ impl<'a> P<'a> {
                     }
                 }
                 Event::Code(t) => rich.push(&t, style | CODE, link),
-                Event::InlineMath(t) | Event::DisplayMath(t) => rich.push(&t, style | CODE, link),
+                Event::InlineMath(t) | Event::DisplayMath(t) => rich.push_math(&t, style, link),
                 Event::InlineHtml(h) => {
                     if h.eq_ignore_ascii_case("<br>") || h.eq_ignore_ascii_case("<br/>") {
                         rich.push("\n", style, link);
@@ -495,6 +563,7 @@ fn push_paragraph(out: &mut Vec<Block>, mut rich: RichText, images: Vec<Image>) 
             return;
         }
     }
+    rich.trim_start();
     rich.trim_end();
     if !rich.text.is_empty() {
         out.push(Block::Paragraph(rich));
@@ -532,7 +601,7 @@ mod tests {
     #[test]
     fn parses_basic_document() {
         let doc = parse(
-            "# Title\n\nHello **bold** and `code` [link](https://x.y).\n\n- [x] done\n- [ ] todo\n\n> [!NOTE]\n> hi\n\n| a | b |\n|---|:-:|\n| 1 | 2 |\n\n```rust\nfn main() {}\n```\n\n![alt](img.png)\n",
+            "# Title\n\nHello **bold** and `code` [link](https://x.y).\n\n- [x] done\n- [ ] todo\n\n> [!NOTE]\n> hi\n\n| a | b |\n|---|:-:|\n| 1 | 2 |\n\n```rust\nfn main() {}\n```\n\n![alt](img.png)\n\n```mermaid\nflowchart LR; A-->B\n```\n",
         );
         let kinds: Vec<&str> = doc
             .blocks
@@ -546,10 +615,15 @@ mod tests {
                 Block::List { .. } => "list",
                 Block::Table { .. } => "table",
                 Block::Footnote { .. } => "fn",
+                Block::Math(_) => "math",
+                Block::Mermaid(_) => "mermaid",
                 Block::Rule => "hr",
             })
             .collect();
-        assert_eq!(kinds, ["h", "p", "list", "quote", "table", "code", "img"]);
+        assert_eq!(
+            kinds,
+            ["h", "p", "list", "quote", "table", "code", "img", "mermaid"]
+        );
         if let Block::List { items, .. } = &doc.blocks[2] {
             assert_eq!(items[0].checked, Some(true));
             assert_eq!(items[1].checked, Some(false));
@@ -560,6 +634,42 @@ mod tests {
         if let Block::Paragraph(p) = &doc.blocks[1] {
             assert_eq!(p.text, "Hello bold and code link.");
             assert_eq!(p.links, ["https://x.y"]);
+        }
+    }
+
+    #[test]
+    fn parses_math() {
+        let doc = parse(
+            "Energy $E = mc^2$ here.\n\n$$\n\\int_0^1 x\\,dx\n$$\n\nBefore\n$$a^2$$\nafter\n\n```math\n\\frac{1}{2}\n```\n",
+        );
+        let kinds: Vec<String> = doc
+            .blocks
+            .iter()
+            .map(|b| match b {
+                Block::Paragraph(p) => format!("p:{}", p.text),
+                Block::Math(t) => format!("m:{t}"),
+                _ => "?".into(),
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "p:Energy E = mc² here.",
+                "m:\\int_0^1 x\\,dx",
+                "p:Before",
+                "m:a^2",
+                "p:after",
+                "m:\\frac{1}{2}",
+            ]
+        );
+        if let Block::Paragraph(p) = &doc.blocks[0] {
+            let italic: Vec<&str> = p
+                .spans
+                .iter()
+                .filter(|s| s.style & ITALIC != 0)
+                .map(|s| &p.text[s.range.clone()])
+                .collect();
+            assert_eq!(italic, ["E", "mc"]);
         }
     }
 }
