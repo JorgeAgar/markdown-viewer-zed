@@ -12,8 +12,8 @@ use crate::{
 };
 
 use pulldown_cmark::{
-    Alignment, BlockQuoteKind, CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag,
-    TagEnd,
+    Alignment, BlockQuoteKind, CodeBlockKind, CowStr, Event, HeadingLevel, LinkType, Options,
+    Parser, Tag, TagEnd,
 };
 
 /// Inline style bits.
@@ -534,8 +534,18 @@ impl<'a> P<'a> {
                 Event::End(TagEnd::Emphasis) => toggle(1, false, &mut style),
                 Event::Start(Tag::Strikethrough) => toggle(2, true, &mut style),
                 Event::End(TagEnd::Strikethrough) => toggle(2, false, &mut style),
-                Event::Start(Tag::Link { dest_url, .. }) => {
-                    rich.links.push(dest_url.to_string());
+                Event::Start(Tag::Link {
+                    link_type,
+                    dest_url,
+                    ..
+                }) => {
+                    // `<me@example.com>` comes without its scheme; without
+                    // one, `render::open_link` would look for a local file.
+                    rich.links.push(if link_type == LinkType::Email {
+                        format!("mailto:{dest_url}")
+                    } else {
+                        dest_url.to_string()
+                    });
                     link = Some(rich.links.len() as u32 - 1);
                     style |= LINK;
                 }
@@ -720,5 +730,26 @@ mod tests {
         };
         assert_eq!(p.text, "see [a b] [c] d");
         assert_eq!(p.links, ["i.png", "u"]);
+    }
+
+    #[test]
+    fn email_autolinks_get_a_mailto_scheme() {
+        let doc = parse("<me@example.com> <mailto:you@example.com> <https://x.y> [m](me@x.y)");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected a paragraph")
+        };
+        assert_eq!(
+            p.text,
+            "me@example.com mailto:you@example.com https://x.y m"
+        );
+        assert_eq!(
+            p.links,
+            [
+                "mailto:me@example.com",
+                "mailto:you@example.com",
+                "https://x.y",
+                "me@x.y"
+            ]
+        );
     }
 }
