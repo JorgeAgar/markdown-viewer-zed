@@ -68,6 +68,12 @@ fn lex(s: &str) -> Vec<T> {
                     }
                     out.push(T::Cmd(name));
                 }
+                // `\` before any whitespace (a newline, a tab) is a control
+                // space, like `\ `.
+                Some(&n) if n.is_whitespace() => {
+                    it.next();
+                    out.push(T::Cmd(" ".into()));
+                }
                 Some(&n) => {
                     it.next();
                     out.push(T::Cmd(n.to_string()));
@@ -1166,6 +1172,13 @@ mod tests {
         assert_eq!(u(r"\sum_{i=1}^n i"), "∑ᵢ₌₁ⁿi");
         assert_eq!(u(r"\foo"), "\\foo");
         assert_eq!(u(r"f(x, y)"), "f(x,\u{2009}y)");
+    }
+
+    #[test]
+    fn backslash_before_whitespace_is_a_space() {
+        for tex in ["a\\ b", "a\\\nb", "a\\\r\nb", "a\\\tb"] {
+            assert_eq!(u(tex), "a b", "{tex:?}");
+        }
     }
 
     #[test]
