@@ -35,13 +35,33 @@ fn doc_files() -> Vec<PathBuf> {
     .collect();
     for dir in ["docs", "crates/mdview-core", "examples"] {
         walk(&root().join(dir), &mut |p| {
-            if p.extension().is_some_and(|e| e == "md") {
+            if p.extension().is_some_and(|e| e == "md") && !is_test_input(p) {
                 files.push(p.to_path_buf());
             }
         });
     }
     files.sort();
     files
+}
+
+/// Markdown that is test *input* (parser fixtures, vendored spec data,
+/// snapshots), not documentation: its links are broken on purpose. READMEs
+/// that describe those directories are still checked.
+fn is_test_input(p: &Path) -> bool {
+    let rel = p.strip_prefix(root()).unwrap_or(p);
+    let in_dir = |d: &str| rel.components().any(|c| c.as_os_str() == d);
+    let readme = p.file_name().is_some_and(|n| n == "README.md");
+    in_dir("fixtures") || in_dir("snapshots") || (in_dir("data") && !readme)
+}
+
+/// The directory of the closest `Cargo.toml` above `file` (or the repo root):
+/// docs inside a crate may write paths relative to that crate.
+fn crate_root(file: &Path) -> PathBuf {
+    file.ancestors()
+        .skip(1)
+        .find(|d| d.join("Cargo.toml").exists())
+        .unwrap_or(&root())
+        .to_path_buf()
 }
 
 // ---------------------------------------------------------------- key bindings
@@ -452,7 +472,10 @@ fn source_paths_in_docs_exist() {
                 let t = token.trim_end_matches('.');
                 if top_dirs.iter().any(|d| t.starts_with(d)) {
                     let full = format!("{prefix}{t}");
-                    if !root().join(&full).exists() && !root().join(t).exists() {
+                    if !root().join(&full).exists()
+                        && !root().join(t).exists()
+                        && !crate_root(&file).join(t).exists()
+                    {
                         problems.push(format!("{at}: `{t}` doesn't exist"));
                     }
                 } else if t.ends_with(".rs") {

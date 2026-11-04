@@ -38,6 +38,7 @@ meaningful trailing whitespace), so don't let an editor "clean them up".
 
 `cargo test` runs 512 cases per property. For a deeper run:
 `PROPTEST_CASES=100000 cargo test -p mdview-core --release --test props`.
-A failure is minimized and saved in `tests/props.proptest-regressions`;
+A failure is minimized and saved in `props.proptest-regressions` next to
+`props.rs`;
 commit that file (it replays the case first on every run) along with the
 fix and an explicit regression test.
