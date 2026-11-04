@@ -1137,7 +1137,7 @@ fn value(line: &str, from: usize, base: usize, out: &mut Out) {
             i = j;
             continue;
         }
-        if c.is_ascii_alphanumeric() || c == b'-' || c == b'+' || c == b'.' {
+        if c.is_ascii_alphanumeric() || matches!(c, b'-' | b'+' | b'.' | b'~') {
             let mut j = i;
             while j < b.len() && !b[j].is_ascii_whitespace() && !matches!(b[j], b',' | b']' | b'}')
             {
@@ -1253,6 +1253,23 @@ mod tests {
         assert_eq!(t[1], ("-a".into(), Tok::Deleted));
         assert_eq!(t[2], ("+b".into(), Tok::Inserted));
         assert!(highlight("brainfuck", "+++").is_empty());
+    }
+
+    #[test]
+    fn yaml_tilde_is_null() {
+        // `~` was in the constant list, but a value word could never start
+        // with it.
+        let t = toks("yaml", "a: ~\nb: ~/path\nc: [~, x]");
+        assert_eq!(
+            t,
+            [
+                ("a".into(), Tok::Property),
+                ("~".into(), Tok::Constant),
+                ("b".into(), Tok::Property),
+                ("c".into(), Tok::Property),
+                ("~".into(), Tok::Constant),
+            ]
+        );
     }
 
     #[test]
