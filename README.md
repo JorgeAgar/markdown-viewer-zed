@@ -76,7 +76,10 @@ to contribute, and the roadmap are documented, with diagrams, in
 
 ```
 src/main.rs      startup, single-instance socket, key bindings, font pick
+src/cli.rs       argument parsing, help text, socket message format
 src/viewer.rs    window: tabs, actions, live reload, drag & drop
+src/tabs.rs      the tab list and active tab
+src/links.rs     link routing (anchors, other Markdown files, URLs)
 src/graphics.rs  display math and Mermaid -> images, rendered in the background and cached
 src/render.rs    block model -> GPUI elements
 src/theme.rs     light/dark palettes (follows the system appearance)
@@ -86,6 +89,9 @@ crates/mdview-core/  the GUI-free core (no GPUI dependency, fast tests):
   src/latex.rs      inline math -> Unicode text
 crates/gpui/     vendored GPUI 0.2.2 with startup fixes (see MDVIEW.md)
 patches/         those fixes as a diff against upstream gpui 0.2.2
+tests/           end-to-end tests of the binary, docs checks, guard snapshots
+scripts/         check.sh (run before every commit), guards, startup benchmark
+fuzz/            fuzz targets for the parser
 docs/            documentation for contributors (with diagrams)
 ```
 

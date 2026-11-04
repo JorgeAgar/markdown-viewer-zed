@@ -36,8 +36,9 @@ framework) and optimized for **startup time**. The full docs are in
 ## Commands
 
 ```sh
+scripts/check.sh                                         # fmt, guards, clippy, all tests: must pass before every commit
+cargo test -p mdview-core                                # parser tests only (seconds, no GPUI)
 cargo build --release                                    # build (full LTO)
-cargo test --release                                     # parser tests
 ./target/release/mdview -n examples/demo.md              # run a separate instance
 MDVIEW_TRACE_STARTUP=quit ./target/release/mdview -n examples/demo.md   # time to first frame, then exit
 cargo fmt
@@ -45,13 +46,21 @@ cargo fmt
 
 ## Verifying your work
 
-- Run `cargo build --release` and `cargo test --release`. Both must pass.
+- Run `scripts/check.sh`. It must pass. If you touched startup, dependencies
+  or anything large, also run `scripts/check.sh --release`.
+- **Tests are part of the change.** A bug fix starts with a test that fails
+  without it. New syntax gets a fixture, new logic gets unit tests. See
+  [docs/testing.md](docs/testing.md) for where each kind of test goes.
+- **Never update expected outputs blindly.** After `cargo insta review`,
+  `UPDATE_GOLDEN=1` or `scripts/check.sh --bless`, read the diff and say in the
+  commit message why it changed. Don't delete or loosen a test to make it
+  pass.
 - For UI changes, actually run the app and look at it, in light and dark mode
   if colors are involved. On Wayland you can take a screenshot with `grim`
   while the app runs.
-- For startup changes, compare the median of at least 5 runs of
-  `MDVIEW_TRACE_STARTUP=quit … -n` before and after, and put the numbers in
-  the commit message. For a breakdown per phase, use the method in
+- For startup changes, compare before and after with
+  `scripts/startup-bench.sh --ref origin/main` (or `OLD_BIN NEW_BIN`) and put
+  its output in the commit message. For a breakdown per phase, use the method in
   [docs/startup.md](docs/startup.md), on a copy **outside the repo**. Never
   commit timing marks.
 
@@ -64,5 +73,8 @@ cargo fmt
   paths to that instance and exits. Use `-n` for testing.
 - `InteractiveText` and scrollable divs need unique `ElementId`s within a list
   row. Use the row's `IdGen` in `render.rs`.
+- `cargo mutants` copies the tree into `$TMPDIR`. On machines where `/tmp`
+  is a tmpfs, set `TMPDIR` to a directory on disk (see docs/testing.md), and
+  never use `--in-place`.
 - The first release build compiles GPUI and takes several minutes. Later
   builds take about 1 minute, because of full LTO.

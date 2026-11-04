@@ -27,12 +27,16 @@ there.
 cargo build --release                 # full LTO, ~1 min for mdview itself; the first build compiles GPUI (several minutes)
 ./target/release/mdview examples/demo.md examples/second.md
 ./target/release/mdview -n FILE       # separate instance (doesn't use or create the socket)
-cargo test --release                  # parser tests (--release reuses the release dependency build)
+scripts/check.sh                      # fmt, guards, clippy and every test; must pass before each commit
+cargo test -p mdview-core             # just the parser tests (seconds, no GPUI)
 cargo install --path .                # installs `mdview` into ~/.cargo/bin
 ```
 
 `MDVIEW_TRACE_STARTUP=1` prints the time to the first frame. See
-[startup.md](startup.md).
+[startup.md](startup.md). What the tests cover, and how to update snapshots
+and golden images after an intended change, is in [testing.md](testing.md).
+Run `scripts/install-hooks.sh` once to run `scripts/check.sh --quick` before
+every commit.
 
 ### Manual test checklist
 
