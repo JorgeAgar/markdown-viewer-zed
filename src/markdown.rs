@@ -175,6 +175,9 @@ pub enum Block {
     /// Display math (`$$…$$` or a ```` ```math ```` block): LaTeX source,
     /// typeset as an image by `graphics.rs`.
     Math(Arc<str>),
+    /// A ```` ```mermaid ```` block: diagram source, rendered as an image by
+    /// `graphics.rs`.
+    Mermaid(Arc<str>),
     Rule,
 }
 
@@ -316,6 +319,10 @@ impl<'a> P<'a> {
                 }
                 if lang.eq_ignore_ascii_case("math") {
                     out.push(Block::Math(code.into()));
+                    return;
+                }
+                if lang.eq_ignore_ascii_case("mermaid") {
+                    out.push(Block::Mermaid(code.into()));
                     return;
                 }
                 let highlights = highlight(&lang, &code);
@@ -594,7 +601,7 @@ mod tests {
     #[test]
     fn parses_basic_document() {
         let doc = parse(
-            "# Title\n\nHello **bold** and `code` [link](https://x.y).\n\n- [x] done\n- [ ] todo\n\n> [!NOTE]\n> hi\n\n| a | b |\n|---|:-:|\n| 1 | 2 |\n\n```rust\nfn main() {}\n```\n\n![alt](img.png)\n",
+            "# Title\n\nHello **bold** and `code` [link](https://x.y).\n\n- [x] done\n- [ ] todo\n\n> [!NOTE]\n> hi\n\n| a | b |\n|---|:-:|\n| 1 | 2 |\n\n```rust\nfn main() {}\n```\n\n![alt](img.png)\n\n```mermaid\nflowchart LR; A-->B\n```\n",
         );
         let kinds: Vec<&str> = doc
             .blocks
@@ -609,10 +616,14 @@ mod tests {
                 Block::Table { .. } => "table",
                 Block::Footnote { .. } => "fn",
                 Block::Math(_) => "math",
+                Block::Mermaid(_) => "mermaid",
                 Block::Rule => "hr",
             })
             .collect();
-        assert_eq!(kinds, ["h", "p", "list", "quote", "table", "code", "img"]);
+        assert_eq!(
+            kinds,
+            ["h", "p", "list", "quote", "table", "code", "img", "mermaid"]
+        );
         if let Block::List { items, .. } = &doc.blocks[2] {
             assert_eq!(items[0].checked, Some(true));
             assert_eq!(items[1].checked, Some(false));

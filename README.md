@@ -25,9 +25,9 @@ cargo build --release
 | `↑ ↓` `j k` `PgUp PgDn` `Space` `Home End` `g G` | Scroll                       |
 | Middle click on a tab                | Close it                                  |
 
-Code blocks are syntax highlighted. Math is supported: inline `$…$` becomes
-Unicode text (`x²`, `α ≤ β`), while `$$…$$` and ```` ```math ```` blocks are
-typeset like KaTeX.
+Code blocks are syntax highlighted, and ```` ```mermaid ```` blocks are drawn
+as diagrams. Math is supported: inline `$…$` becomes Unicode text (`x²`,
+`α ≤ β`), while `$$…$$` and ```` ```math ```` blocks are typeset like KaTeX.
 
 You can also drag files onto the window. Clicking a link to a local `.md` file
 opens it in a new tab, and `#anchor` links scroll to the matching heading. Open
@@ -55,12 +55,14 @@ override the fonts.
   parallel, and it initializes Vulkan while the fonts load. Time to the first
   frame dropped from ~105 to ~89 ms on an Intel GPU, and from ~159 to ~103 ms
   on lavapipe. Details are in [crates/gpui/MDVIEW.md](crates/gpui/MDVIEW.md).
-- **Heavy rendering never blocks a frame.** Display math is typeset on a
-  background thread the first time it scrolls into view, then cached. Syntax
+- **Heavy rendering never blocks a frame.** Display math and Mermaid
+  diagrams are rendered on a background thread the first time they scroll
+  into view, then cached. Syntax
   highlighting is a small built-in lexer that runs while parsing, so it loads
   nothing at startup.
 - **Small dependency footprint.** Besides GPUI, `pulldown-cmark` and
-  `futures`, the only dependency is RaTeX (a Rust port of KaTeX) for math.
+  `futures`, the only dependencies are RaTeX (a Rust port of KaTeX) for math
+  and merman (the Rust Mermaid implementation Zed uses) for diagrams.
   There's no HTTP stack and no editor. The release build uses full LTO and is
   stripped.
 
@@ -78,7 +80,7 @@ src/viewer.rs    window: tabs, actions, live reload, drag & drop
 src/markdown.rs  Markdown -> block model (pulldown-cmark)
 src/highlight.rs syntax highlighting for code blocks (built-in lexers)
 src/latex.rs     inline math -> Unicode text
-src/graphics.rs  display math -> images, rendered in the background and cached
+src/graphics.rs  display math and Mermaid -> images, rendered in the background and cached
 src/render.rs    block model -> GPUI elements
 src/theme.rs     light/dark palettes (follows the system appearance)
 crates/gpui/     vendored GPUI 0.2.2 with startup fixes (see MDVIEW.md)

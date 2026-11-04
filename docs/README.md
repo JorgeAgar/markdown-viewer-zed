@@ -50,5 +50,6 @@ flowchart LR
     LIST --> GPU["GPU frame"]
 ```
 
-Note: mdview doesn't render Mermaid itself yet, so open these docs on GitHub
-to see the diagrams.
+mdview renders these Mermaid diagrams itself (see
+[rendering.md](rendering.md#mermaid-diagrams)), so `mdview docs/*.md` is a
+good way to read these docs.

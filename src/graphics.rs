@@ -1,10 +1,11 @@
-//! Display math and diagrams, rendered to images in the background.
+//! Display math and Mermaid diagrams, rendered to images in the background.
 //!
-//! A block of display math is typeset with RaTeX (a Rust port of KaTeX) into
-//! an SVG made only of paths, rasterized with resvg at the window's scale
-//! factor, and shown with `img()`. All of that runs on GPUI's background
-//! executor the first time the block becomes visible, so it never delays
-//! startup or a frame: the block shows a placeholder for a frame or two.
+//! Display math is typeset with RaTeX (a Rust port of KaTeX) into an SVG made
+//! only of paths; Mermaid diagrams are laid out by merman (the Rust Mermaid
+//! implementation Zed uses) into an SVG. Either SVG is rasterized with resvg
+//! at the window's scale factor and shown with `img()`. All of that runs on
+//! GPUI's background executor the first time the block becomes visible, so it
+//! never delays startup or a frame: the block shows a placeholder meanwhile.
 //!
 //! Results live in a global LRU cache keyed by source, theme and scale, so
 //! scrolling back, switching tabs or reloading an unchanged file is free.
@@ -12,7 +13,7 @@
 use std::{
     collections::HashMap,
     hash::Hash,
-    sync::{Arc, LazyLock},
+    sync::{Arc, LazyLock, OnceLock},
 };
 
 use gpui::{
@@ -21,11 +22,15 @@ use gpui::{
 };
 use resvg::{tiny_skia, usvg};
 
-use crate::render::{BASE_SIZE, RenderCx};
+use crate::{
+    render::{BASE_SIZE, RenderCx},
+    theme::Theme,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
     Math,
+    Mermaid,
 }
 
 /// What to render. Everything that changes the pixels is part of the key.
@@ -107,9 +112,9 @@ fn bytes(image: &RenderImage) -> usize {
     image.as_bytes(0).map_or(0, |b| b.len())
 }
 
-/// The element for a math block (or, later, a diagram): the rendered image
-/// when it's ready, a placeholder while it renders, or the source with an
-/// error message if it can't be rendered.
+/// The element for a math or diagram block: the rendered image when it's
+/// ready, a placeholder while it renders, or the source with an error message
+/// if it can't be rendered.
 pub fn element(
     kind: Kind,
     source: &Arc<str>,
@@ -156,7 +161,22 @@ pub fn element(
                 .child(image)
                 .into_any_element()
         }
-        Ok(None) => div().w_full().h(px(BASE_SIZE * 2.5)).into_any_element(),
+        Ok(None) => match kind {
+            Kind::Math => div().w_full().h(px(BASE_SIZE * 2.5)).into_any_element(),
+            Kind::Mermaid => div()
+                .w_full()
+                .h(px(160.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_md()
+                .border_1()
+                .border_color(t.border)
+                .text_sm()
+                .text_color(t.muted)
+                .child("Rendering diagram…")
+                .into_any_element(),
+        },
         Err(e) => div()
             .w_full()
             .flex()
@@ -178,12 +198,13 @@ pub fn element(
 }
 
 fn spawn(key: Key, rcx: &RenderCx, cx: &mut App) {
-    let fg = rgb(rcx.theme.fg);
+    let theme = rcx.theme;
+    let font = rcx.ui_font.clone();
     let job = key.clone();
     let task = cx.background_executor().spawn(async move {
         // The renderers are third-party code fed with arbitrary input; a bug
         // in one must cost a block, not the whole app (hence panic=unwind).
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render(&job, fg)))
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render(&job, &theme, &font)))
             .unwrap_or_else(|_| Err("Could not render this block (renderer crashed)".into()))
     });
     let viewer = rcx.viewer.clone();
@@ -206,11 +227,25 @@ fn rgb(c: Hsla) -> [f32; 3] {
     [c.r, c.g, c.b]
 }
 
-fn render(key: &Key, fg: [f32; 3]) -> Result<Graphic, String> {
-    let svg = match key.kind {
-        Kind::Math => math_svg(&key.source, fg)?,
-    };
-    rasterize(&svg, key.scale as f32 / 100., &EMPTY_FONTS)
+fn hex(c: Hsla) -> String {
+    let c = Rgba::from(c);
+    let b = |v: f32| (v * 255.).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", b(c.r), b(c.g), b(c.b))
+}
+
+fn render(key: &Key, theme: &Theme, ui_font: &str) -> Result<Graphic, String> {
+    let scale = key.scale as f32 / 100.;
+    match key.kind {
+        Kind::Math => {
+            let svg = math_svg(&key.source, rgb(theme.fg))?;
+            rasterize(&svg, scale, &EMPTY_FONTS)
+        }
+        Kind::Mermaid => {
+            let fonts = mermaid_fonts(ui_font);
+            let svg = mermaid_svg(&key.source, theme, ui_font, fonts)?;
+            rasterize(&svg, scale, &fonts.db)
+        }
+    }
 }
 
 /// Math is drawn at KaTeX's default size: 1.21 × the body text.
@@ -239,9 +274,162 @@ fn math_svg(tex: &str, [r, g, b]: [f32; 3]) -> Result<String, String> {
     ))
 }
 
+/// Fonts for diagrams, loaded once, on first use, on a background thread.
+struct MermaidFonts {
+    /// System fonts for resvg, with `sans-serif` mapped to the UI font.
+    db: Arc<usvg::fontdb::Database>,
+    /// The UI font's regular and bold faces, so merman measures labels with
+    /// the font they're drawn in. Without it, merman's built-in metrics
+    /// (for "trebuchet ms") make wider fonts overflow their boxes.
+    measure: Option<merman::svg::export::NativeFontContext>,
+}
+
+fn mermaid_fonts(ui_font: &str) -> &'static MermaidFonts {
+    static FONTS: OnceLock<MermaidFonts> = OnceLock::new();
+    FONTS.get_or_init(|| {
+        use usvg::fontdb::{Database, Family, Query, Weight};
+        let mut db = Database::new();
+        db.load_system_fonts();
+        db.set_sans_serif_family(ui_font);
+        let mut faces = Vec::new();
+        for weight in [Weight::NORMAL, Weight::BOLD] {
+            let query = Query {
+                families: &[Family::Name(ui_font)],
+                weight,
+                ..Default::default()
+            };
+            if let Some(id) = db.query(&query) {
+                db.with_face_data(id, |data, _| faces.push(data.to_vec()));
+            }
+        }
+        let measure = (!faces.is_empty())
+            .then(|| {
+                merman::svg::export::NativeFontContext::from_font_bytes(
+                    faces,
+                    Default::default(),
+                    &merman::OperationControl::new(),
+                )
+                .ok()
+            })
+            .flatten();
+        MermaidFonts {
+            db: Arc::new(db),
+            measure,
+        }
+    })
+}
+
+/// Mermaid's "base" theme, with colors from our palette.
+fn mermaid_config(t: &Theme, font: &str) -> serde_json::Value {
+    let (border, note_bg, slice_text) = if t.dark {
+        ("#5a6270", "#3d3a2e", t.bg)
+    } else {
+        ("#b4b6bc", "#fbf3d9", Hsla::white())
+    };
+    let font = format!("{font}, sans-serif");
+    serde_json::json!({
+        "theme": "base",
+        "darkMode": t.dark,
+        "fontFamily": font,
+        "themeVariables": {
+            "fontFamily": font,
+            "background": hex(t.bg),
+            "primaryColor": hex(t.code_bg),
+            "primaryTextColor": hex(t.fg),
+            "primaryBorderColor": border,
+            "lineColor": hex(t.muted),
+            "secondaryColor": hex(t.hover),
+            "tertiaryColor": hex(t.bar_bg),
+            "noteBkgColor": note_bg,
+            "noteTextColor": hex(t.fg),
+            "noteBorderColor": hex(t.warning),
+            "pie1": hex(t.accent),
+            "pie2": hex(t.tip),
+            "pie3": hex(t.important),
+            "pie4": hex(t.warning),
+            "pie5": hex(t.caution),
+            "pie6": hex(t.syntax.ty),
+            "pieStrokeColor": hex(t.bg),
+            "pieOuterStrokeColor": hex(t.border),
+            "pieSectionTextColor": hex(slice_text),
+            "pieTitleTextColor": hex(t.fg),
+            "pieLegendTextColor": hex(t.fg),
+        }
+    })
+}
+
+fn mermaid_svg(
+    source: &str,
+    theme: &Theme,
+    ui_font: &str,
+    fonts: &MermaidFonts,
+) -> Result<String, String> {
+    use merman::{
+        Engine, MermaidConfig, OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest,
+        svg::SvgPipeline,
+    };
+
+    let control = OperationControl::new();
+    let mut request = SvgRequest {
+        pipeline: Some(SvgPipeline::resvg_safe()),
+        ..Default::default()
+    };
+    if let Some(measure) = &fonts.measure {
+        request.environment = request
+            .environment
+            .with_native_font_context(measure.for_operation(&control))
+            .map_err(|e| e.to_string())?;
+    }
+    let config = MermaidConfig::from_value(mermaid_config(theme, ui_font));
+    let renderer = Renderer::new().with_engine(Engine::new().with_site_config(config));
+    match renderer.render(RenderRequest::svg(source, control, request)) {
+        Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.svg().to_string()),
+        Ok(_) => Err("Not a Mermaid diagram".into()),
+        Err(e) => Err(format!("Mermaid error: {e}")),
+    }
+}
+
 /// Math SVGs contain only paths, so they need no fonts.
 static EMPTY_FONTS: LazyLock<Arc<usvg::fontdb::Database>> =
     LazyLock::new(|| Arc::new(usvg::fontdb::Database::new()));
+
+/// Picks a font for a character the label's font lacks (e.g. `→` in Noto
+/// Sans). usvg's default takes the first face that has it, often a monospace
+/// one, and when that face covers the whole label usvg draws the whole label
+/// with it. So prefer, in order: a non-monospace face, one from the same
+/// family group ("Noto Sans Symbols" for "Noto Sans"), a symbols face (it
+/// only fills the gaps), and the closest weight.
+fn fallback_font(
+    c: char,
+    exclude: &[usvg::fontdb::ID],
+    db: &mut Arc<usvg::fontdb::Database>,
+) -> Option<usvg::fontdb::ID> {
+    let db = &**db;
+    let base = db.face(*exclude.first()?)?;
+    let base_group = base.families.first()?.0.split(' ').next()?.to_string();
+    let has_char = |id| {
+        db.with_face_data(id, |data, index| {
+            ttf_parser::Face::parse(data, index)
+                .ok()
+                .and_then(|f| f.glyph_index(c))
+                .is_some()
+        })
+        .unwrap_or(false)
+    };
+    db.faces()
+        .filter(|f| !exclude.contains(&f.id) && f.style == base.style)
+        .filter(|f| has_char(f.id))
+        .min_by_key(|f| {
+            let family = f.families.first().map_or("", |f| f.0.as_str());
+            (
+                f.monospaced || family.contains("Mono"),
+                !family.starts_with(&base_group),
+                !family.contains("Symbols"),
+                f.weight.0.abs_diff(base.weight.0),
+            )
+        })
+        .map(|f| f.id)
+}
 
 fn rasterize(
     svg: &str,
@@ -250,6 +438,10 @@ fn rasterize(
 ) -> Result<Graphic, String> {
     let opts = usvg::Options {
         fontdb: fonts.clone(),
+        font_resolver: usvg::FontResolver {
+            select_font: usvg::FontResolver::default_font_selector(),
+            select_fallback: Box::new(fallback_font),
+        },
         ..Default::default()
     };
     let tree = usvg::Tree::from_str(svg, &opts).map_err(|e| e.to_string())?;

@@ -20,7 +20,6 @@ open an issue (or ask the maintainer) so the scope gets agreed first.
       `HttpClient`). Load lazily and never block startup.
 - [ ] **Raw HTML.** At least `<img>`, `<br>`, `<details>`, and
       `<p align="center">`, which are common in READMEs.
-- [ ] **Mermaid diagrams**, so these docs render in mdview too.
 - [ ] **Typeset inline math.** Inline `$…$` is Unicode text today. Typesetting
       it needs inline images inside text, which GPUI's `StyledText` can't do.
 - [ ] Split very large blocks (huge tables or code) into several list rows, so
@@ -62,5 +61,6 @@ See [startup.md](startup.md) for the current breakdown.
 - [x] Syntax highlighting in code blocks (built-in lexers, run at parse time)
 - [x] Math: display math typeset with RaTeX in the background, inline math as
       Unicode text
+- [x] Mermaid diagrams (merman), rendered in the background
 - [x] GPUI startup fixes: no double pipeline build, parallel pipelines,
       Vulkan init in parallel with fonts

@@ -76,6 +76,16 @@ $$
 \sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}
 $$
 
+## Diagrams
+
+```mermaid
+flowchart LR
+    F[file.md] -->|parse once| D(Block model)
+    D --> V{Visible?}
+    V -->|yes| R[Lay out + paint]
+    V -->|no| S[Skip]
+```
+
 ## Tables
 
 | Feature        | Status | Notes                    |

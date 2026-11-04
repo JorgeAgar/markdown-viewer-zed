@@ -42,6 +42,8 @@ small recursive-descent parser (`struct P`):
   (`$$…$$`) splits its paragraph: the text before and after become
   paragraphs, and the formula becomes a `Block::Math`. A ```` ```math ````
   code block becomes a `Block::Math` too. See [Math](#math).
+- A ```` ```mermaid ```` code block becomes a `Block::Mermaid`. See
+  [Mermaid diagrams](#mermaid-diagrams).
 
 Enabled extensions: tables, strikethrough, task lists, footnotes, GFM alerts
 (`> [!NOTE]` and friends), metadata blocks, and math (`$…$` / `$$…$$`, with
@@ -116,37 +118,64 @@ paragraph as a single run of text and can't put an image inside it.
   `a/b`, `\mathbb{R}` becomes `ℝ`, and variables are italic. It isn't a
   typesetter, but common inline math reads well and wraps with the text.
 - **Display** `$$…$$` and ```` ```math ```` blocks are typeset for real by
-  `src/graphics.rs`:
+  RaTeX, a Rust port of KaTeX that embeds the KaTeX fonts, so formulas look
+  like they do on GitHub. Glyphs are emitted as SVG paths, so no font lookup
+  is needed. See [Images rendered in the background](#images-rendered-in-the-background).
+
+### Mermaid diagrams
+
+```` ```mermaid ```` blocks are laid out and drawn to SVG by
+[merman](https://github.com/Latias94/merman), a headless Rust implementation
+of Mermaid that aims for parity with mermaid.js (Zed uses it too). All
+diagram families are enabled except the ELK layout engine.
+
+- **Theme.** Mermaid's `base` theme, with colors taken from `Theme`
+  (`mermaid_config`), so diagrams match the light or dark palette.
+- **Fonts.** Labels use the UI font. merman measures them with that very font
+  (its `native-fonts` feature, fed with the UI font's regular and bold faces);
+  with its built-in metrics, which assume "trebuchet ms", wider fonts would
+  overflow their boxes. The system font database for resvg is loaded once, on
+  a background thread, the first time a diagram is drawn (~10–15 ms), with
+  `sans-serif` mapped to the UI font. Missing characters (say `→` in Noto
+  Sans) fall back to a proportional font of the same style
+  (`fallback_font`), not to whatever face comes first.
+- **Size.** Diagrams are shown at their natural size, centered, and scaled
+  down to the column width when wider, like on GitHub.
+
+### Images rendered in the background
+
+Display math and diagrams go through the same pipeline in
+`src/graphics.rs`:
 
 ```mermaid
 sequenceDiagram
     participant R as render_block (main thread)
     participant C as graphics Cache (GPUI Global)
     participant BG as background executor
-    R->>C: element(Math, source)
+    R->>C: element(kind, source)
     alt cached
         C-->>R: image + size
     else first time
         C->>C: slot = Pending
-        C-)BG: RaTeX → SVG (paths only) → resvg → BGRA pixels
+        C-)BG: RaTeX or merman → SVG → resvg → BGRA pixels
         C-->>R: placeholder
         BG-->>C: finish(): store image, evict LRU over 128 MB
         C->>R: notify Viewer → next frame shows the image
     end
 ```
 
-RaTeX is a Rust port of KaTeX and embeds the KaTeX fonts, so formulas look
-like they do on GitHub, and glyphs are emitted as SVG paths (no font lookup).
-The image is rasterized at the window's scale factor and shown at its logical
-size, centered; if it's wider than the column it's scaled down.
+The image is rasterized at the window's scale factor (capped at 4096 px per
+side) and shown at its logical size.
 
-The cache key is the source, light/dark, and the scale factor, so switching
-tabs or reloading an unchanged file never re-renders. Old entries are evicted
-(and their GPU textures dropped with `cx.drop_image`) once the cached pixels
-exceed 128 MB, which matters when live-reloading a file while editing it.
+The cache key is the kind, the source, light/dark, and the scale factor, so
+switching tabs or reloading an unchanged file never re-renders. Old entries
+are evicted (and their GPU textures dropped with `cx.drop_image`) once the
+cached pixels exceed 128 MB, which matters when live-reloading a file while
+editing it.
 
-If a formula can't be parsed, the block shows the error and the source.
-Renderer panics are caught with `catch_unwind` (that's why the release profile
+If a formula or diagram can't be parsed, the block shows the error and the
+source. The renderers are third-party code fed with arbitrary input, so
+their panics are caught with `catch_unwind` (that's why the release profile
 uses `panic = "unwind"`) and shown the same way.
 
 ### Typography
@@ -196,4 +225,4 @@ Example: definition lists (`Options::ENABLE_DEFINITION_LIST`).
 ## Known gaps
 
 These are tracked in [roadmap.md](roadmap.md#rendering): remote images, raw
-HTML, text selection, Mermaid diagrams, and real typesetting for inline math.
+HTML, text selection, and real typesetting for inline math.

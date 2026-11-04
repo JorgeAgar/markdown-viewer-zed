@@ -10,7 +10,7 @@
 │   ├── markdown.rs    Markdown → block model (pulldown-cmark), plus parser tests
 │   ├── highlight.rs   Syntax highlighting for code blocks (hand-written lexers, no GPUI)
 │   ├── latex.rs       Inline math: LaTeX → Unicode text (no GPUI)
-│   ├── graphics.rs    Display math → images: background rendering + LRU cache
+│   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model → GPUI elements; link handling
 │   └── theme.rs       Light and dark palettes
 ├── crates/gpui/       Vendored GPUI 0.2.2 with startup fixes (see gpui-fork.md)
@@ -30,6 +30,7 @@ flowchart TD
     latex["latex.rs<br/>to_unicode() → MathText"]
     graphics["graphics.rs<br/>element() → image, async + cached"]
     ratex[("RaTeX<br/>(KaTeX port)")]
+    merman[("merman<br/>(Mermaid)")]
     resvg[("resvg")]
     render["render.rs<br/>top_block() → AnyElement"]
     theme["theme.rs<br/>Theme"]
@@ -51,6 +52,7 @@ flowchart TD
     theme --> highlight
     render --> graphics
     graphics --> ratex
+    graphics --> merman
     graphics --> resvg
     graphics --> gpui
 ```
@@ -86,6 +88,7 @@ classDiagram
         Table(aligns, header, rows)
         Footnote(label, Vec~Block~)
         Math(Arc~str~)
+        Mermaid(Arc~str~)
         Rule
     }
     class ListItem {
@@ -153,7 +156,7 @@ flowchart LR
     end
     subgraph Long["Long-lived"]
         IPC["IPC listener: accept() on the Unix socket"]
-        BG["GPUI background executor<br/>(sized to the number of CPUs)<br/>also typesets display math"]
+        BG["GPUI background executor<br/>(sized to the number of CPUs)<br/>also renders math and diagrams"]
     end
     IPC -->|"mpsc channel: Vec of PathBuf"| UI
     P -->|"join() before the window opens"| UI
@@ -166,9 +169,9 @@ flowchart LR
 - All `Viewer` state lives on the main thread. Work on other threads talks to
   it only through a channel (`futures::channel::mpsc`), or through
   `WeakEntity::update` from an async task.
-- `graphics.rs` renders math on the background executor and stores the
+- `graphics.rs` renders math and diagrams on the background executor and stores the
   result in a GPUI `Global` cache from the main thread, then notifies the
-  `Viewer`. See [rendering.md](rendering.md#math).
+  `Viewer`. See [rendering.md](rendering.md#images-rendered-in-the-background).
 - Live reload is an async task on the main thread: a 750 ms timer, then
   `stat()` on each open file. It doesn't use a file-watcher thread.
 

@@ -291,6 +291,7 @@ fn render_block(block: &Block, rcx: &RenderCx, c: &mut Cx, depth: usize) -> AnyE
             )
             .into_any_element(),
         Block::Math(tex) => graphics::element(Kind::Math, tex, rcx, c.window, c.app),
+        Block::Mermaid(src) => graphics::element(Kind::Mermaid, src, rcx, c.window, c.app),
         Block::Rule => div()
             .w_full()
             .my_2()
