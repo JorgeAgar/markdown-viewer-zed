@@ -325,6 +325,13 @@ fn functions_and_accents() {
 #[test]
 fn commands() {
     let cases: &[&str] = &[
+        // Every character with a Unicode superscript/subscript form, and some without.
+        r"x^{0123456789+-=()} x_{0123456789+-=()} x^{-} x_{\pm}",
+        r"x^{abcdefghijklmnoprstuvwxyz} x^{q} x^{ABDEGHIJKLMNOPRTUVW} x^{C}",
+        r"x^{\alpha\beta\gamma\delta\theta\varphi\chi} x^{*} x^{\ast} x^{\prime\prime} x^{\circ} x^{\epsilon}",
+        r"x_{aehijklmnoprstuvx} x_{b} x_{\beta\gamma\rho\varphi\chi} x_{\alpha}",
+        // Alphabet fallbacks: digits and non-letters keep their form.
+        r"\mathcal{A1!} \mathscr{z9} \mathfrak{x7?} \mathbb{0 9}",
         r"\alpha\beta\gamma\delta\epsilon\varepsilon\zeta\eta\theta\vartheta\iota\kappa\lambda\mu\nu\xi\omicron\pi\varpi\rho\varrho\sigma\varsigma\tau\upsilon\phi\varphi\chi\psi\omega",
         r"\Gamma\Delta\Theta\Lambda\Xi\Pi\Sigma\Upsilon\Phi\Psi\Omega",
         r"a \pm b \mp c \times d \div e \cdot f \ast g \star h \circ i \bullet j",
