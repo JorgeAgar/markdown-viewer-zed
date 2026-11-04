@@ -19,10 +19,7 @@ use std::{
 
 /// Bindings that are known to be missing from a doc. Fix the doc and remove
 /// the entry; the test fails if an entry here is no longer needed.
-const KNOWN_GAPS: &[(&str, &str)] = &[
-    // README key table lists `Space` (page down) but not `Shift+Space` (page up).
-    ("README.md", "shift-space"),
-];
+const KNOWN_GAPS: &[(&str, &str)] = &[];
 
 /// Markdown files whose links and paths are checked.
 fn doc_files() -> Vec<PathBuf> {

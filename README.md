@@ -22,7 +22,7 @@ cargo build --release
 | `Ctrl+PgDn` / `Ctrl+PgUp`            | Next / previous tab                       |
 | `Ctrl+R` / `F5`                      | Reload                                    |
 | `Ctrl+Q`                             | Quit                                      |
-| `↑ ↓` `j k` `PgUp PgDn` `Space` `Home End` `g G` | Scroll                       |
+| `↑ ↓` `j k` `PgUp PgDn` `Space` `Shift+Space` `Home End` `g G` | Scroll        |
 | Middle click on a tab                | Close it                                  |
 
 Code blocks are syntax highlighted, and ```` ```mermaid ```` blocks are drawn
