@@ -15,6 +15,7 @@
 #
 # Usage: scripts/guards/runtime-deps.sh [--bless]
 set -euo pipefail
+# shellcheck source=../lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 cd "$MDVIEW_ROOT"
 
@@ -51,5 +52,5 @@ fi
 compare_snapshot "$SNAPSHOT" "$tmp" "The runtime dependencies ($SNAPSHOT)" "scripts/check.sh --bless" \
     "  New or changed crates cost build time, binary size and often startup time.
   Rule: no new dependencies without measured numbers (docs/contributing.md#performance-rules).
-  Measure with scripts/startup-bench.sh --ref main and put the output in the commit message."
+  Measure with scripts/startup-bench.sh --ref origin/main and put the output in the commit message."
 ok "runtime dependencies match $SNAPSHOT ($(grep -vc '^#' "$SNAPSHOT") crates)"

@@ -15,6 +15,7 @@
 #
 # Usage: scripts/guards/gpui-patch.sh [--bless]
 set -euo pipefail
+# shellcheck source=../lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 cd "$MDVIEW_ROOT"
 
@@ -34,7 +35,7 @@ fetch_pristine() {
     [[ -f $PRISTINE.verified && -d $PRISTINE ]] && return 0
     mkdir -p "$CACHE"
     local crate=""
-    for c in "${CARGO_HOME:-$HOME/.cargo}"/registry/cache/*/gpui-$VERSION.crate; do
+    for c in "${CARGO_HOME:-$HOME/.cargo}"/registry/cache/*/"gpui-$VERSION.crate"; do
         [[ -f $c ]] && crate=$c && break
     done
     if [[ -z $crate ]]; then

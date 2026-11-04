@@ -13,6 +13,7 @@
 #
 # Usage: scripts/guards/binary-size.sh [--build] [--bless]
 set -euo pipefail
+# shellcheck source=../lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 cd "$MDVIEW_ROOT"
 
@@ -68,7 +69,7 @@ summary="$BIN is $(mib "$size") ($size bytes), $delta_pct% vs the blessed $(mib 
 if ((size * 100 > want * (100 + TOLERANCE_PCT))); then
     err "$summary (limit +$TOLERANCE_PCT%)."
     info "  A bigger binary slows the warm path (docs/startup.md). Find out what grew"
-    info "  (new dependency? new feature?) and measure it: scripts/startup-bench.sh --ref main"
+    info "  (new dependency? new feature?) and measure it: scripts/startup-bench.sh --ref origin/main"
     info "  If it's intentional and measured, bless it: ${C_BOLD}scripts/check.sh --release --bless${C_OFF}"
     exit 1
 fi

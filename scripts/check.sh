@@ -11,6 +11,7 @@
 #
 # Works from any directory. Respects CARGO_BUILD_JOBS etc. from the environment.
 set -uo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$MDVIEW_ROOT" || exit 1
 
@@ -59,7 +60,7 @@ if [[ $bless == 1 ]]; then
     fi
     git --no-pager diff --stat -- tests/guards patches
     info "Dependency or size changes need measured numbers in the commit message:"
-    info "  scripts/startup-bench.sh --ref main"
+    info "  scripts/startup-bench.sh --ref origin/main"
     exit 0
 fi
 

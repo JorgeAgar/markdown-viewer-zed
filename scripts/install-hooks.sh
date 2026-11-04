@@ -10,6 +10,7 @@
 # does nothing in a worktree whose branch doesn't have it yet.
 # Skip it once with `git commit --no-verify`.
 set -euo pipefail
+# shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$MDVIEW_ROOT"
 

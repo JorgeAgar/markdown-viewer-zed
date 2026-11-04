@@ -5,6 +5,8 @@
 MDVIEW_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export MDVIEW_ROOT
 
+# The colors are used by the scripts that source this file.
+# shellcheck disable=SC2034
 if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
     C_RED=$'\e[31m' C_GREEN=$'\e[32m' C_YELLOW=$'\e[33m' C_BOLD=$'\e[1m' C_DIM=$'\e[2m' C_OFF=$'\e[0m'
 else
