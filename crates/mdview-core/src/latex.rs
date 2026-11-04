@@ -274,6 +274,12 @@ impl Parser<'_> {
                 T::Open => depth += 1,
                 T::Close if depth == 0 => break,
                 T::Close => depth -= 1,
+                // Any run of whitespace (line breaks too) is one space.
+                T::Ch(c) if c.is_whitespace() => {
+                    if !s.ends_with(' ') {
+                        s.push(' ');
+                    }
+                }
                 T::Ch(c) => s.push(c),
                 T::Cmd(c) => match symbol(&c) {
                     Some((sym, _)) => s.push_str(sym),
@@ -1172,6 +1178,12 @@ mod tests {
         assert_eq!(u(r"\sum_{i=1}^n i"), "∑ᵢ₌₁ⁿi");
         assert_eq!(u(r"\foo"), "\\foo");
         assert_eq!(u(r"f(x, y)"), "f(x,\u{2009}y)");
+    }
+
+    #[test]
+    fn whitespace_in_text_is_one_space() {
+        assert_eq!(u("\\text{a\r\n b\t\tc  d}"), "a b c d");
+        assert_eq!(u("x \\text{ if\n} y"), "x if y");
     }
 
     #[test]
