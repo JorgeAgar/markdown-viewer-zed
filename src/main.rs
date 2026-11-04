@@ -6,8 +6,13 @@
 //! 2. Otherwise, read + parse the files on a worker thread while GPUI boots
 //!    (Wayland/X11 connection, font database, GPU context) on the main thread.
 
+mod cli;
 mod graphics;
+mod links;
 mod render;
+mod tabs;
+#[cfg(test)]
+mod test_util;
 mod theme;
 mod viewer;
 
@@ -32,53 +37,40 @@ use viewer::{
 };
 
 fn socket_path() -> PathBuf {
-    match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(dir) => PathBuf::from(dir).join("mdview.sock"),
-        None => std::env::temp_dir().join(format!(
-            "mdview-{}.sock",
-            std::env::var("USER").unwrap_or_default()
-        )),
-    }
+    cli::socket_path_in(std::env::var_os("XDG_RUNTIME_DIR"), || {
+        (
+            std::env::temp_dir(),
+            std::env::var("USER").unwrap_or_default(),
+        )
+    })
 }
-
-const HELP: &str = "\
-mdview — fast Markdown viewer
-
-USAGE: mdview [-n] [FILE...]
-
-  -n, --new   Start a separate instance instead of reusing the running one
-  -h, --help  Show this help
-
-KEYS: Ctrl+O open · Ctrl+W close tab · Ctrl+Tab / Ctrl+Shift+Tab switch tabs
-      Ctrl+R reload · Ctrl+Q quit · ↑↓ PgUp PgDn Space Home End scroll
-";
 
 /// Process start, for `MDVIEW_TRACE_STARTUP=1`.
 pub static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 
 fn main() {
     START.get_or_init(std::time::Instant::now);
-    let mut standalone = false;
-    let mut paths = Vec::new();
-    for arg in std::env::args_os().skip(1) {
-        match arg.to_str() {
-            Some("-n" | "--new") => standalone = true,
-            Some("-h" | "--help") => {
-                print!("{HELP}");
-                return;
-            }
-            _ => paths.push(viewer::normalize(&PathBuf::from(arg))),
-        }
+    let cli::Command::Run {
+        standalone,
+        mut paths,
+    } = cli::parse_args(std::env::args_os().skip(1))
+    else {
+        print!("{}", cli::HELP);
+        return;
+    };
+    for p in &mut paths {
+        *p = viewer::normalize(p);
     }
 
     let mut listener = None;
     if !standalone {
         let sock = socket_path();
-        if let Ok(mut stream) = UnixStream::connect(&sock) {
-            let msg: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
-            if stream.write_all(msg.join("\n").as_bytes()).is_ok() {
-                return;
-            }
+        if let Ok(mut stream) = UnixStream::connect(&sock)
+            && stream
+                .write_all(cli::encode_paths(&paths).as_bytes())
+                .is_ok()
+        {
+            return;
         }
         let _ = std::fs::remove_file(&sock); // stale socket from a crashed instance
         listener = UnixListener::bind(&sock).ok();
@@ -148,11 +140,10 @@ fn main() {
             std::thread::spawn(move || {
                 for mut stream in listener.incoming().flatten() {
                     let mut buf = String::new();
-                    if stream.read_to_string(&mut buf).is_ok() {
-                        let paths = buf.lines().filter(|l| !l.is_empty()).map(PathBuf::from);
-                        if tx.unbounded_send(paths.collect()).is_err() {
-                            break;
-                        }
+                    if stream.read_to_string(&mut buf).is_ok()
+                        && tx.unbounded_send(cli::decode_paths(&buf)).is_err()
+                    {
+                        break;
                     }
                 }
             });

@@ -12,6 +12,7 @@ use gpui::{
 use crate::{
     graphics::{self, Kind},
     highlight::{Highlight, Tok},
+    links::{LinkTarget, classify_link, file_url, percent_decode},
     markdown::{Align, BOLD, Block, CODE, ITALIC, Image, LINK, RichText, STRIKE},
     theme::Theme,
     viewer::Viewer,
@@ -453,62 +454,30 @@ fn rich_text(
         .into_any_element()
 }
 
-pub fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%'
-            && i + 2 < b.len()
-            && let (Some(h), Some(l)) = (
-                (b[i + 1] as char).to_digit(16),
-                (b[i + 2] as char).to_digit(16),
-            )
-        {
-            out.push((h * 16 + l) as u8);
-            i += 3;
-            continue;
+pub(crate) fn open_link(
+    viewer: &WeakEntity<Viewer>,
+    base: &Path,
+    url: &str,
+    _: &mut Window,
+    cx: &mut App,
+) {
+    match classify_link(base, url) {
+        LinkTarget::Anchor(anchor) => {
+            viewer
+                .update(cx, |v, cx| v.scroll_to_anchor(None, &anchor, cx))
+                .ok();
         }
-        out.push(b[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn open_link(viewer: &WeakEntity<Viewer>, base: &Path, url: &str, _: &mut Window, cx: &mut App) {
-    if let Some(anchor) = url.strip_prefix('#') {
-        let anchor = percent_decode(anchor);
-        viewer
-            .update(cx, |v, cx| v.scroll_to_anchor(None, &anchor, cx))
-            .ok();
-        return;
-    }
-    if url.contains("://") || url.starts_with("mailto:") {
-        cx.open_url(url);
-        return;
-    }
-    let (path, anchor) = match url.split_once('#') {
-        Some((p, a)) => (p, Some(a)),
-        None => (url, None),
-    };
-    let path = base.join(percent_decode(path));
-    let is_md = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-        matches!(
-            e.to_ascii_lowercase().as_str(),
-            "md" | "markdown" | "mdx" | "mdown" | "mkd"
-        )
-    });
-    if is_md {
-        let anchor = anchor.map(percent_decode);
-        viewer
-            .update(cx, |v, cx| {
-                v.open_paths(vec![path.clone()], cx);
-                if let Some(a) = anchor {
-                    v.scroll_to_anchor(Some(&path), &a, cx);
-                }
-            })
-            .ok();
-    } else {
-        cx.open_url(&format!("file://{}", path.display()));
+        LinkTarget::External(url) => cx.open_url(&url),
+        LinkTarget::Markdown { path, anchor } => {
+            viewer
+                .update(cx, |v, cx| {
+                    v.open_paths(vec![path.clone()], cx);
+                    if let Some(a) = anchor {
+                        v.scroll_to_anchor(Some(&path), &a, cx);
+                    }
+                })
+                .ok();
+        }
+        LinkTarget::File(path) => cx.open_url(&file_url(&path)),
     }
 }

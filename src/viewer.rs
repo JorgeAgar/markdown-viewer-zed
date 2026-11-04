@@ -14,8 +14,10 @@ use gpui::{
 };
 
 use crate::{
-    markdown::{self, Block, Document},
+    links,
+    markdown::{self, Document},
     render::{self, RenderCx},
+    tabs::Tabs,
     theme::Theme,
 };
 
@@ -31,13 +33,25 @@ pub type Loaded = (PathBuf, Result<(Document, Option<SystemTime>), String>);
 
 /// Read + parse a file. Safe to call from any thread.
 pub fn load(path: PathBuf) -> Loaded {
+    // Stat before reading: if the file changes in between, the content is
+    // newer than the mtime and the next live-reload poll reads it again.
+    // The other order would pair the new mtime with the old content.
+    let mtime = modified(&path);
     let res = std::fs::read(&path)
-        .map(|bytes| {
-            let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-            (markdown::parse(&String::from_utf8_lossy(&bytes)), mtime)
-        })
+        .map(|bytes| (markdown::parse(&String::from_utf8_lossy(&bytes)), mtime))
         .map_err(|e| e.to_string());
     (path, res)
+}
+
+/// The file's modification time, if it can be read.
+fn modified(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Live reload: whether a file whose modification time is now `now` must be
+/// read again. A file that disappeared (`None`) keeps its last content.
+fn needs_reload(loaded: Option<SystemTime>, now: Option<SystemTime>) -> bool {
+    now.is_some() && now != loaded
 }
 
 pub fn normalize(p: &Path) -> PathBuf {
@@ -60,11 +74,7 @@ struct Tab {
 
 impl Tab {
     fn new(path: PathBuf, res: Result<(Document, Option<SystemTime>), String>) -> Self {
-        let title = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string())
-            .into();
+        let title = tab_title(&path).into();
         let (doc, mtime) = res.unwrap_or_else(|e| (error_doc(&path, &e), None));
         let list = ListState::new(doc.blocks.len(), ListAlignment::Top, px(800.));
         Self {
@@ -89,6 +99,13 @@ impl Tab {
     }
 }
 
+/// The file name, or the whole path when there's none (`/`, `..`).
+fn tab_title(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 fn error_doc(path: &Path, err: &str) -> Document {
     markdown::parse(&format!(
         "# Could not open file\n\n`{}`\n\n> {}\n",
@@ -103,8 +120,7 @@ pub struct Fonts {
 }
 
 pub struct Viewer {
-    tabs: Vec<Tab>,
-    active: usize,
+    tabs: Tabs<Tab>,
     focus: FocusHandle,
     fonts: Fonts,
     window_title: SharedString,
@@ -143,8 +159,7 @@ impl Viewer {
         .detach();
 
         let mut this = Self {
-            tabs: Vec::new(),
-            active: 0,
+            tabs: Tabs::default(),
             focus,
             fonts,
             window_title: SharedString::default(),
@@ -156,12 +171,9 @@ impl Viewer {
 
     fn add_loaded(&mut self, loaded: Vec<Loaded>) {
         for (path, res) in loaded {
-            if let Some(ix) = self.tabs.iter().position(|t| t.path == path) {
-                self.active = ix;
-                continue;
+            if !self.tabs.activate_first(|t| t.path == path) {
+                self.tabs.push(Tab::new(path, res));
             }
-            self.tabs.push(Tab::new(path, res));
-            self.active = self.tabs.len() - 1;
         }
     }
 
@@ -172,9 +184,7 @@ impl Viewer {
             if p.is_dir() {
                 continue;
             }
-            if let Some(ix) = self.tabs.iter().position(|t| t.path == p) {
-                self.active = ix;
-            } else {
+            if !self.tabs.activate_first(|t| t.path == p) {
                 loaded.push(load(p));
             }
         }
@@ -185,16 +195,10 @@ impl Viewer {
     pub fn scroll_to_anchor(&mut self, path: Option<&Path>, anchor: &str, cx: &mut Context<Self>) {
         let tab = match path {
             Some(p) => self.tabs.iter().find(|t| t.path == normalize(p)),
-            None => self.tabs.get(self.active),
+            None => self.tabs.active(),
         };
         let Some(tab) = tab else { return };
-        let anchor = anchor.to_lowercase();
-        if let Some(ix) = tab
-            .doc
-            .blocks
-            .iter()
-            .position(|b| matches!(b, Block::Heading { slug, .. } if *slug == anchor))
-        {
+        if let Some(ix) = links::heading_index(&tab.doc.blocks, anchor) {
             tab.list.scroll_to(ListOffset {
                 item_ix: ix,
                 offset_in_item: px(0.),
@@ -205,9 +209,8 @@ impl Viewer {
 
     fn poll_changes(&mut self, cx: &mut Context<Self>) {
         let mut changed = false;
-        for tab in &mut self.tabs {
-            let mtime = std::fs::metadata(&tab.path).and_then(|m| m.modified()).ok();
-            if mtime.is_some() && mtime != tab.mtime {
+        for tab in self.tabs.iter_mut() {
+            if needs_reload(tab.mtime, modified(&tab.path)) {
                 let (_, res) = load(tab.path.clone());
                 tab.replace(res);
                 changed = true;
@@ -219,18 +222,13 @@ impl Viewer {
     }
 
     fn close_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if ix >= self.tabs.len() {
-            return;
+        if self.tabs.close(ix).is_some() {
+            cx.notify();
         }
-        self.tabs.remove(ix);
-        if self.active > ix || self.active >= self.tabs.len() {
-            self.active = self.active.saturating_sub(1);
-        }
-        cx.notify();
     }
 
     fn active_list(&self) -> Option<&ListState> {
-        self.tabs.get(self.active).map(|t| &t.list)
+        self.tabs.active().map(|t| &t.list)
     }
 
     fn scroll(&mut self, dy: f32, cx: &mut Context<Self>) {
@@ -257,7 +255,7 @@ impl Viewer {
             .border_b_1()
             .border_color(theme.border)
             .children(self.tabs.iter().enumerate().map(|(ix, tab)| {
-                let active = ix == self.active;
+                let active = ix == self.tabs.active_index();
                 div()
                     .id(("tab", ix))
                     .group("tab")
@@ -294,7 +292,7 @@ impl Viewer {
                             })),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.active = ix;
+                        this.tabs.activate(ix);
                         cx.notify();
                     }))
                     .on_mouse_down(
@@ -340,7 +338,7 @@ impl Render for Viewer {
             }
         }
 
-        let title: SharedString = match self.tabs.get(self.active) {
+        let title: SharedString = match self.tabs.active() {
             Some(t) => format!("{} — mdview", t.title).into(),
             None => "mdview".into(),
         };
@@ -349,7 +347,7 @@ impl Render for Viewer {
             self.window_title = title;
         }
 
-        let content = match self.tabs.get(self.active) {
+        let content = match self.tabs.active() {
             Some(tab) => {
                 let rcx = RenderCx {
                     theme,
@@ -402,23 +400,23 @@ impl Render for Viewer {
                 if this.tabs.is_empty() {
                     window.remove_window();
                 } else {
-                    this.close_tab(this.active, cx);
+                    this.close_tab(this.tabs.active_index(), cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &NextTab, _, cx| {
                 if !this.tabs.is_empty() {
-                    this.active = (this.active + 1) % this.tabs.len();
+                    this.tabs.next();
                     cx.notify();
                 }
             }))
             .on_action(cx.listener(|this, _: &PrevTab, _, cx| {
                 if !this.tabs.is_empty() {
-                    this.active = (this.active + this.tabs.len() - 1) % this.tabs.len();
+                    this.tabs.prev();
                     cx.notify();
                 }
             }))
             .on_action(cx.listener(|this, _: &Reload, _, cx| {
-                if let Some(tab) = this.tabs.get_mut(this.active) {
+                if let Some(tab) = this.tabs.active_mut() {
                     let (_, res) = load(tab.path.clone());
                     tab.replace(res);
                     cx.notify();
@@ -456,5 +454,242 @@ impl Render for Viewer {
                 d.child(self.render_tab_bar(&theme, cx))
             })
             .child(div().flex_1().min_h_0().w_full().child(content))
+    }
+}
+
+#[cfg(test)]
+mod app_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{markdown::Block, test_util::TempDir};
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+
+    fn heading(doc: &Document, ix: usize) -> String {
+        match &doc.blocks[ix] {
+            Block::Heading { text, .. } => text.text.clone(),
+            b => panic!("block {ix} is not a heading: {b:?}"),
+        }
+    }
+
+    fn all_text(doc: &Document) -> String {
+        format!("{:?}", doc.blocks)
+    }
+
+    #[test]
+    fn load_reads_and_parses() {
+        let dir = TempDir::new("load");
+        let path = dir.join("a.md");
+        std::fs::write(&path, "# Title\n\nBody\n").unwrap();
+        let (p, res) = load(path.clone());
+        assert_eq!(p, path);
+        let (doc, mtime) = res.unwrap();
+        assert_eq!(doc.blocks.len(), 2);
+        assert_eq!(heading(&doc, 0), "Title");
+        assert_eq!(mtime, modified(&path));
+        assert!(mtime.is_some());
+    }
+
+    /// The mtime must be taken *before* reading. Otherwise a save that lands
+    /// between the read and the stat is recorded with the old content, and
+    /// live reload never picks it up. A FIFO makes that race deterministic:
+    /// reading blocks until a writer comes, and the write bumps the mtime.
+    #[test]
+    fn load_takes_the_mtime_before_reading() {
+        let dir = TempDir::new("fifo");
+        let fifo = dir.join("pipe.md");
+        let ok = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|s| s.success());
+        assert!(ok, "mkfifo failed");
+        let before = modified(&fifo).unwrap();
+        let writer = {
+            let fifo = fifo.clone();
+            std::thread::spawn(move || {
+                // Coarse timestamps: make sure the write gets a later one.
+                std::thread::sleep(Duration::from_millis(50));
+                std::fs::write(&fifo, "# Saved\n").unwrap();
+            })
+        };
+        let (doc, mtime) = load(fifo.clone()).1.unwrap();
+        writer.join().unwrap();
+        assert_eq!(heading(&doc, 0), "Saved");
+        assert!(
+            modified(&fifo).unwrap() > before,
+            "the write bumps the mtime"
+        );
+        assert_eq!(
+            mtime,
+            Some(before),
+            "mtime read after the content: the next live-reload poll would miss the change"
+        );
+    }
+
+    #[test]
+    fn load_missing_file() {
+        let dir = TempDir::new("missing");
+        let (p, res) = load(dir.join("nope.md"));
+        assert_eq!(p, dir.join("nope.md"));
+        let err = res.err().unwrap();
+        assert!(err.contains("No such file"), "{err}");
+    }
+
+    #[test]
+    fn load_directory() {
+        let dir = TempDir::new("dir");
+        let err = load(dir.to_path_buf()).1.err().unwrap();
+        assert!(err.contains("directory"), "{err}");
+    }
+
+    #[test]
+    fn load_non_utf8_is_lossy() {
+        let dir = TempDir::new("lossy");
+        let path = dir.join("bad.md");
+        std::fs::write(&path, b"# caf\xe9 \xff\n\nok\n").unwrap();
+        let doc = load(path).1.unwrap().0;
+        assert_eq!(heading(&doc, 0), "caf\u{FFFD} \u{FFFD}");
+    }
+
+    #[test]
+    fn load_empty_file() {
+        let dir = TempDir::new("empty");
+        let path = dir.join("e.md");
+        std::fs::write(&path, "").unwrap();
+        let (doc, mtime) = load(path).1.unwrap();
+        assert!(doc.blocks.is_empty());
+        assert!(mtime.is_some());
+    }
+
+    #[test]
+    fn normalize_paths() {
+        let dir = TempDir::new("normalize");
+        let file = dir.join("a.md");
+        std::fs::write(&file, "x").unwrap();
+        std::fs::create_dir(dir.join("sub")).unwrap();
+        let canon = std::fs::canonicalize(&file).unwrap();
+        // Existing files are canonicalized, so different spellings dedupe.
+        assert_eq!(normalize(&file), canon);
+        assert_eq!(normalize(&dir.join("sub/../a.md")), canon);
+        assert_eq!(normalize(&dir.join("./a.md")), canon);
+        std::os::unix::fs::symlink(&file, dir.join("link.md")).unwrap();
+        assert_eq!(normalize(&dir.join("link.md")), canon);
+        // Missing absolute paths are kept as they are (not cleaned up).
+        let missing = dir.join("sub/../missing.md");
+        assert_eq!(normalize(&missing), missing);
+        // Missing relative paths are made absolute against the cwd.
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(
+            normalize(Path::new("no-such-dir-mdview/x.md")),
+            cwd.join("no-such-dir-mdview/x.md")
+        );
+        // An existing relative path is canonicalized too.
+        assert_eq!(normalize(Path::new("Cargo.toml")), cwd.join("Cargo.toml"));
+        // Non-UTF-8 names survive.
+        let raw = dir.join(OsStr::from_bytes(b"caf\xe9.md"));
+        assert_eq!(normalize(&raw), raw);
+    }
+
+    #[test]
+    fn reload_detection() {
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+        let t1 = t0 + Duration::from_nanos(1);
+        assert!(!needs_reload(Some(t0), Some(t0)), "unchanged");
+        assert!(needs_reload(Some(t0), Some(t1)), "modified");
+        assert!(needs_reload(Some(t1), Some(t0)), "older (restored backup)");
+        assert!(!needs_reload(Some(t0), None), "deleted: keep the content");
+        assert!(needs_reload(None, Some(t0)), "appeared after a failed load");
+        assert!(!needs_reload(None, None), "still missing");
+    }
+
+    #[test]
+    fn titles() {
+        assert_eq!(tab_title(Path::new("/a/b/readme.md")), "readme.md");
+        assert_eq!(tab_title(Path::new("/a/b/")), "b");
+        assert_eq!(tab_title(Path::new("/")), "/");
+        assert_eq!(tab_title(Path::new("/a/..")), "/a/..");
+        assert_eq!(
+            tab_title(Path::new(OsStr::from_bytes(b"/x/caf\xe9.md"))),
+            "caf\u{FFFD}.md"
+        );
+    }
+
+    #[test]
+    fn error_document() {
+        let doc = error_doc(
+            Path::new("/x/a b.md"),
+            "No such file or directory (os error 2)",
+        );
+        assert_eq!(heading(&doc, 0), "Could not open file");
+        let text = all_text(&doc);
+        assert!(text.contains("/x/a b.md"), "{text}");
+        assert!(text.contains("No such file or directory"), "{text}");
+        assert!(matches!(doc.blocks[2], Block::Quote { .. }));
+        // Markdown in the path or the error isn't a problem for the parse.
+        let doc = error_doc(Path::new("/x/*a* [b](c).md"), "# not a heading");
+        assert_eq!(doc.blocks.len(), 3);
+    }
+
+    #[test]
+    fn tab_from_error_shows_the_error_document() {
+        let tab = Tab::new(PathBuf::from("/x/gone.md"), Err("boom".into()));
+        assert_eq!(tab.title.as_ref(), "gone.md");
+        assert_eq!(tab.mtime, None);
+        assert_eq!(heading(&tab.doc, 0), "Could not open file");
+        assert_eq!(tab.list.item_count(), tab.doc.blocks.len());
+    }
+
+    fn doc_with(n: usize) -> Document {
+        let src: String = (0..n).map(|i| format!("Paragraph {i}\n\n")).collect();
+        let doc = markdown::parse(&src);
+        assert_eq!(doc.blocks.len(), n);
+        doc
+    }
+
+    #[test]
+    fn replace_keeps_the_scroll_position() {
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(5);
+        let mut tab = Tab::new(PathBuf::from("/x/a.md"), Ok((doc_with(10), Some(t0))));
+        assert_eq!(tab.list.item_count(), 10);
+        tab.list.scroll_to(ListOffset {
+            item_ix: 4,
+            offset_in_item: px(12.),
+        });
+        let t1 = t0 + Duration::from_secs(1);
+        tab.replace(Ok((doc_with(12), Some(t1))));
+        assert_eq!(tab.list.item_count(), 12);
+        assert_eq!(tab.doc.blocks.len(), 12);
+        assert_eq!(tab.mtime, Some(t1));
+        let top = tab.list.logical_scroll_top();
+        assert_eq!((top.item_ix, top.offset_in_item), (4, px(12.)));
+    }
+
+    #[test]
+    fn replace_with_a_shorter_document_clamps_the_scroll_position() {
+        let mut tab = Tab::new(PathBuf::from("/x/a.md"), Ok((doc_with(10), None)));
+        tab.list.scroll_to(ListOffset {
+            item_ix: 8,
+            offset_in_item: px(5.),
+        });
+        tab.replace(Ok((doc_with(3), None)));
+        let top = tab.list.logical_scroll_top();
+        assert_eq!(top.item_ix, 2, "last row of the new document");
+        assert_eq!(tab.list.item_count(), 3);
+        // Down to nothing.
+        tab.replace(Ok((doc_with(0), None)));
+        assert_eq!(tab.list.item_count(), 0);
+        assert_eq!(tab.list.logical_scroll_top().item_ix, 0);
+    }
+
+    #[test]
+    fn replace_with_an_error() {
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(5);
+        let mut tab = Tab::new(PathBuf::from("/x/a.md"), Ok((doc_with(2), Some(t0))));
+        tab.replace(Err("gone".into()));
+        assert_eq!(tab.mtime, None);
+        assert_eq!(heading(&tab.doc, 0), "Could not open file");
+        assert!(all_text(&tab.doc).contains("gone"));
+        assert_eq!(tab.title.as_ref(), "a.md", "the title doesn't change");
     }
 }
