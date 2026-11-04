@@ -467,11 +467,14 @@ impl Parser<'_> {
                 }
             }
             "mathit" => {
-                let g = self.arg(w);
-                let len = g.s.len();
-                let base = w.s.len();
+                // The whole group is italic: replace (not add to) the ranges
+                // it already has, or they would overlap.
+                let mut g = self.arg(w);
+                g.italic.clear();
+                if !g.s.is_empty() {
+                    g.italic.push(0..g.s.len());
+                }
                 w.append(g);
-                w.italic.push(base..base + len);
             }
             "mathbb" | "Bbb" | "mathcal" | "mathscr" | "mathfrak" => {
                 let s = self.raw_arg();
@@ -1178,5 +1181,14 @@ mod tests {
         for r in &m.italic {
             assert!(m.text.is_char_boundary(r.start) && m.text.is_char_boundary(r.end));
         }
+    }
+
+    #[test]
+    fn mathit_italic_ranges_do_not_overlap() {
+        // `\mathit{x}` used to report `x` as italic twice ([0..1, 0..1]),
+        // which made `RichText::push_math` slice backwards and panic.
+        let m = to_unicode(r"\mathit{xy} + \mathit{\alpha 1}");
+        assert_eq!(m.text, "xy + α1");
+        assert_eq!(m.italic, [0..2, 5..8]);
     }
 }

@@ -672,4 +672,20 @@ mod tests {
             assert_eq!(italic, ["E", "mc"]);
         }
     }
+
+    #[test]
+    fn mathit_in_inline_math_does_not_panic() {
+        let doc = parse("A $\\mathit{xy}$ b");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected a paragraph")
+        };
+        assert_eq!(p.text, "A xy b");
+        let italic: Vec<&str> = p
+            .spans
+            .iter()
+            .filter(|s| s.style & ITALIC != 0)
+            .map(|s| &p.text[s.range.clone()])
+            .collect();
+        assert_eq!(italic, ["xy"]);
+    }
 }
