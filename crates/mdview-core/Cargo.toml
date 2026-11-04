@@ -11,3 +11,9 @@ publish = false
 # run in seconds.
 [dependencies]
 pulldown-cmark = { version = "0.13", default-features = false }
+
+# Test-only: none of these end up in the mdview binary.
+[dev-dependencies]
+insta = { version = "1.43", features = ["glob"] }
+proptest = "1"
+serde_json = "1"

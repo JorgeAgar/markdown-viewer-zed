@@ -1,0 +1,3 @@
+# The fixtures are byte-exact test inputs: never convert line endings
+# (crlf.md must keep its CRLFs) or whitespace.
+*.md -text

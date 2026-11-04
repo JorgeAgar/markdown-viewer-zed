@@ -1,0 +1,17 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "# A\rB\r\rC\r- x\r- y\r"
+---
+heading h1 #a
+  "A"
+paragraph
+  "B"
+paragraph
+  "C"
+list bullet
+  item
+    paragraph
+      "x"
+  item
+    paragraph
+      "y"

@@ -1,0 +1,12 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/front-matter-not-first.md
+---
+paragraph
+  "Some text."
+rule
+heading h2 #title-not-front-matter
+  "title: not front matter"
+paragraph
+  "The ⟦C|---⟧ above is a rule, and the second one a setext underline."

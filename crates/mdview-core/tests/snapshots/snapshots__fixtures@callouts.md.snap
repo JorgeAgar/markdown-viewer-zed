@@ -1,0 +1,50 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/callouts.md
+---
+quote [!Note]
+  paragraph
+    "Note."
+quote [!Tip]
+  paragraph
+    "Tip."
+quote [!Important]
+  paragraph
+    "Important."
+quote [!Warning]
+  paragraph
+    "Warning."
+quote [!Caution]
+  paragraph
+    "Caution."
+quote [!Note]
+  paragraph
+    "Lowercase."
+quote
+  paragraph
+    "[!FOO] Unknown kind."
+quote
+  paragraph
+    "[!NOTE] Title on the same line Body."
+quote [!Warning]
+  list bullet
+    item
+      paragraph
+        "a list"
+    item
+      paragraph
+        "in a callout"
+  code rust
+    |⟦kw|let⟧ x = ⟦num|1⟧;
+quote [!Tip]
+  quote
+    paragraph
+      "Nested quote."
+    quote
+      paragraph
+        "Deeper."
+quote
+  paragraph
+    "Plain quote lazy continuation line"
+quote [!Note]

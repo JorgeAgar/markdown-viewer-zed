@@ -1,0 +1,15 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/escapes.md
+---
+paragraph
+  "# not a heading, - not a list, > not a quote, 1. not a list"
+paragraph
+  "\ backslash, ` backtick, * star, _ underscore, { } [ ] ( ) ! | ~ $"
+paragraph
+  "A lone \ backslash and a trailing one \"
+paragraph
+  "&copy; is literal, © is ©."
+paragraph
+  "⟦C|\*⟧ in code stays."

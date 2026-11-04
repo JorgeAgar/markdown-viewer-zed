@@ -1,0 +1,24 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "*\n\n_\n\n`\n\n$\n\n[\n\n]\n\n|\n\n<\n\n&\n\n\\"
+---
+list bullet
+  item
+paragraph
+  "_"
+paragraph
+  "`"
+paragraph
+  "$"
+paragraph
+  "["
+paragraph
+  "]"
+paragraph
+  "|"
+paragraph
+  "<"
+paragraph
+  "&"
+paragraph
+  "\"

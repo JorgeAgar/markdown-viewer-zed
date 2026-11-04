@@ -1,0 +1,25 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/emphasis.md
+---
+paragraph
+  "⟦I|italic⟧ ⟦I|italic⟧ ⟦B|bold⟧ ⟦B|bold⟧ ⟦BI|both⟧ ⟦BI|mixed⟧ ⟦S|strike⟧ ⟦S|single⟧"
+paragraph
+  "⟦B|bold with ⟧⟦BI|italic⟧⟦B| inside⟧ and ⟦I|italic with ⟧⟦BI|bold⟧⟦I| inside⟧"
+paragraph
+  "⟦S|strike with ⟧⟦BS|bold⟧⟦S| and ⟧⟦SC|code⟧ then plain"
+paragraph
+  "intra⟦I|word⟧emphasis but snake_case_words stay"
+paragraph
+  "⟦C|code with *stars* and _underscores_⟧ and ⟦C|double `backtick` code⟧"
+paragraph
+  "*escaped* _escaped_ `escaped`"
+paragraph
+  "** not bold ** and * not italic *"
+paragraph
+  "**unclosed bold and *unclosed italic"
+paragraph
+  "⟦BI|bold italic⟧⟦I| then italic⟧"
+paragraph
+  "⟦C|code⟧ at the start and at the end ⟦C|code⟧"

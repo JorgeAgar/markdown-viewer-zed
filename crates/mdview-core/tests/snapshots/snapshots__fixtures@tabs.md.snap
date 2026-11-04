@@ -1,0 +1,29 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/tabs.md
+---
+heading h1 #tabs
+  "Tabs"
+code (no lang)
+  |indented code with a tab
+list bullet
+  item
+    paragraph
+      "item after tab"
+list ordered start=1
+  item
+    paragraph
+      "ordered after tab"
+paragraph
+  "text⇥with⇥tabs"
+quote
+  paragraph
+    "quote with tab"
+table aligns=[none, none]
+  header
+    "a"
+    "b"
+  row 0
+    "1"
+    "2"

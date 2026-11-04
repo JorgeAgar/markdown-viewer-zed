@@ -1,0 +1,55 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/headings.md
+---
+heading h1 #level-1
+  "Level 1"
+heading h2 #level-2
+  "Level 2"
+heading h3 #level-3
+  "Level 3"
+heading h4 #level-4
+  "Level 4"
+heading h5 #level-5
+  "Level 5"
+heading h6 #level-6
+  "Level 6"
+paragraph
+  "####### Not a heading (seven hashes)"
+paragraph
+  "#Not a heading either (no space)"
+heading h1 #setext-level-1
+  "Setext level 1"
+heading h2 #setext-level-2
+  "Setext level 2"
+heading h1 #closing-hashes-are-stripped
+  "Closing hashes are stripped"
+heading h1 #trailing-spaces-and-hashes
+  "Trailing spaces and hashes"
+heading h2 #inline-markup-code-link-gone
+  "⟦I|Inline⟧ ⟦B|markup⟧ ⟦C|code⟧ ⟦L0|link⟧ ⟦S|gone⟧"
+  link 0: #anchor
+heading h2 #duplicate
+  "Duplicate"
+heading h2 #duplicate
+  "Duplicate"
+heading h2 #emoji--rocket--dev
+  "Emoji 🚀 rocket 👩⟨U+200D⟩💻 dev"
+heading h2 #punctuation-whats-this-ab--cd_e-f
+  "Punctuation: what's "this"? (a/b) & c.d_e-f!"
+heading h2 #cjk-見出し-한국어
+  "CJK 見出し 한국어"
+heading h2 #ünïcödé-àéî-i̇stanbul-ǆ
+  "Ünïcödé ÀÉÎ İstanbul ǅ"
+heading h2 #leading-spaces
+  "Leading spaces"
+heading h1 #
+  ""
+heading h2 #footnote-ref-in-heading1
+  "Footnote ref in heading⟦L|[1]⟧"
+heading h2 #math-x²-in-heading
+  "Math ⟦I|x⟧² in heading"
+footnote [^1]
+  paragraph
+    "Note."
