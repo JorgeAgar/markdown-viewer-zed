@@ -233,6 +233,10 @@ fn stale_socket_is_replaced() {
     let rt = TempDir::new("rt");
     let sock = rt.join("mdview.sock");
     drop(UnixListener::bind(&sock).unwrap());
+    // Keep a second link to the stale socket so its inode stays allocated:
+    // otherwise the filesystem may hand the same inode number to the new
+    // socket (ext4 does), and the check below would wrongly fail.
+    std::fs::hard_link(&sock, rt.join("stale.sock")).unwrap();
     let stale_ino = std::fs::metadata(&sock).unwrap().ino();
 
     let out = run(
