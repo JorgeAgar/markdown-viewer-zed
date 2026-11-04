@@ -11,6 +11,8 @@ mod graphics;
 mod links;
 mod render;
 mod tabs;
+#[cfg(test)]
+mod test_util;
 mod theme;
 mod viewer;
 
