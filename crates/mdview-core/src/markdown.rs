@@ -439,7 +439,15 @@ impl<'a> P<'a> {
             match self.peek() {
                 Some(Event::DisplayMath(_)) => {
                     if let Some(Event::DisplayMath(tex)) = self.next() {
-                        out.push(Block::Math(tex.trim().into()));
+                        // pulldown-cmark normalizes CRLF in code blocks but
+                        // not here: make the source independent of the
+                        // file's line endings.
+                        let tex = tex.trim();
+                        out.push(Block::Math(if tex.contains('\r') {
+                            tex.replace("\r\n", "\n").replace('\r', "\n").into()
+                        } else {
+                            tex.into()
+                        }));
                     }
                 }
                 Some(ev) if is_inline(ev) => {}
@@ -895,6 +903,17 @@ mod tests {
                 ),
                 None => proptest::prop_assert_eq!(len, 0),
             }
+        }
+    }
+
+    #[test]
+    fn display_math_source_has_lf_line_endings() {
+        for src in ["$$\r\na\r\nb\r\n$$\r\n", "$$\ra\rb\r$$", "$$\na\nb\n$$\n"] {
+            let doc = parse(src);
+            let [Block::Math(tex)] = &doc.blocks[..] else {
+                panic!("{src:?}: {:?}", doc.blocks)
+            };
+            assert_eq!(&**tex, "a\nb", "{src:?}");
         }
     }
 
