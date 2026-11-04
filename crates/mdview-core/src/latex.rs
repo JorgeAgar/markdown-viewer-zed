@@ -476,13 +476,14 @@ impl Parser<'_> {
                 let mapped: String = s.chars().map(|c| alphabet(name, c)).collect();
                 w.ord(&mapped, false);
             }
+            // The group's own operator spacing is replaced by the class's.
             "mathbin" => {
                 let g = self.arg(w);
-                w.sym(&g.s, Class::Bin);
+                w.sym(g.s.trim(), Class::Bin);
             }
             "mathrel" => {
                 let g = self.arg(w);
-                w.sym(&g.s, Class::Rel);
+                w.sym(g.s.trim(), Class::Rel);
             }
             "mathord" | "mathopen" | "mathclose" | "mathpunct" | "mathinner" | "underbrace"
             | "overbrace" | "boxed" | "fbox" | "smash" | "cancel" | "bcancel" | "xcancel"
@@ -1164,6 +1165,13 @@ mod tests {
         assert_eq!(u(r"\sum_{i=1}^n i"), "∑ᵢ₌₁ⁿi");
         assert_eq!(u(r"\foo"), "\\foo");
         assert_eq!(u(r"f(x, y)"), "f(x,\u{2009}y)");
+    }
+
+    #[test]
+    fn mathbin_and_mathrel_space_once() {
+        assert_eq!(u(r"a \mathrel{=} b \mathbin{+} c"), "a = b + c");
+        assert_eq!(u(r"a \mathrel{\sim} b"), "a ∼ b");
+        assert_eq!(u(r"\mathbin{\star} x"), "⋆x");
     }
 
     #[test]
