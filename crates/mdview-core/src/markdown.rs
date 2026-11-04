@@ -451,16 +451,54 @@ impl<'a> P<'a> {
         let mut counts = [0u8; 5];
         let mut link: Option<u32> = None;
         let mut image: Option<Image> = None;
+        // Images nested inside the open image's description.
+        let mut nested_images = 0u32;
 
         fn bit(idx: usize) -> u8 {
             1 << idx
         }
 
         while let Some(ev) = self.peek() {
-            if !is_inline(ev) || (split_display && matches!(ev, Event::DisplayMath(_))) {
+            if !is_inline(ev)
+                || (split_display && image.is_none() && matches!(ev, Event::DisplayMath(_)))
+            {
                 break;
             }
             let ev = self.next().unwrap();
+            // Inside an image description everything is alt text: keep the
+            // text of code, math, links and nested images, drop the markup.
+            if let Some(img) = image.as_mut() {
+                match ev {
+                    Event::Text(t) | Event::Code(t) => img.alt.push_str(&t),
+                    Event::InlineMath(t) | Event::DisplayMath(t) => {
+                        img.alt.push_str(&latex::to_unicode(&t).text)
+                    }
+                    Event::SoftBreak | Event::HardBreak => img.alt.push(' '),
+                    Event::Start(Tag::Image { .. }) => nested_images += 1,
+                    Event::End(TagEnd::Image) if nested_images > 0 => nested_images -= 1,
+                    Event::End(TagEnd::Image) => {
+                        let img = image.take().unwrap();
+                        // Keep a textual fallback in the flow; the paragraph
+                        // becomes a pure image block if that's all there is.
+                        let label = if img.alt.is_empty() {
+                            "image"
+                        } else {
+                            &img.alt
+                        };
+                        let label = format!("[{label}]");
+                        if link.is_none() {
+                            rich.links.push(img.url.clone());
+                            let l = Some(rich.links.len() as u32 - 1);
+                            rich.push(&label, style | LINK, l);
+                        } else {
+                            rich.push(&label, style, link);
+                        }
+                        images.push(img);
+                    }
+                    _ => {}
+                }
+                continue;
+            }
             let mut toggle = |idx: usize, on: bool, style: &mut u8| {
                 if on {
                     counts[idx] += 1;
@@ -474,13 +512,7 @@ impl<'a> P<'a> {
                 }
             };
             match ev {
-                Event::Text(t) => {
-                    if let Some(img) = image.as_mut() {
-                        img.alt.push_str(&t);
-                    } else {
-                        rich.push(&t, style, link);
-                    }
-                }
+                Event::Text(t) => rich.push(&t, style, link),
                 Event::Code(t) => rich.push(&t, style | CODE, link),
                 Event::InlineMath(t) | Event::DisplayMath(t) => rich.push_math(&t, style, link),
                 Event::InlineHtml(h) => {
@@ -488,11 +520,7 @@ impl<'a> P<'a> {
                         rich.push("\n", style, link);
                     }
                 }
-                Event::SoftBreak => {
-                    if image.is_none() {
-                        rich.push(" ", style, link)
-                    }
-                }
+                Event::SoftBreak => rich.push(" ", style, link),
                 Event::HardBreak => rich.push("\n", style, link),
                 Event::FootnoteReference(l) => {
                     rich.push(&format!("[{l}]"), style | LINK, link);
@@ -520,25 +548,6 @@ impl<'a> P<'a> {
                         url: cow(dest_url),
                         alt: String::new(),
                     });
-                }
-                Event::End(TagEnd::Image) => {
-                    if let Some(img) = image.take() {
-                        // Keep a textual fallback in the flow; the paragraph
-                        // becomes a pure image block if that's all there is.
-                        let label = if img.alt.is_empty() {
-                            "image".to_string()
-                        } else {
-                            img.alt.clone()
-                        };
-                        if link.is_none() {
-                            rich.links.push(img.url.clone());
-                            let l = Some(rich.links.len() as u32 - 1);
-                            rich.push(&format!("[{label}]"), style | LINK, l);
-                        } else {
-                            rich.push(&format!("[{label}]"), style, link);
-                        }
-                        images.push(img);
-                    }
                 }
                 _ => {}
             }
@@ -687,5 +696,29 @@ mod tests {
             .map(|s| &p.text[s.range.clone()])
             .collect();
         assert_eq!(italic, ["xy"]);
+    }
+
+    #[test]
+    fn image_description_is_alt_text() {
+        // Code, math, links, line breaks and nested images inside an image's
+        // description used to leak into the paragraph (or replace the outer
+        // image); they are all part of the alt text.
+        let doc = parse("![a `b` *c* [l](u) ![n](m) $x$\nd](img.png)\n\n![p\n$$q$$ r](s.png)");
+        let alts: Vec<(&str, &str)> = doc
+            .blocks
+            .iter()
+            .flat_map(|b| match b {
+                Block::Images(imgs) => imgs.iter().map(|i| (i.url.as_str(), i.alt.as_str())),
+                other => panic!("expected only images, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(alts, [("img.png", "a b c l n x d"), ("s.png", "p q r")]);
+
+        let doc = parse("see ![a `b`](i.png) [![c](j.png) d](u)");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected a paragraph")
+        };
+        assert_eq!(p.text, "see [a b] [c] d");
+        assert_eq!(p.links, ["i.png", "u"]);
     }
 }
