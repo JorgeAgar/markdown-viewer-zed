@@ -8,6 +8,7 @@ Run them all with `cargo test -p mdview-core` (a few seconds; no GPUI).
 | `highlight.rs` | A token snapshot of `code/<lang>.txt` for every lexer; the language list, aliases and samples stay in sync with `src/highlight.rs`; edge cases per lexer |
 | `latex.rs` | Snapshot tables (`input ⇒ output`, italics marked) for every symbol, function and accent `src/latex.rs` knows (kept in sync with the source), structures, environments and malformed input |
 | `props.rs` | Property tests (proptest) with Markdown-, TeX- and code-shaped generators: no panics, all invariants, determinism, CRLF = LF, no lost text, inline styles vs a model, slugs, every highlighter language, inline math mapping |
+| `spec.rs` | All CommonMark 0.31.2 and GFM spec examples (`data/`, CC-BY-SA 4.0): invariants on every example, plus headings/code/quotes/items/tables/rules counted against the spec's HTML where mdview's extensions can't interfere |
 | `common/` | Shared helpers: the dump format (`dump.rs`), the invariants (`invariants.rs`), the language list (`langs.rs`) |
 
 ## Snapshots
