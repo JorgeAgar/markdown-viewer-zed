@@ -927,7 +927,8 @@ fn shell(code: &str, out: &mut Out) {
             continue;
         }
         if c == b'\\' {
-            i += 2;
+            // Skip the escaped character, which may be multi-byte.
+            i += 1 + b.get(i + 1).map_or(0, |&n| utf8_len(n));
             continue;
         }
         // A word.
@@ -1136,7 +1137,7 @@ fn value(line: &str, from: usize, base: usize, out: &mut Out) {
             i = j;
             continue;
         }
-        if c.is_ascii_alphanumeric() || c == b'-' || c == b'+' || c == b'.' {
+        if c.is_ascii_alphanumeric() || matches!(c, b'-' | b'+' | b'.' | b'~') {
             let mut j = i;
             while j < b.len() && !b[j].is_ascii_whitespace() && !matches!(b[j], b',' | b']' | b'}')
             {
@@ -1252,5 +1253,30 @@ mod tests {
         assert_eq!(t[1], ("-a".into(), Tok::Deleted));
         assert_eq!(t[2], ("+b".into(), Tok::Inserted));
         assert!(highlight("brainfuck", "+++").is_empty());
+    }
+
+    #[test]
+    fn yaml_tilde_is_null() {
+        // `~` was in the constant list, but a value word could never start
+        // with it.
+        let t = toks("yaml", "a: ~\nb: ~/path\nc: [~, x]");
+        assert_eq!(
+            t,
+            [
+                ("a".into(), Tok::Property),
+                ("~".into(), Tok::Constant),
+                ("b".into(), Tok::Property),
+                ("c".into(), Tok::Property),
+                ("~".into(), Tok::Constant),
+            ]
+        );
+    }
+
+    #[test]
+    fn shell_escape_before_multibyte_char() {
+        // `\é` used to skip only one byte of the `é`, then slice the code in
+        // the middle of it, which panicked.
+        let t = toks("sh", "echo \\é x\\");
+        assert_eq!(t, [("echo".into(), Tok::Function)]);
     }
 }

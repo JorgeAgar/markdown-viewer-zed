@@ -1,0 +1,29 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/yaml.txt
+---
+|⟦com|# Config⟧
+|⟦meta|---⟧
+|⟦prop|name⟧: mdview
+|⟦prop|version⟧: ⟦num|0.1.0⟧
+|⟦prop|enabled⟧: ⟦const|true⟧
+|⟦prop|disabled⟧: ⟦const|off⟧
+|⟦prop|nothing⟧: ⟦const|~⟧
+|⟦prop|ratio⟧: ⟦num|-1.5e3⟧
+|⟦prop|time⟧: ⟦num|12:30:00⟧
+|⟦prop|list⟧:
+|  - item one
+|  - ⟦prop|key⟧: value ⟦com|# trailing comment⟧
+|  - - nested
+|⟦prop|quoted⟧: ⟦str|"a: b # not a comment"⟧ ⟦str|'single'⟧
+|⟦prop|anchor⟧: ⟦var|&base⟧
+|  ⟦prop|x⟧: ⟦num|1⟧
+|⟦prop|ref⟧: ⟦var|*base⟧
+|⟦prop|url⟧: http://example.com#frag
+|⟦ty|[section]⟧
+|⟦prop|key⟧ = ⟦str|"value"⟧
+|⟦prop|answer⟧ = ⟦num|42⟧ ; not a comment here
+|⟦prop|flag⟧=⟦const|yes⟧
+|⟦meta|...⟧
+|

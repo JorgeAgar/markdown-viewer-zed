@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Build and install.
+set -euo pipefail
+PREFIX="${PREFIX:-/usr/local}" CARGO_TERM_COLOR=always cargo build --release
+for f in *.md; do
+    echo "file: $f" | grep -v 'skip' >> "$LOG"   # inline comment
+done
+if [ -n "$1" ] && test $# -gt 2; then export PATH=$HOME/bin:$PATH; fi
+echo $(date) `uname -r` $? $@ ${#arr[@]} \"escaped\" \é
+case "$x" in a) exit 1;; esac
+local name=value; readonly X=1
+$ cargo test -p mdview-core
+% ls -la ~/src
+not#comment url#frag

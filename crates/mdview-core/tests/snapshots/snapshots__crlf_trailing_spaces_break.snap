@@ -1,0 +1,6 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "a  \r\nb\r\n"
+---
+paragraph
+  "a⏎b"

@@ -1,0 +1,19 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/css.txt
+---
+|⟦com|/* Theme */⟧
+|⟦kw|@import⟧ ⟦tag|url⟧(⟦str|"base.css"⟧);
+|⟦kw|@media⟧ (⟦tag|prefers-color-scheme⟧: ⟦tag|dark⟧) {
+|  :root { ⟦prop|--bg⟧: ⟦num|#1e1e1e⟧; ⟦prop|--fg⟧: ⟦num|#ddd⟧; }
+|}
+|
+|.⟦tag|card⟧ > ⟦tag|h1⟧, #⟦tag|main⟧ ⟦tag|a⟧:⟦tag|hover⟧::⟦tag|after⟧ {
+|  ⟦prop|color⟧: ⟦fn|var⟧(--fg) !important;
+|  ⟦prop|margin⟧: ⟦num|0⟧ auto -⟦num|1.5rem⟧;
+|  ⟦prop|background⟧: ⟦fn|linear-gradient⟧(⟦num|90deg⟧, ⟦num|#fff⟧ ⟦num|0⟧%, ⟦fn|rgba⟧(⟦num|0⟧, ⟦num|0⟧, ⟦num|0⟧, ⟦num|.5⟧) ⟦num|100⟧%);
+|  ⟦prop|-webkit-font-smoothing⟧: antialiased;
+|  ⟦prop|content⟧: ⟦str|"quoted"⟧;
+|}
+|

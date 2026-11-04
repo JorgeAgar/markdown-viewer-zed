@@ -1,0 +1,17 @@
+import type { Options } from "./options";
+
+export interface Point { x: number; y: number }
+type Maybe<T> = T | undefined;
+
+enum Color { Red = "RED", Green = "GREEN" }
+
+@Component({ selector: "app" })
+export abstract class Shape implements Drawable {
+  private readonly id: string = crypto.randomUUID();
+  protected abstract area(): number;
+  public static from(p: Point): Shape | null { return null as unknown as Shape; }
+}
+
+function assertIsString(val: any): asserts val is string {}
+const n: bigint = 10n;
+let tuple: [string, boolean] = ["a", true] satisfies readonly unknown[];

@@ -1,0 +1,58 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/all-blocks.md
+---
+heading h1 #every-block-type
+  "Every block type"
+paragraph
+  "A paragraph with ⟦B|bold⟧, ⟦I|italic⟧, ⟦S|strike⟧, ⟦C|code⟧ and a ⟦L0|link⟧."
+  link 0: https://example.com
+images
+  image images/alone.png alt="Alone"
+code rust
+  |⟦kw|fn⟧ ⟦fn|main⟧() {}
+quote
+  paragraph
+    "A quote."
+quote [!Tip]
+  paragraph
+    "A callout."
+list bullet
+  item
+    paragraph
+      "bullet"
+  item
+    paragraph
+      "list"
+list ordered start=3
+  item
+    paragraph
+      "ordered"
+  item
+    paragraph
+      "list"
+list bullet
+  item [x]
+    paragraph
+      "done"
+  item [ ]
+    paragraph
+      "todo"
+table aligns=[none, right]
+  header
+    "a"
+    "b"
+  row 0
+    "1"
+    "2"
+paragraph
+  "Footnote use⟦L|[n]⟧."
+footnote [^n]
+  paragraph
+    "The footnote."
+math
+  |E = mc^2
+mermaid
+  |graph TD; A-->B
+rule

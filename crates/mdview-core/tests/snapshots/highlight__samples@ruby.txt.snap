@@ -1,0 +1,27 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/ruby.txt
+---
+|⟦com|# frozen_string_literal: true⟧
+|⟦kw|require⟧ ⟦str|"json"⟧
+|
+|⟦kw|module⟧ ⟦ty|Greeting⟧
+|  ⟦kw|class⟧ ⟦ty|Greeter⟧ < ⟦ty|Base⟧
+|    ⟦kw|attr_reader⟧ :name
+|    ⟦const|DEFAULT⟧ = ⟦str|"World"⟧
+|
+|    ⟦kw|def⟧ ⟦fn|initialize⟧(name = ⟦const|DEFAULT⟧)
+|      @name = name
+|    ⟦kw|end⟧
+|
+|    ⟦kw|def⟧ ⟦fn|greet⟧!
+|      puts ⟦str|"Hello, #{@name}!"⟧ ⟦kw|unless⟧ name.⟦const|nil⟧?
+|      ⟦str|`echo shell`⟧
+|      defined?(foo) ? :sym : ⟦const|nil⟧
+|    ⟦kw|end⟧
+|  ⟦kw|end⟧
+|⟦kw|end⟧
+|
+|⟦ty|Greeting⟧::⟦ty|Greeter⟧.new.greet! ⟦kw|if⟧ ⟦const|__FILE__⟧ == $⟦num|0⟧ ⟦com|# run⟧
+|

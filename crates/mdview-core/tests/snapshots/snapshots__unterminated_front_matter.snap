@@ -1,0 +1,7 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "---\ntitle: x\n"
+---
+rule
+paragraph
+  "title: x"

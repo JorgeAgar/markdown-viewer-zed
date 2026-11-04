@@ -1,0 +1,15 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/html.md
+---
+paragraph
+  "Inline bold html and span text."
+paragraph
+  "Line⏎break, line⏎break, line⏎break, line⏎break."
+paragraph
+  "Markdown inside details is kept."
+paragraph
+  "Text with  in it."
+paragraph
+  "Entities: & < © # 😀 ⟨U+00A0⟩end &bogus;"

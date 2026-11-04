@@ -8,8 +8,9 @@ license = "Apache-2.0"
 [workspace]
 members = [".", "crates/mdview-core"]
 # The vendored GPUI is a patch, not part of mdview's own code: keep it out of
-# workspace-wide fmt, clippy and tests.
-exclude = ["crates/gpui"]
+# workspace-wide fmt, clippy and tests. fuzz/ needs libFuzzer and its own
+# build flags (see fuzz/README.md).
+exclude = ["crates/gpui", "fuzz"]
 
 [dependencies]
 mdview-core = { path = "crates/mdview-core" }

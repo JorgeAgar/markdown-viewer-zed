@@ -1,0 +1,8 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "a\u0000b\n\n`\u0000`\n"
+---
+paragraph
+  "a⟨U+0000⟩b"
+paragraph
+  "⟦C|⟨U+0000⟩⟧"

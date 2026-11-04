@@ -1,0 +1,39 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/footnotes.md
+---
+footnote [^before]
+  paragraph
+    "Defined before use."
+paragraph
+  "Uses: before⟦L|[before]⟧, after⟦L|[after]⟧, named⟦L|[named-label]⟧, missing[^nope], twice⟦L|[after]⟧."
+footnote [^after]
+  paragraph
+    "Defined after use."
+footnote [^named-label]
+  paragraph
+    "A footnote with a continuation line."
+  paragraph
+    "And a second paragraph."
+  list bullet
+    item
+      paragraph
+        "and a list"
+paragraph
+  "Footnote containing a reference⟦L|[outer]⟧."
+footnote [^outer]
+  paragraph
+    "Outer refers to inner⟦L|[inner]⟧."
+footnote [^inner]
+  paragraph
+    "Inner."
+footnote [^unused]
+  paragraph
+    "Never referenced."
+quote
+  paragraph
+    "Quote with a footnote⟦L|[q]⟧."
+footnote [^q]
+  paragraph
+    "In a quote."

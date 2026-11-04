@@ -1,0 +1,143 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/lists.md
+---
+list bullet
+  item
+    paragraph
+      "tight"
+  item
+    paragraph
+      "bullet"
+  item
+    paragraph
+      "list"
+list bullet
+  item
+    paragraph
+      "star"
+  item
+    paragraph
+      "list"
+list bullet
+  item
+    paragraph
+      "plus"
+  item
+    paragraph
+      "list"
+list bullet
+  item
+    paragraph
+      "loose"
+  item
+    paragraph
+      "bullet"
+  item
+    paragraph
+      "list"
+list ordered start=1
+  item
+    paragraph
+      "one"
+  item
+    paragraph
+      "two"
+  item
+    paragraph
+      "three"
+list ordered start=3
+  item
+    paragraph
+      "starts"
+  item
+    paragraph
+      "at three"
+list ordered start=0
+  item
+    paragraph
+      "starts at zero"
+list ordered start=123456789
+  item
+    paragraph
+      "big start (nine digits)"
+paragraph
+  "1234567890. ten digits is not a list"
+list ordered start=1
+  item
+    paragraph
+      "paren"
+  item
+    paragraph
+      "style"
+list bullet
+  item
+    paragraph
+      "nested"
+    list bullet
+      item
+        paragraph
+          "level 2"
+        list bullet
+          item
+            paragraph
+              "level 3"
+            list bullet
+              item
+                paragraph
+                  "level 4"
+      item
+        paragraph
+          "back to 2"
+  item
+    paragraph
+      "back to 1"
+list ordered start=1
+  item
+    paragraph
+      "ordered"
+    list bullet
+      item
+        paragraph
+          "with bullets"
+        list ordered start=1
+          item
+            paragraph
+              "and ordered again"
+list bullet
+  item
+    paragraph
+      "item with"
+    paragraph
+      "two paragraphs"
+  item
+    paragraph
+      "item with code:"
+    code sh
+      |⟦fn|echo⟧ hi
+  item
+    quote
+      paragraph
+        "quote in a list"
+  item
+  item
+    paragraph
+      "empty item above"
+  item
+    paragraph
+      "a"
+list bullet
+  item
+    paragraph
+      "different marker starts a new list"
+list ordered start=1
+  item
+    paragraph
+      "a"
+  item
+    paragraph
+      "b"
+  item
+    paragraph
+      "all ones"

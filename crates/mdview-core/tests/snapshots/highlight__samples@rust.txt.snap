@@ -1,0 +1,44 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/rust.txt
+---
+|⟦com|//! Crate docs.⟧
+|⟦attr|#![allow(dead_code)]⟧
+|⟦kw|use⟧ std::{collections::⟦ty|HashMap⟧, ops::⟦ty|Range⟧};
+|
+|⟦com|/// A struct.⟧
+|⟦attr|#[derive(Clone, Debug, PartialEq)]⟧
+|⟦kw|pub⟧ ⟦kw|struct⟧ ⟦ty|Span⟧<⟦attr|'a⟧> {
+|    ⟦kw|pub⟧ range: ⟦ty|Range⟧<⟦ty|usize⟧>,
+|    name: &⟦attr|'a⟧ ⟦ty|str⟧,
+|}
+|
+|⟦kw|impl⟧<⟦attr|'a⟧> ⟦ty|Span⟧<⟦attr|'a⟧> {
+|    ⟦kw|pub⟧ ⟦kw|const⟧ ⟦const|MAX⟧: ⟦ty|u32⟧ = ⟦num|0xFF_FF⟧;
+|
+|    ⟦kw|fn⟧ ⟦fn|new⟧(name: &⟦attr|'a⟧ ⟦ty|str⟧) -> ⟦const|Self⟧ {
+|        ⟦kw|let⟧ c = ⟦str|'x'⟧;
+|        ⟦kw|let⟧ esc = ⟦str|'\n'⟧;
+|        ⟦kw|let⟧ uni = ⟦str|'é'⟧;
+|        ⟦kw|let⟧ raw = ⟦str|r#"raw "string""#⟧;
+|        ⟦kw|let⟧ bytes = ⟦str|br"bytes"⟧;
+|        ⟦kw|let⟧ s = ⟦str|"escaped \" quote"⟧;
+|        ⟦kw|let⟧ f = ⟦num|1.5e-3⟧ + ⟦num|2E+10⟧ - ⟦num|0x1e⟧+⟦num|5⟧;
+|        ⟦kw|for⟧ i ⟦kw|in⟧ ⟦num|0⟧..⟦num|10⟧ {}
+|        ⟦kw|let⟧ v = ⟦fn|Vec⟧::<⟦ty|u8⟧>::⟦fn|new⟧();
+|        ⟦kw|let⟧ m: ⟦ty|HashMap⟧<⟦ty|String⟧, ⟦ty|Option⟧<⟦ty|i64⟧>> = ⟦ty|HashMap⟧::⟦fn|new⟧();
+|        ⟦attr|println!⟧(⟦str|"{name} {}"⟧, s);
+|        ⟦attr|assert!⟧(x != y);
+|        ⟦com|/* block
+|           comment */⟧
+|        ⟦const|Self⟧ { range: ⟦num|0⟧..⟦num|1⟧, name }
+|    }
+|}
+|
+|⟦kw|async⟧ ⟦kw|fn⟧ ⟦fn|run⟧() -> ⟦ty|Result⟧<(), ⟦ty|Box⟧<⟦kw|dyn⟧ std::error::⟦ty|Error⟧>> {
+|    ⟦kw|let⟧ r#⟦kw|type⟧ = ⟦const|Some⟧(⟦const|self⟧::⟦const|NONE⟧);
+|    ⟦attr|'outer⟧: ⟦kw|loop⟧ { ⟦kw|break⟧ ⟦attr|'outer⟧; }
+|    ⟦const|Ok⟧(())
+|}
+|

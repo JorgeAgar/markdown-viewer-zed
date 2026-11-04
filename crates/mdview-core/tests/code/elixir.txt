@@ -1,0 +1,19 @@
+defmodule Greeter do
+  @moduledoc """
+  Greets people.
+  """
+  use GenServer
+
+  def greet(name) when is_binary(name) do
+    "Hello, #{name}!" |> IO.puts()
+  end
+
+  defp private_helper(x), do: x * 2 # comment
+
+  def handle_call(:ping, _from, state), do: {:reply, :pong, state}
+end
+
+case Greeter.greet("x") do
+  :ok -> true
+  _ -> nil
+end

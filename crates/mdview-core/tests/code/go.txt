@@ -1,0 +1,24 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Greeter greets.
+type Greeter interface {
+	Greet(name string) (string, error)
+}
+
+func (g *greeter) Greet(name string) (string, error) {
+	raw := `raw
+string`
+	var r rune = 'x'
+	m := map[string]int{"a": 1}
+	for i := range 10 {
+		go func() { defer fmt.Println(i, r, raw, m) }()
+	}
+	return strings.ToUpper(name), nil
+}
+
+func main() { _ = iota; x := 1.5e3; fmt.Println(x, true, MAX_SIZE) }

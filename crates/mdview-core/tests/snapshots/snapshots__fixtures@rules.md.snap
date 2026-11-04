@@ -1,0 +1,15 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/rules.md
+---
+rule
+rule
+rule
+rule
+rule
+heading h2 #text
+  "Text"
+paragraph
+  "Text"
+rule

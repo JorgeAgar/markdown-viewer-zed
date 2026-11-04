@@ -1,0 +1,16 @@
+const std = @import("std");
+
+/// Doc comment.
+pub fn main() !void {
+    const allocator = std.heap.page_allocator;
+    var list = std.ArrayList(u8).init(allocator);
+    defer list.deinit();
+    try list.append('x');
+    const MAX_LEN: usize = 0xFF;
+    if (list.items.len > MAX_LEN) return error.TooLong;
+    std.debug.print("{s}\n", .{list.items});
+    const x: ?i32 = null;
+    _ = x orelse undefined;
+}
+
+test "basic" { try std.testing.expect(true); }

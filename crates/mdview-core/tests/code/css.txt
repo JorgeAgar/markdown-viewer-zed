@@ -1,0 +1,13 @@
+/* Theme */
+@import url("base.css");
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1e1e1e; --fg: #ddd; }
+}
+
+.card > h1, #main a:hover::after {
+  color: var(--fg) !important;
+  margin: 0 auto -1.5rem;
+  background: linear-gradient(90deg, #fff 0%, rgba(0, 0, 0, .5) 100%);
+  -webkit-font-smoothing: antialiased;
+  content: "quoted";
+}

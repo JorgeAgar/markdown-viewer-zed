@@ -1,0 +1,26 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/swift.txt
+---
+|⟦kw|import⟧ ⟦ty|Foundation⟧
+|
+|⟦attr|@MainActor⟧
+|⟦kw|protocol⟧ ⟦ty|Shape⟧ { ⟦kw|var⟧ area: ⟦ty|Double⟧ { get } }
+|
+|⟦kw|struct⟧ ⟦ty|Square⟧: ⟦ty|Shape⟧ {
+|    ⟦kw|let⟧ side: ⟦ty|Double⟧
+|    ⟦kw|var⟧ area: ⟦ty|Double⟧ { side * side }
+|}
+|
+|⟦kw|func⟧ ⟦fn|describe⟧(_ s: ⟦kw|some⟧ ⟦ty|Shape⟧) -> ⟦ty|String⟧ {
+|    ⟦kw|let⟧ multi = ⟦str|"""
+|    Area: \(s.area)
+|    """⟧
+|    ⟦kw|guard⟧ s.area > ⟦num|0⟧ ⟦kw|else⟧ { ⟦kw|return⟧ ⟦str|"empty"⟧ }
+|    ⟦kw|return⟧ multi ⟦com|// done⟧
+|}
+|
+|⟦kw|let⟧ shapes: [⟦ty|Shape⟧] = [⟦fn|Square⟧(side: ⟦num|2⟧)]
+|⟦fn|print⟧(shapes.map { ⟦fn|describe⟧($⟦num|0⟧) }, ⟦const|nil⟧, ⟦const|self⟧)
+|

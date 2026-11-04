@@ -1,0 +1,24 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/javascript.txt
+---
+|⟦com|// @ts-check⟧
+|⟦kw|import⟧ { readFile } ⟦kw|from⟧ ⟦str|"node:fs/promises"⟧;
+|
+|⟦kw|export⟧ ⟦kw|default⟧ ⟦kw|class⟧ ⟦ty|Store⟧ ⟦kw|extends⟧ ⟦ty|EventTarget⟧ {
+|  #items = ⟦kw|new⟧ ⟦fn|Map⟧();
+|  ⟦kw|static⟧ ⟦const|VERSION⟧ = ⟦num|2⟧;
+|
+|  ⟦kw|async⟧ ⟦fn|load⟧(path) {
+|    ⟦kw|const⟧ text = ⟦kw|await⟧ ⟦fn|readFile⟧(path, ⟦str|'utf8'⟧);
+|    ⟦kw|const⟧ tpl = ⟦str|`multi
+|line ${text.length}`⟧;
+|    ⟦kw|return⟧ ⟦const|JSON⟧.⟦fn|parse⟧(text) ?? ⟦const|null⟧;
+|  }
+|}
+|
+|⟦kw|function⟧ ⟦fn|helper⟧(x = ⟦const|undefined⟧) { ⟦kw|return⟧ ⟦kw|typeof⟧ x === ⟦str|"number"⟧ ? x * ⟦num|1e3⟧ : ⟦const|NaN⟧; }
+|⟦kw|const⟧ arrow = (a, b) => a + b; ⟦com|/* inline block */⟧
+|⟦kw|let⟧ re = /a+b/g, n = ⟦num|0xFF⟧, inf = ⟦const|Infinity⟧, self = ⟦const|this⟧;
+|

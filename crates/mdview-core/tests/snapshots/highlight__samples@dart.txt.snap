@@ -1,0 +1,22 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/dart.txt
+---
+|⟦kw|import⟧ ⟦str|'package:flutter/material.dart'⟧;
+|
+|⟦attr|@immutable⟧
+|⟦kw|class⟧ ⟦ty|Counter⟧ ⟦kw|extends⟧ ⟦ty|StatelessWidget⟧ {
+|  ⟦kw|const⟧ ⟦fn|Counter⟧({⟦kw|super⟧.key, ⟦kw|required⟧ ⟦kw|this⟧.count});
+|  ⟦kw|final⟧ int count;
+|
+|  ⟦attr|@override⟧
+|  ⟦ty|Widget⟧ ⟦fn|build⟧(⟦ty|BuildContext⟧ context) {
+|    ⟦kw|final⟧ label = ⟦str|'''Count:
+|$count'''⟧;
+|    ⟦kw|return⟧ ⟦fn|Text⟧(label, style: ⟦const|null⟧);
+|  }
+|}
+|
+|⟦ty|Future⟧<⟦kw|void⟧> ⟦fn|main⟧() ⟦kw|async⟧ => ⟦kw|await⟧ ⟦ty|Future⟧.⟦fn|delayed⟧(⟦fn|Duration⟧(seconds: ⟦num|1⟧));
+|

@@ -1,0 +1,25 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/php.txt
+---
+|<?php
+|⟦kw|declare⟧(strict_types=⟦num|1⟧);
+|
+|⟦kw|namespace⟧ ⟦ty|App⟧;
+|
+|⟦kw|use⟧ ⟦ty|App⟧\⟦ty|Models⟧\⟦ty|User⟧;
+|
+|⟦com|# Hash comment⟧
+|⟦kw|final⟧ ⟦kw|class⟧ ⟦ty|Controller⟧
+|{
+|    ⟦kw|public⟧ ⟦kw|function⟧ ⟦fn|__construct⟧(⟦kw|private⟧ ⟦kw|readonly⟧ ⟦kw|array⟧ ⟦var|$config⟧ = []) {}
+|
+|    ⟦kw|public⟧ ⟦kw|function⟧ ⟦fn|show⟧(int ⟦var|$id⟧): ?⟦ty|User⟧
+|    {
+|        ⟦var|$user⟧ = ⟦ty|User⟧::⟦fn|find⟧(⟦var|$id⟧) ?? ⟦const|null⟧; ⟦com|// lookup⟧
+|        ⟦kw|echo⟧ ⟦str|"Hello {$user->name} and ${var}"⟧;
+|        ⟦kw|return⟧ ⟦var|$user⟧ ⟦kw|instanceof⟧ ⟦ty|User⟧ ? ⟦var|$user⟧ : ⟦const|NULL⟧;
+|    }
+|}
+|

@@ -1,0 +1,27 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/csharp.txt
+---
+|⟦attr|#region⟧ ⟦ty|Usings⟧
+|⟦kw|using⟧ ⟦ty|System⟧;
+|⟦kw|using⟧ ⟦ty|System⟧.⟦ty|Collections⟧.⟦ty|Generic⟧;
+|⟦attr|#endregion⟧
+|
+|⟦kw|namespace⟧ ⟦ty|Demo⟧
+|{
+|    [⟦ty|Serializable⟧]
+|    ⟦kw|public⟧ ⟦kw|sealed⟧ ⟦kw|record⟧ ⟦fn|Person⟧(⟦ty|string⟧ ⟦ty|Name⟧, ⟦ty|int⟧ ⟦ty|Age⟧);
+|
+|    ⟦kw|public⟧ ⟦kw|class⟧ ⟦ty|Program⟧
+|    {
+|        ⟦kw|public⟧ ⟦kw|static⟧ ⟦kw|async⟧ ⟦ty|Task⟧<⟦ty|int⟧> ⟦fn|Main⟧(⟦ty|string⟧[] args)
+|        {
+|            ⟦kw|var⟧ list = ⟦kw|new⟧ ⟦ty|List⟧<⟦ty|Person⟧> { ⟦kw|new⟧(⟦str|"Ann"⟧, ⟦num|30⟧) };
+|            ⟦kw|foreach⟧ (⟦kw|var⟧ p ⟦kw|in⟧ list) ⟦ty|Console⟧.⟦fn|WriteLine⟧($⟦str|"{p.Name} is {p.Age}"⟧);
+|            ⟦ty|object⟧ o = ⟦const|null⟧;
+|            ⟦kw|return⟧ o ⟦kw|is⟧ ⟦const|null⟧ ? ⟦num|0⟧ : ⟦num|1⟧; ⟦com|// done⟧
+|        }
+|    }
+|}
+|

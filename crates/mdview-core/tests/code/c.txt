@@ -1,0 +1,19 @@
+#include <stdio.h>
+#include "local.h"
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+  #  ifdef DEBUG
+#endif
+
+/* Block comment */
+static const char *names[] = {"a", "b\n"};
+
+typedef struct { uint32_t len; size_t cap; } buf_t;
+
+int main(int argc, char **argv) {
+    unsigned long n = 42UL;
+    double d = 3.14f, e = 1e-9, h = 0x1Fu;
+    char c = '\'';
+    if (argv == NULL) return -1; // line comment
+    printf("%d\n", MAX(n, 7));
+    return 0;
+}

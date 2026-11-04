@@ -1,0 +1,23 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/breaks.md
+---
+paragraph
+  "Soft break joins lines."
+paragraph
+  "Backslash⏎hard break."
+paragraph
+  "Two backslashes\ are not a break."
+paragraph
+  "Ends with a backslash\"
+paragraph
+  "Multiple"
+paragraph
+  "blank"
+paragraph
+  "lines."
+paragraph
+  "Two trailing spaces⏎make a hard break."
+paragraph
+  "A trailing tab is not one."
