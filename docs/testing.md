@@ -197,3 +197,9 @@ lifecycle tests cover reusing a window, recreating a closed window with files,
 and reopening an empty window. URL event tests cover escaped and Unicode
 Finder paths and reject non-file URLs. Native desktop testing remains required
 for Finder/Dock integration, menus, themes, GPU presentation and startup.
+
+The Unix transport has a GUI-free stale-socket replacement test on Linux and
+macOS. The binary test expecting startup to fail without DISPLAY is Linux-only:
+macOS has native windowing and does not use DISPLAY. IPC integration tests use
+subprocess and channel deadlines, avoiding macOS socket-timeout errors when an
+empty client has already disconnected.

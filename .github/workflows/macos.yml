@@ -45,6 +45,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: macos-${{ matrix.target }}
+          cache-on-failure: true
       - name: Full native headless tests
         run: cargo test --locked --workspace --profile ci
       - name: Clippy

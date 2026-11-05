@@ -21,7 +21,7 @@
 
 use std::{
     io::{BufRead, BufReader, Read},
-    os::unix::{fs::MetadataExt, net::UnixListener},
+    os::unix::net::UnixListener,
     path::{Component, Path, PathBuf},
     process::{Child, Command, ExitStatus, Output, Stdio},
     sync::{
@@ -32,6 +32,9 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::MetadataExt;
 
 const BIN: &str = env!("CARGO_BIN_EXE_mdview");
 /// The warm path should take milliseconds; this only catches hangs and
@@ -226,6 +229,7 @@ fn unknown_flags_are_not_silently_dropped() {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn stale_socket_is_replaced() {
     // A crashed instance leaves mdview.sock behind with nobody listening.
@@ -501,7 +505,8 @@ fn serve(listener: UnixListener, mut cmd: Command, expect: usize) -> (ExitStatus
                 return;
             };
             let mut buf = String::new();
-            s.set_read_timeout(Some(WARM_TIMEOUT)).unwrap();
+            // The subprocess/receiver deadlines bound this read. Setting a socket
+            // timeout after an empty client disconnects fails with EINVAL on macOS.
             s.read_to_string(&mut buf).unwrap();
             if tx.send(buf).is_err() {
                 return;
