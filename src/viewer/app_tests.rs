@@ -565,6 +565,181 @@ fn standalone_remote_image_is_requested_by_the_viewer() {
     );
 }
 
+// One visible image, with its response held until the test releases it. The
+// acknowledgement proves the HTTP future actually completed, even after close.
+const CONTROLLED_IMAGE_URL: &str = "https://example.com/controlled.png";
+
+struct ImageResponse {
+    send: futures::channel::oneshot::Sender<&'static [u8]>,
+    completed: futures::channel::oneshot::Receiver<()>,
+    requests: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+fn open_pending_image() -> (
+    Entity<Viewer>,
+    &'static mut VisualTestContext,
+    ImageResponse,
+) {
+    use futures::channel::oneshot;
+    use gpui::http_client::{FakeHttpClient, Response};
+    use std::sync::Mutex;
+
+    let (send, receive) = oneshot::channel::<&'static [u8]>();
+    let (completed, completion) = oneshot::channel();
+    let pending = Mutex::new(Some((receive, completed)));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let recorded = requests.clone();
+    let client = FakeHttpClient::create(move |request| {
+        recorded.lock().unwrap().push(request.uri().to_string());
+        let (receive, completed) = pending.lock().unwrap().take().expect("only one request");
+        async move {
+            let bytes = receive.await.unwrap();
+            completed.send(()).unwrap();
+            Ok(Response::builder().status(200).body(bytes.into()).unwrap())
+        }
+    });
+    let cx = Box::leak(Box::new(TestAppContext::single()));
+    cx.update(|cx| cx.set_http_client(client));
+    let (v, cx) = cx.add_window_view(|window, cx| {
+        Viewer::new(
+            vec![
+                (PathBuf::from("/docs/other.md"), parsed(&long_doc())),
+                (
+                    PathBuf::from("/docs/image.md"),
+                    parsed(&format!(
+                        "![controlled]({CONTROLLED_IMAGE_URL})\n\n{}",
+                        long_doc()
+                    )),
+                ),
+            ],
+            fonts(),
+            window,
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    assert_eq!(*requests.lock().unwrap(), [CONTROLLED_IMAGE_URL]);
+    assert!(
+        image_result(&mut cx.cx).is_none(),
+        "response is still pending"
+    );
+    (
+        v,
+        cx,
+        ImageResponse {
+            send,
+            completed: completion,
+            requests,
+        },
+    )
+}
+
+// Inspect the same cached asset used by img(), without initiating a load that
+// could hide a failure to request the image from the actual Viewer.
+fn image_result(
+    cx: &mut TestAppContext,
+) -> Option<Result<Arc<gpui::RenderImage>, gpui::ImageCacheError>> {
+    use futures::FutureExt;
+    cx.update(|cx| {
+        let (task, first) = cx.fetch_asset::<gpui::ImgResourceLoader>(&gpui::Resource::Uri(
+            CONTROLLED_IMAGE_URL.into(),
+        ));
+        assert!(!first, "the Viewer must initiate the image load");
+        task.now_or_never()
+    })
+}
+
+impl ImageResponse {
+    fn finish(self, bytes: &'static [u8], cx: &mut TestAppContext) {
+        let Self {
+            send,
+            mut completed,
+            requests,
+        } = self;
+        send.send(bytes).unwrap();
+        cx.run_until_parked();
+        assert_eq!(completed.try_recv().unwrap(), Some(()));
+        assert_eq!(*requests.lock().unwrap(), [CONTROLLED_IMAGE_URL]);
+    }
+}
+
+#[test]
+fn malformed_image_bytes_fail_without_breaking_the_viewer() {
+    let (v, cx, response) = open_pending_image();
+    // Recognizable PNG signature, but no valid chunks: exercise decode failure
+    // rather than an HTTP status error or a missing local file.
+    response.finish(b"\x89PNG\r\n\x1a\ntruncated", &mut cx.cx);
+    assert!(matches!(
+        image_result(&mut cx.cx),
+        Some(Err(gpui::ImageCacheError::Image(_)))
+    ));
+    // Force the failed image/fallback through layout and paint again.
+    v.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    cx.dispatch_action(NextTab);
+    assert_eq!(active(&v, cx).as_deref(), Some("other.md"));
+    cx.dispatch_action(PrevTab);
+    assert_eq!(active(&v, cx).as_deref(), Some("image.md"));
+    assert!(matches!(
+        image_result(&mut cx.cx),
+        Some(Err(gpui::ImageCacheError::Image(_)))
+    ));
+}
+
+#[test]
+fn delayed_image_keeps_scrolling_and_tab_actions_usable() {
+    let (v, cx, response) = open_pending_image();
+    cx.dispatch_action(PageDown);
+    assert!(scroll_top(&v, cx) > (0, 0.));
+    cx.dispatch_action(Top);
+    cx.dispatch_action(NextTab);
+    assert_eq!(active(&v, cx).as_deref(), Some("other.md"));
+    cx.dispatch_action(PageDown);
+    assert!(scroll_top(&v, cx) > (0, 0.));
+    cx.dispatch_action(PrevTab);
+    assert_eq!(active(&v, cx).as_deref(), Some("image.md"));
+    cx.run_until_parked();
+    assert!(image_result(&mut cx.cx).is_none());
+
+    response.finish(include_bytes!("../../assets/icon.svg"), &mut cx.cx);
+    assert!(matches!(image_result(&mut cx.cx), Some(Ok(_))));
+    assert_eq!(active(&v, cx).as_deref(), Some("image.md"));
+    cx.dispatch_action(PageDown);
+    assert!(scroll_top(&v, cx) > (0, 0.));
+}
+
+#[test]
+fn image_requests_can_complete_after_their_tab_or_window_closes() {
+    for close_window in [false, true] {
+        let (v, cx, response) = open_pending_image();
+        let weak = v.downgrade();
+        cx.dispatch_action(CloseTab);
+        assert_eq!(titles(&v, cx), ["other.md"]);
+        if close_window {
+            cx.update(|window, _| window.remove_window());
+        }
+        drop(v);
+        cx.run_until_parked();
+        if close_window {
+            assert!(cx.windows().is_empty());
+            assert!(weak.upgrade().is_none(), "Viewer was released");
+        }
+        response.finish(include_bytes!("../../assets/icon.svg"), &mut cx.cx);
+        assert!(matches!(image_result(&mut cx.cx), Some(Ok(_))));
+        if close_window {
+            assert!(
+                cx.windows().is_empty(),
+                "completion must not reopen a window"
+            );
+        } else {
+            let v = weak.upgrade().unwrap();
+            assert_eq!(titles(&v, cx), ["other.md"]);
+            cx.dispatch_action(PageDown);
+            assert!(scroll_top(&v, cx) > (0, 0.));
+        }
+    }
+}
+
 #[test]
 fn platform_open_events_reuse_and_recreate_the_viewer() {
     let dir = TempDir::new("platform-open");
