@@ -75,6 +75,9 @@ The architecture, startup performance, rendering pipeline, the GPUI fork, how
 to contribute, and the roadmap are documented, with diagrams, in
 [`docs/`](docs/README.md). AI agents: see [`AGENTS.md`](AGENTS.md).
 
+GitHub CI runs formatting, guards, clippy and headless tests. Real window
+tests run locally with `scripts/check.sh --e2e`; see [testing](docs/testing.md).
+
 ## Layout
 
 ```

@@ -164,9 +164,8 @@ target is under 10 minutes even with an empty cache, so CI builds with the
 job, and runs two jobs in parallel:
 
 - **test:** `scripts/check.sh --profile ci --no-clippy` (fmt, guards, every
-  test), then the window tests on the same build, under Xvfb with Mesa's
-  software Vulkan (lavapipe). The window-test step is `continue-on-error`
-  until it has been seen to pass on GitHub's runners.
+  headless test). Real window tests are local only, via
+  `scripts/check.sh --e2e`; CI does not install Xvfb or software Vulkan.
 - **clippy:** `cargo clippy --workspace --all-targets -D warnings`.
 
 To reproduce a CI failure locally: `scripts/check.sh --profile ci`.
