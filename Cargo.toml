@@ -1,6 +1,6 @@
 [package]
 name = "mdview"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A tiny, fast-starting, GPU-rendered Markdown viewer built on GPUI (Zed's UI framework)"
 license = "Apache-2.0"

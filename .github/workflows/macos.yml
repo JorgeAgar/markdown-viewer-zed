@@ -2,7 +2,10 @@ name: macOS Apple Silicon build and DMG
 on:
   workflow_call:
     inputs:
-      require-signing:
+      # Developer ID sign and notarize when the credentials are configured;
+      # without them the DMG is ad-hoc signed (unnotarized) and a warning is
+      # emitted. A partially configured set of credentials fails the job.
+      sign:
         type: boolean
         default: false
     secrets:
@@ -63,14 +66,19 @@ jobs:
     needs: build
     runs-on: macos-15
     timeout-minutes: 30
+    env:
+      SIGNING_ENABLED: ${{ inputs.sign && secrets.MACOS_CERTIFICATE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: macos-bin-aarch64-apple-darwin
           path: target/aarch64-apple-darwin/release
+      - name: Warn about unsigned release DMG
+        if: inputs.sign && env.SIGNING_ENABLED != 'true'
+        run: echo "::warning::macOS signing secrets are not configured; publishing an ad-hoc-signed, unnotarized DMG."
       - name: Import release signing credentials
-        if: inputs.require-signing
+        if: env.SIGNING_ENABLED == 'true'
         env:
           CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -97,7 +105,6 @@ jobs:
           rm "$RUNNER_TEMP/mdview.p12"
       - name: Package and smoke test DMG
         env:
-          SIGNING_ENABLED: ${{ inputs.require-signing }}
           RELEASE_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
         run: |
           chmod +x target/*-apple-darwin/release/mdview
@@ -108,7 +115,7 @@ jobs:
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
           packaging/macos/package.sh "$version"
       - name: Remove signing keychain
-        if: always() && inputs.require-signing
+        if: always() && env.SIGNING_ENABLED == 'true'
         run: |
           security delete-keychain "$RUNNER_TEMP/mdview.keychain-db" || true
           rm -f "$RUNNER_TEMP/mdview.p12"
