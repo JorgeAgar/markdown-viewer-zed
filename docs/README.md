@@ -33,6 +33,7 @@ the Zed editor. These docs are for people and AI agents who want to work on it.
 | [gpui-fork.md](gpui-fork.md) | Touch `crates/gpui`, or upgrade GPUI |
 | [contributing.md](contributing.md) | Build, test and send changes (people and agents) |
 | [testing.md](testing.md) | Run the tests, add new ones, or update expected outputs |
+| [releases.md](releases.md) | Install a Linux tarball or publish a tagged release |
 | [roadmap.md](roadmap.md) | Find something to work on |
 
 AI agents should also read [`AGENTS.md`](../AGENTS.md) in the repo root.

@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux x86_64 tarball
+    # Keep the glibc baseline older than the rolling ubuntu-latest image.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check release tag against package version
+        run: |
+          cargo metadata --locked --no-deps --format-version 1 | python3 -c '
+          import json, os, re, sys
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "mdview")
+          if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) or tag != "v" + version:
+              sys.exit(f"Release tag {tag!r} must match package version v{version}")
+          '
+      - name: Install build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
+            libwayland-dev libfontconfig-dev libfreetype-dev libvulkan1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux-x86_64
+      - name: Build optimized binary
+        run: cargo build --locked --release --target "$TARGET"
+      - name: Package and verify tarball
+        run: |
+          archive="mdview-${GITHUB_REF_NAME}-linux-x86_64"
+          mkdir -p "$RUNNER_TEMP/dist/$archive"
+          cp "target/$TARGET/release/mdview" README.md "$RUNNER_TEMP/dist/$archive/"
+          cp docs/releases.md "$RUNNER_TEMP/dist/$archive/RELEASES.md"
+          cp assets/icon.svg "$RUNNER_TEMP/dist/$archive/"
+          tar -C "$RUNNER_TEMP/dist" -czf "$RUNNER_TEMP/dist/$archive.tar.gz" "$archive"
+          mkdir -p "$RUNNER_TEMP/verify"
+          tar -C "$RUNNER_TEMP/verify" -xzf "$RUNNER_TEMP/dist/$archive.tar.gz"
+          "$RUNNER_TEMP/verify/$archive/mdview" --help
+          ldd "$RUNNER_TEMP/verify/$archive/mdview" | tee "$RUNNER_TEMP/linked-libraries.txt"
+          if grep -q 'not found' "$RUNNER_TEMP/linked-libraries.txt"; then
+            exit 1
+          fi
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="mdview-${GITHUB_REF_NAME}-linux-x86_64.tar.gz"
+          checksum=$(sha256sum "$RUNNER_TEMP/dist/$archive" | cut -d ' ' -f 1)
+          notes="Linux x86_64 binary built on Ubuntu 22.04 (glibc 2.35). See RELEASES.md inside the tarball for installation and runtime requirements.
+
+          SHA-256 ($archive): $checksum
+
+          Windows is not supported in this release."
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP/dist/$archive" \
+            --verify-tag --title "mdview $GITHUB_REF_NAME" --generate-notes --notes "$notes"
