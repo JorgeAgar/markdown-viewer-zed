@@ -200,12 +200,19 @@ uses `panic = "unwind"`) and shown the same way.
 
 ### Fonts
 
-`pick_fonts` uses the first installed family from a short list:
+`pick_fonts` selects from a short list of advertised families. On macOS,
+Helvetica Neue follows Inter and IBM Plex Sans, ahead of Linux fallback names.
+GPUI advertises some fallback names even when the family is not installed;
+picking those on macOS can fall back to regular Helvetica and lose bold/italic
+styles. Native macOS font priority avoids that fallback. Linux order is unchanged.
+
+The remaining preference lists are:
 
 - UI: `Inter`, `IBM Plex Sans`, `Noto Sans`, `Cantarell`, `DejaVu Sans`,
-  `Liberation Sans`
+  `Liberation Sans`, `Segoe UI`, `Helvetica Neue`, `Helvetica` (with the macOS
+  priority exception above)
 - Monospace: `JetBrains Mono`, `Lilex`, `Fira Code`, `Noto Sans Mono`,
-  `DejaVu Sans Mono`, `Liberation Mono`
+  `DejaVu Sans Mono`, `Liberation Mono`, `Consolas`, `Menlo`, `Monaco`
 
 `MDVIEW_FONT` and `MDVIEW_MONO_FONT` override these. Don't ask fontconfig at
 runtime (for example by running `fc-match`), because it costs startup time.

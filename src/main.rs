@@ -182,38 +182,48 @@ fn viewer_window_options(bounds: Bounds<gpui::Pixels>) -> WindowOptions {
     }
 }
 
-/// Pick the first installed font from a short preference list (overridable via
-/// MDVIEW_FONT / MDVIEW_MONO_FONT). Avoids spawning fontconfig at startup.
+// GPUI advertises fallback names even when the underlying family is absent.
+// On macOS a missing family resolves to regular Helvetica, losing text styles.
+const UI_FONT_CANDIDATES: &[&str] = &[
+    "Inter",
+    "IBM Plex Sans",
+    #[cfg(target_os = "macos")]
+    "Helvetica Neue",
+    "Noto Sans",
+    "Cantarell",
+    "DejaVu Sans",
+    "Liberation Sans",
+    "Segoe UI",
+    #[cfg(not(target_os = "macos"))]
+    "Helvetica Neue",
+    "Helvetica",
+];
+
+fn select_font(
+    known_names: &std::collections::HashSet<String>,
+    override_name: Option<&str>,
+    candidates: &[&str],
+) -> gpui::SharedString {
+    override_name
+        .into_iter()
+        .chain(candidates.iter().copied())
+        .find(|name| known_names.contains(*name))
+        .map(|name| name.to_string().into())
+        .unwrap_or_else(|| ".SystemUIFont".into())
+}
+
+/// Prefer available families without spawning fontconfig at startup.
 fn pick_fonts(cx: &App) -> Fonts {
-    let installed: std::collections::HashSet<String> =
-        cx.text_system().all_font_names().into_iter().collect();
-    let pick = |env: &str, candidates: &[&'static str]| -> gpui::SharedString {
-        let from_env = std::env::var(env).ok();
-        from_env
-            .iter()
-            .map(|s| s.as_str())
-            .chain(candidates.iter().copied())
-            .find(|name| installed.contains(*name))
-            .map(|s| s.to_string().into())
-            .unwrap_or_else(|| ".SystemUIFont".into())
-    };
+    let known_names = cx.text_system().all_font_names().into_iter().collect();
     Fonts {
-        ui: pick(
-            "MDVIEW_FONT",
-            &[
-                "Inter",
-                "IBM Plex Sans",
-                "Noto Sans",
-                "Cantarell",
-                "DejaVu Sans",
-                "Liberation Sans",
-                "Segoe UI",
-                "Helvetica Neue",
-                "Helvetica",
-            ],
+        ui: select_font(
+            &known_names,
+            std::env::var("MDVIEW_FONT").ok().as_deref(),
+            UI_FONT_CANDIDATES,
         ),
-        mono: pick(
-            "MDVIEW_MONO_FONT",
+        mono: select_font(
+            &known_names,
+            std::env::var("MDVIEW_MONO_FONT").ok().as_deref(),
             &[
                 "JetBrains Mono",
                 "Lilex",
@@ -304,6 +314,46 @@ mod window_size_tests {
         assert_eq!(
             windows_initial_size(size(px(2560.), px(1440.))),
             size(px(920.), px(1040.))
+        );
+    }
+}
+
+#[cfg(test)]
+mod font_selection_tests {
+    use super::*;
+    #[test]
+    fn font_selection_keeps_overrides_and_ordered_fallbacks() {
+        let names = ["Preferred", "Native", "Override"]
+            .map(str::to_string)
+            .into_iter()
+            .collect();
+        assert_eq!(
+            select_font(&names, Some("Override"), &["Preferred", "Native"]).to_string(),
+            "Override"
+        );
+        assert_eq!(
+            select_font(&names, Some("Missing"), &["Preferred", "Native"]).to_string(),
+            "Preferred"
+        );
+        assert_eq!(
+            select_font(&names, None, &["Missing", "Native"]).to_string(),
+            "Native"
+        );
+        assert_eq!(
+            select_font(&names, None, &["Missing"]).to_string(),
+            ".SystemUIFont"
+        );
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_prefers_native_family_over_advertised_fallback() {
+        let names = ["Noto Sans", "Helvetica Neue"]
+            .map(str::to_string)
+            .into_iter()
+            .collect();
+        assert_eq!(
+            select_font(&names, None, UI_FONT_CANDIDATES).to_string(),
+            "Helvetica Neue"
         );
     }
 }

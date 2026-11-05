@@ -49,7 +49,8 @@ opens it in a new tab, and `#anchor` links scroll to the matching heading. Open
 files reload automatically when they change on disk.
 
 `-n` / `--new` starts a separate instance. `MDVIEW_FONT` and `MDVIEW_MONO_FONT`
-override the fonts.
+override the fonts. macOS prefers Helvetica Neue when Inter and IBM Plex Sans
+are unavailable, preserving bold and italic formatting.
 
 ## Why it starts fast
 

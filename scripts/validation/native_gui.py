@@ -64,7 +64,7 @@ def main():
     checked([str(binary), "--help"], capture_output=True)
     fixture = output / "rendering.md"
     icon = Path("assets/icon.png").resolve().as_posix()
-    fixture.write_text("# Native rendering validation\n\nUnicode: 日本語 — **bold** and `code`.\n\n"
+    fixture.write_text("# Native rendering validation\n\nUnicode: 日本語 — **bold**, _italic_, and `code`.\n\n"
                        "| Column | Value |\n| --- | --- |\n| Text | ✓ |\n\n"
                        "$$\n\\frac{a+b}{c-d} = \\sqrt{x^2+y^2}\n$$\n\n"
                        "```mermaid\nflowchart LR\n A[Native GPU] --> B[Rendered Markdown]\n```\n\n"
