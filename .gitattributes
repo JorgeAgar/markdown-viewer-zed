@@ -1,0 +1,4 @@
+# Keep source and snapshot fixtures identical on native Windows checkouts.
+* text=auto eol=lf
+# This fixture deliberately contains CRLF and must retain its stored bytes.
+crates/mdview-core/tests/fixtures/crlf.md -text

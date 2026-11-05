@@ -52,3 +52,64 @@ impl Server {
 pub fn cleanup() {
     let _ = std::fs::remove_file(socket_path());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::TempDir;
+    use std::{sync::mpsc, time::Duration};
+
+    #[test]
+    fn cleanup_removes_owned_endpoint() {
+        let dir = TempDir::new("ipc-cleanup");
+        let socket = dir.join("mdview.sock");
+        let _listener = UnixListener::bind(&socket).unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "platform::ipc::tests::cleanup_child"])
+            .env("MDVIEW_TEST_CLEANUP", "1")
+            .env("XDG_RUNTIME_DIR", dir.to_path_buf())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(!socket.exists(), "cleanup must remove the socket");
+    }
+
+    #[test]
+    fn cleanup_child() {
+        // Isolate environment changes in a child instead of racing parallel tests.
+        if std::env::var_os("MDVIEW_TEST_CLEANUP").is_some() {
+            cleanup();
+        }
+    }
+
+    #[test]
+    fn server_delivers_paths_and_raise_requests_until_receiver_closes() {
+        let dir = TempDir::new("ipc-server");
+        let path = dir.join("server.sock");
+        let server = Server(UnixListener::bind(&path).unwrap());
+        let (tx, rx) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let mut count = 0;
+            server.serve(|paths| {
+                tx.send(paths).unwrap();
+                count += 1;
+                count < 2
+            });
+        });
+        // An invalid UTF-8 message must neither reach the viewer nor stop it.
+        let mut client = UnixStream::connect(&path).unwrap();
+        client.write_all(&[0xff]).unwrap();
+        drop(client);
+        let mut client = UnixStream::connect(&path).unwrap();
+        client.write_all(b"/a.md\n/b c.md").unwrap();
+        drop(client);
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            vec![PathBuf::from("/a.md"), PathBuf::from("/b c.md")]
+        );
+        drop(UnixStream::connect(&path).unwrap());
+        assert!(rx.recv_timeout(Duration::from_secs(2)).unwrap().is_empty());
+        // Returning false must stop the listener instead of accepting forever.
+        thread.join().unwrap();
+    }
+}
