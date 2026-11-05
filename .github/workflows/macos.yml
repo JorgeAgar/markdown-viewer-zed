@@ -1,0 +1,122 @@
+name: macOS build and Universal DMG
+on:
+  workflow_call:
+    inputs:
+      require-signing:
+        type: boolean
+        default: false
+    secrets:
+      MACOS_CERTIFICATE_BASE64:
+        required: false
+      MACOS_CERTIFICATE_PASSWORD:
+        required: false
+      MACOS_SIGN_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_APP_PASSWORD:
+        required: false
+
+env:
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: macOS ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ matrix.target }}
+      - name: Full native headless tests
+        run: cargo test --locked --workspace --profile ci
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings
+      - name: Build optimized Metal application
+        run: cargo build --locked --release --target '${{ matrix.target }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-bin-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/mdview
+          if-no-files-found: error
+
+  package:
+    name: Package and verify Universal DMG
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-bin-aarch64-apple-darwin
+          path: target/aarch64-apple-darwin/release
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-bin-x86_64-apple-darwin
+          path: target/x86_64-apple-darwin/release
+      - name: Import release signing credentials
+        if: inputs.require-signing
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          for name in CERTIFICATE CERTIFICATE_PASSWORD MACOS_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+            [[ -n ${!name} ]] || { echo "Missing release signing credential: $name" >&2; exit 1; }
+          done
+          keychain="$RUNNER_TEMP/mdview.keychain-db"
+          password=$(openssl rand -hex 24)
+          echo "::add-mask::$password"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/mdview.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/mdview.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          xcrun notarytool store-credentials mdview-notary --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$keychain"
+          echo "MACOS_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          rm "$RUNNER_TEMP/mdview.p12"
+      - name: Package and smoke test DMG
+        env:
+          SIGNING_ENABLED: ${{ inputs.require-signing }}
+          RELEASE_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          chmod +x target/*-apple-darwin/release/mdview
+          if [[ $SIGNING_ENABLED == true ]]; then
+            export MACOS_SIGN_IDENTITY="$RELEASE_IDENTITY"
+          fi
+          # Cargo.toml is authoritative; the plist is a packaging template.
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          packaging/macos/package.sh "$version"
+      - name: Remove signing keychain
+        if: always() && inputs.require-signing
+        run: |
+          security delete-keychain "$RUNNER_TEMP/mdview.keychain-db" || true
+          rm -f "$RUNNER_TEMP/mdview.p12"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/*.dmg
+          if-no-files-found: error

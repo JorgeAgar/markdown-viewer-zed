@@ -1,6 +1,7 @@
 # Releases
 
-Releases include Linux x86_64 tarballs and Windows x64 installers.
+Releases include Linux x86_64 tarballs, Windows x64 installers and a Universal
+macOS DMG.
 The binary uses the existing release profile: full LTO, one codegen unit,
 and stripped symbols. Packaging adds no startup work.
 
@@ -59,8 +60,9 @@ flowchart LR
     tested["Test and merge commit"] --> tag["Push version tag"]
     tag --> version["Verify package version"]
     version --> tests["Full headless tests and checks"]
-    tests --> build["Build native Linux / Windows binaries"]
+    tests --> build["Build native Linux / Windows / macOS binaries"]
     build --> package["Package and smoke test tarball"]
+    mac["Build both Mac architectures + signed/notarized DMG"] --> collect
     package --> collect["Collect verified platform artifacts + checksums"]
     collect --> publish["Publish GitHub Release once"]
 ```
@@ -85,3 +87,35 @@ Local packaging (PowerShell, after building):
 ```powershell
 & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" /DAppVersion=0.1.0 "/DSourceDir=$PWD/target/release" packaging/windows/mdview.iss
 ```
+
+## macOS
+
+Open the Universal DMG and drag mdview into Applications. The app contains
+native Apple Silicon and Intel executables in one bundle. The build targets
+macOS 13 or newer; verify minimum-OS GPU behavior on real hardware before
+calling that minimum tested. Finder Open with, file drops and CLI launches
+open Markdown tabs. The application stays running after its last window is
+closed; the Dock recreates a window and Command+Q quits.
+
+The CLI remains available inside the bundle:
+
+```sh
+/Applications/mdview.app/Contents/MacOS/mdview README.md
+```
+
+Tagged macOS releases require Developer ID signing and Apple notarization.
+Configure these repository Actions secrets before publishing a version tag:
+`MACOS_CERTIFICATE_BASE64` (Developer ID Application P12),
+`MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGN_IDENTITY`, `APPLE_ID`,
+`APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD` (an app-specific password).
+Credentials are imported into a temporary keychain that is removed afterward.
+Missing signing credentials fail the macOS release job and prevent publication
+of the entire release. PR CI builds an ad-hoc-signed DMG for packaging tests;
+those artifacts are for development and are not notarized public releases.
+
+`packaging/macos/package.sh VERSION` combines the two optimized target builds,
+creates the app icon and bundle, checks both architectures, builds and mounts
+the DMG, verifies its signature, and runs the packaged binary's help. A signed
+release also notarizes/staples the DMG and checks Gatekeeper assessment. For
+local signing, set `MACOS_SIGN_IDENTITY` and store a `mdview-notary` profile
+using `xcrun notarytool store-credentials` first.

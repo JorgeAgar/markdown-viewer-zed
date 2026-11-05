@@ -15,6 +15,7 @@ USAGE: mdview [-n] [FILE...]
 
 KEYS: Ctrl+O open · Ctrl+W close tab · Ctrl+Tab / Ctrl+Shift+Tab switch tabs
       Ctrl+R reload · Ctrl+Q quit · ↑↓ PgUp PgDn Space Home End scroll
+      macOS also: Cmd+O open · Cmd+W close · Cmd+R reload · Cmd+Q quit
 ";
 
 /// What the command line asks for.

@@ -56,18 +56,8 @@ jobs:
       - name: cargo clippy -D warnings
         run: cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings
 
-  portable-core:
-    name: Core tests (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-14]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked -p mdview-core --profile ci
-
   native-windows:
     uses: ./.github/workflows/windows.yml
+
+  native-macos:
+    uses: ./.github/workflows/macos.yml

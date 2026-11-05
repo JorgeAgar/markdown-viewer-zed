@@ -5,8 +5,8 @@
 ```
 .
 ├── src/
-│   ├── main.rs        Entry point: IPC handoff, key bindings, font choice, window creation
-│   ├── platform/      OS integration; unix.rs owns Unix sockets, windows.rs owns named pipes
+│   ├── main.rs        Entry point: IPC/events, key bindings, font choice, window creation
+│   ├── platform/      OS integration; unix.rs owns Unix sockets, windows.rs owns named pipes, mac.rs handles Finder/Dock
 │   ├── cli.rs         Argument parsing, help text, socket path and message format (GUI-free)
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
@@ -50,6 +50,8 @@ flowchart TD
     cmark[("pulldown-cmark")]
 
     ipc["platform IPC<br/>Unix sockets / Windows named pipes"]
+    mac["platform/mac.rs<br/>Finder/Dock events and menus"]
+    main --> mac
     main --> ipc
     ipc --> cli
     main --> cli
@@ -184,11 +186,11 @@ flowchart LR
     end
     subgraph Startup["Startup only"]
         P["preload: read + parse initial files"]
-        G["gpu_init: Vulkan instance + device"]
+        G["Linux gpu_init: Vulkan instance + device"]
         PL["8 threads: one render pipeline each"]
     end
     subgraph Long["Long-lived"]
-        IPC["IPC listener: accept() on the Unix socket"]
+        IPC["IPC listener: Unix socket / Windows pipe"]
         BG["GPUI background executor<br/>(sized to the number of CPUs)<br/>also renders math and diagrams"]
     end
     IPC -->|"mpsc channel: Vec of PathBuf"| UI
@@ -274,3 +276,24 @@ opens non-Markdown local files through ShellExecute with native UTF-16 paths,
 preserving drive, UNC and verbatim paths without URL conversion. Segoe UI and Consolas are font fallbacks;
 font environment overrides remain available. The optimized Windows executable
 uses the GUI subsystem so opening files does not create a console window.
+
+## macOS integration
+
+GPUI uses Metal and native macOS text rendering. `platform/mac.rs` registers
+LaunchServices file-open events and Dock reopen events before the application
+runs, queueing them on the same foreground channel as IPC. File URLs are
+decoded with the existing URL library. Event delivery reuses the current
+window; if it was closed, it creates the same Viewer again. Closing the last
+window keeps the macOS app running; Quit exits and cleans up its Unix socket.
+Command shortcuts and native menus supplement the shared Control bindings.
+Helvetica Neue and Menlo are available as native font fallbacks.
+
+```mermaid
+flowchart LR
+    finder["Finder: file URLs"] --> events["Decode paths and queue event"]
+    dock["Dock: reopen"] --> events
+    events --> foreground["Foreground event handler"]
+    foreground --> exists{"Window exists?"}
+    exists -->|yes| reuse["Open tabs and activate"]
+    exists -->|no| recreate["Create Viewer with requested files"]
+```

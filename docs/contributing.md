@@ -100,3 +100,16 @@ Startup is the product, so these rules come first:
   `main`.
 - Never commit the temporary profiling marks (`tmark`) or anything under
   `target/`.
+
+## macOS development
+
+Install the native Rust toolchain and full Xcode, including its Metal compiler.
+Build with `MACOSX_DEPLOYMENT_TARGET=13.0 cargo build --locked --release`.
+Run the full workspace tests and clippy natively. Both Apple Silicon and Intel
+CI runners build and test their own architecture; packaging combines them into
+a Universal app and DMG. See [releases.md](releases.md#macos) for signing setup.
+
+Before release, check Finder opening, Dock reopening after the last window
+closes, Command shortcuts/menus, IPC handoff, drag/drop, live reload, local and
+remote images, math/Mermaid, light/dark mode, and startup on real Macs. Hosted
+headless checks do not validate GPU presentation or minimum-OS compatibility.
