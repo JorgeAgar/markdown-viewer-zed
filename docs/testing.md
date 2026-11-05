@@ -195,3 +195,7 @@ Named-pipe clients wait for delivery acknowledgement, covering connections
 that arrive before the server begins accepting. Headless viewer fixtures use
 normalized paths like production startup. Modification-time tests respect
 Windows' 100 ns SystemTime precision while retaining 1 ns checks on Unix.
+
+The documentation checker represents repository paths with `/` on every OS,
+so Rust filename/suffix checks match Markdown references on Windows too. Its
+regression test still distinguishes existing source paths from missing ones.
