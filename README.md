@@ -90,7 +90,7 @@ crates/mdview-core/  the GUI-free core (no GPUI dependency, fast tests):
 crates/gpui/     vendored GPUI 0.2.2 with startup fixes (see MDVIEW.md)
 patches/         those fixes as a diff against upstream gpui 0.2.2
 tests/           end-to-end tests of the binary, docs checks, guard snapshots
-scripts/         check.sh (run before every commit), guards, startup benchmark
+scripts/         check.sh (run before every commit), guards, startup and mutation tests
 fuzz/            fuzz targets for the parser
 docs/            documentation for contributors (with diagrams)
 ```

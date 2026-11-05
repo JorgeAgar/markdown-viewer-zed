@@ -117,36 +117,30 @@ MDVIEW_E2E=1 cargo test --test cli      # or: scripts/check.sh --e2e
 
 ## Deeper checks (not run on every commit)
 
-**Mutation testing** changes the code (for example `<` to `<=`, or a function
-body to a default value) and checks that some test fails. A change that no
-test notices shows untested logic.
+**Mutation testing** (local only, never in CI) changes the code (for example
+`<` to `<=`, or a function body to a default value) and checks that some test
+fails. A change that no test notices is logic no test checks. Run it before
+you send a change that adds or changes logic:
 
 ```sh
-# cargo-mutants copies the tree into $TMPDIR. If /tmp is a tmpfs (RAM),
-# point it at the disk.
-export TMPDIR=~/.cache/mdview-mutants/tmp; mkdir -p "$TMPDIR"
-# Some mutants turn a lexer loop into one that never advances and keeps
-# allocating (e.g. `number_end` returning 0): gigabytes in seconds, long
-# before the timeout. Cap each process so they fail fast (and count as
-# caught) instead of taking the machine down.
-(ulimit -v 2500000; cargo mutants -p mdview-core --test-package mdview-core -j 2)
-(ulimit -v 6000000; cargo mutants -p mdview -f src/tabs.rs -f src/links.rs -f src/cli.rs -j 1)
+scripts/mutants.sh               # only the lines your branch changed (committed)
+scripts/mutants.sh --base REF    # changed since REF instead of origin/main
+scripts/mutants.sh --all         # everything: about an hour, for rare audits
 ```
 
-Don't use `--in-place` in your working tree. If it is interrupted, the
-mutated source is left behind. CI runs the core crate weekly and uploads
-`mutants.out`.
+Timings on a 12-core laptop: a change in `mdview-core` takes seconds. A change
+in `src/` takes about 6 minutes the first time, because GPUI is compiled once
+in the script's scratch worktree (under `~/.cache/mdview-mutants`), and well
+under a minute after that. The script never touches your working tree, and it
+caps each process with `ulimit -v`, because some mutants turn a loop into one
+that allocates without end. Run raw `cargo mutants` only through the script.
 
-Equivalent core mutants are documented individually in the workspace-root
-[`.cargo/mutants.toml`](../.cargo/mutants.toml). Each exclusion names one
-reviewed mutation and explains why its public output cannot change; revisit
-that reasoning when changing the relevant code. cargo-mutants 27.1 reads
-this configuration from the workspace root, including with `-p mdview-core`.
-It has a struct-field discovery bug: those mutants bypass `-F` and
-`exclude_re`. For a focused rerun on that version, a source-line selection
-via `--in-diff` is applied after discovery and can constrain those fields.
-Do not count a configured equivalent field deletion as a new coverage gap
-just because that version still reports it.
+When a mutant survives, add a test that fails for it. If it really can't
+change any output (an *equivalent* mutant), exclude it in the workspace-root
+[`.cargo/mutants.toml`](../.cargo/mutants.toml) with the reason. Each
+exclusion there names one reviewed mutation; revisit the reasoning when you
+change that code. cargo-mutants 27.1 has a bug where struct-field deletions
+ignore `exclude_re`, so it may still report those excluded ones.
 
 **Coverage:** `cargo llvm-cov -p mdview-core --html` (the report goes to
 `target/llvm-cov/html`).
@@ -167,5 +161,6 @@ pasted into a commit message. See [startup.md](startup.md).
 - `scripts/check.sh` with GPUI's system libraries;
 - the GPUI patch guard on its own;
 - the window tests under Xvfb with Mesa's software Vulkan (lavapipe). This job
-  is `continue-on-error` until it has been seen to pass on GitHub's runners;
-- weekly (and on demand): mutation testing of `mdview-core`.
+  is `continue-on-error` until it has been seen to pass on GitHub's runners.
+
+Mutation testing is deliberately not in CI (it's slow); see above.

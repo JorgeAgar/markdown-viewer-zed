@@ -47,7 +47,8 @@ cargo fmt
 ## Verifying your work
 
 - Run `scripts/check.sh`. It must pass. If you touched startup, dependencies
-  or anything large, also run `scripts/check.sh --release`.
+  or anything large, also run `scripts/check.sh --release`. If you added or
+  changed logic, run `scripts/mutants.sh` and cover what survives.
 - **Tests are part of the change.** A bug fix starts with a test that fails
   without it. New syntax gets a fixture, new logic gets unit tests. See
   [docs/testing.md](docs/testing.md) for where each kind of test goes.
@@ -73,9 +74,8 @@ cargo fmt
   paths to that instance and exits. Use `-n` for testing.
 - `InteractiveText` and scrollable divs need unique `ElementId`s within a list
   row. Use the row's `IdGen` in `render.rs`.
-- `cargo mutants` copies the tree into `$TMPDIR`. On machines where `/tmp`
-  is a tmpfs, set `TMPDIR` to a directory on disk, cap memory with
-  `ulimit -v` (some mutants allocate without end), and never use
-  `--in-place` in your working tree. See docs/testing.md.
+- Run mutation testing only through `scripts/mutants.sh`, never raw
+  `cargo mutants`: some mutants allocate without end, and `--in-place` in
+  your working tree can leave a mutation behind if interrupted.
 - The first release build compiles GPUI and takes several minutes. Later
   builds take about 1 minute, because of full LTO.
