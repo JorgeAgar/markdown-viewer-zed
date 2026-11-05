@@ -274,3 +274,8 @@ opens non-Markdown local files through ShellExecute with native UTF-16 paths,
 preserving drive, UNC and verbatim paths without URL conversion. Segoe UI and Consolas are font fallbacks;
 font environment overrides remain available. The optimized Windows executable
 uses the GUI subsystem so opening files does not create a console window.
+
+Windows initial client dimensions are capped to the display with room for the
+native frame and taskbar, preserving the preferred 920×1040 size on larger
+monitors and the 320×240 minimum. This avoids centering an oversized window
+with an inaccessible title bar on small desktops.

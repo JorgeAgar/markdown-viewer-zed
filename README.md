@@ -118,3 +118,6 @@ Platform integration is isolated under `src/platform/`; Markdown parsing and
 rendering stay shared. Windows uses DirectX and a per-user named pipe; Linux
 uses Vulkan and a Unix socket. Releases collect verified artifacts before
 publishing once.
+
+On Windows, the initial window fits smaller desktops so its native title bar
+and controls remain on screen.
