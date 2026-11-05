@@ -178,3 +178,10 @@ and FIFO tests are gated individually so shared viewer tests remain portable.
 Git attributes preserve LF source/snapshot inputs on Windows; the deliberate
 CRLF fixture is exempt so newline handling remains tested without changing
 expected snapshots.
+
+Windows runs the full headless workspace suite and clippy, builds an optimized
+DirectX executable and smoke-tests the actual installer (install, upgrade,
+installed help, uninstall). `tests/windows_cli.rs` tests binary handoff to a
+real named pipe; transport tests cover malformed frames and UTF-16 paths.
+Windows API crates are target-specific and already present in GPUI's tree;
+the Linux runtime dependency snapshot is unchanged.

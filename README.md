@@ -12,7 +12,8 @@ in tabs.
 Linux x86_64 binaries are available as tarballs on the
 [Releases page](https://github.com/JorgeAgar/markdown-viewer-zed/releases).
 See [installation and releases](docs/releases.md) for system requirements
-and the tag-based release process. Windows is not supported yet.
+and the tag-based release process. Windows x64 releases include a per-user
+installer; Markdown viewing features are shared with Linux.
 
 To build from source:
 
@@ -23,7 +24,7 @@ cargo build --release
 
 | Key                                  | Action                                    |
 | ------------------------------------ | ----------------------------------------- |
-| `Ctrl+O`                             | Open files (portal file picker)           |
+| `Ctrl+O`                             | Open files (native file picker)           |
 | `Ctrl+W`                             | Close tab (closes the window if empty)    |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab`        | Next / previous tab                       |
 | `Ctrl+PgDn` / `Ctrl+PgUp`            | Next / previous tab                       |
@@ -114,5 +115,6 @@ docs/            documentation for contributors (with diagrams)
 - Text selection and copy.
 
 Platform integration is isolated under `src/platform/`; Markdown parsing and
-rendering stay shared. Native Windows and macOS support is being added on this
-foundation. Releases collect verified artifacts before publishing once.
+rendering stay shared. Windows uses DirectX and a per-user named pipe; Linux
+uses Vulkan and a Unix socket. Releases collect verified artifacts before
+publishing once.

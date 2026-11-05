@@ -6,6 +6,8 @@
 //! 2. Otherwise, read + parse the files on a worker thread while GPUI boots
 //!    (Wayland/X11 connection, font database, GPU context) on the main thread.
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod cli;
 mod graphics;
 mod http;
@@ -164,6 +166,7 @@ fn pick_fonts(cx: &App) -> Fonts {
                 "Cantarell",
                 "DejaVu Sans",
                 "Liberation Sans",
+                "Segoe UI",
             ],
         ),
         mono: pick(
@@ -175,6 +178,7 @@ fn pick_fonts(cx: &App) -> Fonts {
                 "Noto Sans Mono",
                 "DejaVu Sans Mono",
                 "Liberation Mono",
+                "Consolas",
             ],
         ),
     }

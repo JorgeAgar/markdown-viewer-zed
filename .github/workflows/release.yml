@@ -69,9 +69,12 @@ jobs:
           path: ${{ runner.temp }}/dist/*.tar.gz
           if-no-files-found: error
 
+  windows:
+    uses: ./.github/workflows/windows.yml
+
   publish:
     name: Publish all verified artifacts
-    needs: [linux]
+    needs: [linux, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

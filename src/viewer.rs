@@ -596,7 +596,10 @@ mod tests {
             cwd.join("no-such-dir-mdview/x.md")
         );
         // An existing relative path is canonicalized too.
-        assert_eq!(normalize(Path::new("Cargo.toml")), cwd.join("Cargo.toml"));
+        assert_eq!(
+            normalize(Path::new("Cargo.toml")),
+            std::fs::canonicalize(cwd.join("Cargo.toml")).unwrap()
+        );
         // Non-UTF-8 names survive.
         #[cfg(unix)]
         {

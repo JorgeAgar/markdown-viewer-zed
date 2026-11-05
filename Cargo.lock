@@ -3439,6 +3439,7 @@ dependencies = [
 name = "mdview"
 version = "0.1.0"
 dependencies = [
+ "embed-resource",
  "futures",
  "gpui",
  "image",
@@ -3452,6 +3453,7 @@ dependencies = [
  "serde_json",
  "smol",
  "ttf-parser 0.25.1",
+ "windows 0.61.3",
  "zed-reqwest",
 ]
 
