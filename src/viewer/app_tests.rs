@@ -522,3 +522,41 @@ fn draws_every_document_in_both_themes() {
         "mermaid {mermaid:?}"
     );
 }
+
+#[test]
+fn standalone_remote_image_is_requested_by_the_viewer() {
+    use gpui::http_client::{FakeHttpClient, Response};
+    use std::sync::{Arc, Mutex};
+
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let recorded = requests.clone();
+    let client = FakeHttpClient::create(move |request| {
+        recorded.lock().unwrap().push(request.uri().to_string());
+        async {
+            Ok(Response::builder()
+                .status(200)
+                .body(include_bytes!("../../assets/icon.svg").as_slice().into())
+                .unwrap())
+        }
+    });
+    let cx = Box::leak(Box::new(TestAppContext::single()));
+    cx.update(|cx| cx.set_http_client(client));
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        Viewer::new(
+            vec![(
+                PathBuf::from("/docs/image.md"),
+                parsed("![secure](https://example.com/a%20b.svg)\n\n![plain](http://example.com/a.svg)"),
+            )],
+            fonts(),
+            window,
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    let mut requests = requests.lock().unwrap().clone();
+    requests.sort();
+    assert_eq!(
+        requests,
+        ["http://example.com/a.svg", "https://example.com/a%20b.svg"]
+    );
+}

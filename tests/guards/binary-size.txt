@@ -1,4 +1,4 @@
 # Size in bytes of target/release/mdview (stripped, fat LTO, x86_64 Linux).
 # Checked by scripts/guards/binary-size.sh (fails if it grows by more than 3%).
 # Bless after an intentional change: scripts/check.sh --release --bless
-37848680
+40365952

@@ -16,8 +16,6 @@ open an issue (or ask the maintainer) so the scope gets agreed first.
 - [ ] **Text selection and copy.** GPUI has selection support in Zed's editor
       crates, but not in plain `StyledText`. This needs a custom element or a
       selectable-text component.
-- [ ] **Remote images.** This needs an HTTP client (GPUI has a pluggable
-      `HttpClient`). Load lazily and never block startup.
 - [ ] **Raw HTML.** At least `<img>`, `<br>`, `<details>`, and
       `<p align="center">`, which are common in READMEs.
 - [ ] **Typeset inline math.** Inline `$…$` is Unicode text today. Typesetting

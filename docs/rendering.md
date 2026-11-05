@@ -10,6 +10,7 @@ flowchart LR
     P -->|"markdown::parse"| D["Document<br/>Vec of Block"]
     D -->|"Arc, stored in Tab"| L["gpui::list<br/>(ListState)"]
     L -->|"only visible rows:<br/>render::top_block(ix)"| E["GPUI elements<br/>div / StyledText / img"]
+    E -->|"HTTP(S) images, async + cached"| H["http.rs → GPUI image loader"]
     E -->|"layout + paint"| GPU["GPU frame"]
 ```
 
@@ -106,6 +107,16 @@ milliseconds) or tree-sitter (large grammars, slow to build).
 To support a new language, add a `Lang` to `lang_def` (or an alias to an
 existing one) and a test in `highlight::tests`. Unknown languages are shown
 uncolored.
+
+### Markdown images
+
+Standalone local images resolve relative to the document folder. HTTP(S)
+images use GPUI's asynchronous image loader and asset cache. `http.rs` adapts
+GPUI's existing reqwest dependency, with TLS verification, redirects (up to
+10 hops), and a 30-second timeout. Client creation and downloads run on smol's
+blocking pool only when requested; startup never waits for the network.
+Images scale down to fit the column and show alt text on failure. Other URI
+schemes remain links. Images mixed into a text paragraph remain alt-text links.
 
 ### Math
 
@@ -224,5 +235,5 @@ Example: definition lists (`Options::ENABLE_DEFINITION_LIST`).
 
 ## Known gaps
 
-These are tracked in [roadmap.md](roadmap.md#rendering): remote images, raw
+These are tracked in [roadmap.md](roadmap.md#rendering): raw
 HTML, text selection, and real typesetting for inline math.

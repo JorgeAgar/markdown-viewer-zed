@@ -11,6 +11,7 @@
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model → GPUI elements; link handling
+│   ├── http.rs        Lazy HTTP(S) image transport on the blocking pool
 │   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (GUI-free)
 │   └── theme.rs       Light and dark palettes
 ├── crates/mdview-core/  The GUI-free core, a separate crate so it can't depend on GPUI
@@ -58,6 +59,9 @@ flowchart TD
     render --> theme
     render --> links
     viewer --> links
+    http["http.rs<br/>lazy HTTP(S) image transport"]
+    main --> http
+    http --> gpui
     render --> gpui
     viewer --> gpui
     markdown --> cmark
