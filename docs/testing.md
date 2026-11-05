@@ -156,11 +156,17 @@ pasted into a commit message. See [startup.md](startup.md).
 
 ## CI
 
-`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests:
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests. The
+target is under 10 minutes even with an empty cache, so CI builds with the
+`ci` cargo profile (unoptimized dependencies, no debug info), builds once per
+job, and runs two jobs in parallel:
 
-- `scripts/check.sh` with GPUI's system libraries;
-- the GPUI patch guard on its own;
-- the window tests under Xvfb with Mesa's software Vulkan (lavapipe). This job
-  is `continue-on-error` until it has been seen to pass on GitHub's runners.
+- **test:** `scripts/check.sh --profile ci --no-clippy` (fmt, guards, every
+  test), then the window tests on the same build, under Xvfb with Mesa's
+  software Vulkan (lavapipe). The window-test step is `continue-on-error`
+  until it has been seen to pass on GitHub's runners.
+- **clippy:** `cargo clippy --workspace --all-targets -D warnings`.
+
+To reproduce a CI failure locally: `scripts/check.sh --profile ci`.
 
 Mutation testing is deliberately not in CI (it's slow); see above.

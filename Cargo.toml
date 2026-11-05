@@ -55,6 +55,18 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+# CI (scripts/check.sh --profile ci): compile time matters more than run time,
+# since a cold build of GPUI and its dependencies on a 2-core runner dominates.
+# Unoptimized dependencies and no debug info cut the compile work about 5x
+# versus the dev profile; the whole test suite still runs in about 10 s.
+[profile.ci]
+inherits = "dev"
+debug = false
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 0
+
 # Vendored GPUI 0.2.2 with mdview's startup fixes (see crates/gpui/MDVIEW.md).
 [patch.crates-io]
 gpui = { path = "crates/gpui" }

@@ -10,6 +10,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Goal: under 10 minutes even with an empty cache. Almost all of a cold run is
+# compiling GPUI and its dependencies on a 2-core runner, so: the `ci` cargo
+# profile (dependencies unoptimized, no debug info: ~5x less compile work than
+# the dev profile), one build per job, and clippy in a parallel job.
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -21,35 +25,9 @@ env:
     libfontconfig-dev libfreetype-dev libvulkan1
 
 jobs:
-  check:
-    name: scripts/check.sh
+  test:
+    name: fmt, guards, tests, window tests
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install system libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $GPUI_DEPS
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - name: Run the checks (fmt, guards, clippy, tests)
-        run: scripts/check.sh
-
-  gpui-patch:
-    name: GPUI patch matches crates/gpui
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # Needs no Rust: downloads gpui 0.2.2 from crates.io, checks its sha256
-      # and diffs it against crates/gpui.
-      - run: scripts/guards/gpui-patch.sh
-
-  e2e:
-    name: Window tests (Xvfb + lavapipe)
-    runs-on: ubuntu-latest
-    # Not verified on GitHub's runners yet (written and tested locally on
-    # Wayland only). Make it blocking once it has passed reliably for a while.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Install system libraries, Xvfb, Mesa lavapipe and fonts
@@ -58,15 +36,34 @@ jobs:
           sudo apt-get install -y --no-install-recommends $GPUI_DEPS \
             xvfb xauth mesa-vulkan-drivers fonts-dejavu-core
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Build the tests
-        run: cargo test --locked --test cli --no-run
-      - name: Run the window tests on X11
+      - name: scripts/check.sh (fmt, guards, all tests)
+        run: scripts/check.sh --profile ci --no-clippy
+      # Reuses the build above. Not verified on GitHub's runners yet (written
+      # and tested locally on Wayland only); make it blocking once it has
+      # passed reliably for a while.
+      - name: Window tests (X11 on Xvfb, software Vulkan)
+        continue-on-error: true
         env:
           MDVIEW_E2E: "1"
-          # Software Vulkan; the only ICD installed, but be explicit.
           VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
         run: |
           unset WAYLAND_DISPLAY
           xvfb-run -a -s "-screen 0 1920x1080x24" \
-            cargo test --locked --test cli -- --nocapture --test-threads=1
+            cargo test --locked --profile ci --test cli -- --test-threads=1
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $GPUI_DEPS
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy -D warnings
+        run: cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings

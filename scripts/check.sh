@@ -8,6 +8,9 @@
 #   scripts/check.sh --e2e      also run the window tests (opens windows briefly)
 #   scripts/check.sh --bless    accept intentional changes: rewrite the guard
 #                               snapshots (add --release to bless the binary size)
+#   --profile NAME              build the tests with a cargo profile (CI uses
+#                               `ci`: much faster to compile from scratch)
+#   --no-clippy                 skip clippy (CI runs it as a parallel job)
 #
 # Works from any directory. Respects CARGO_BUILD_JOBS etc. from the environment.
 set -uo pipefail
@@ -15,9 +18,15 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$MDVIEW_ROOT" || exit 1
 
-quick=0 bless=0 release=0 e2e=0
-for a in "$@"; do
+quick=0 bless=0 release=0 e2e=0 clippy=1 profile=()
+while [[ $# -gt 0 ]]; do
+    a=$1
     case $a in
+    --profile)
+        profile=(--profile "${2:?--profile needs a name}")
+        shift
+        ;;
+    --no-clippy) clippy=0 ;;
     --quick) quick=1 ;;
     --bless) bless=1 ;;
     --release) release=1 ;;
@@ -28,6 +37,7 @@ for a in "$@"; do
         ;;
     *) die "unknown option: $a (see scripts/check.sh --help)" ;;
     esac
+    shift
 done
 
 GUARDS=scripts/guards
@@ -89,19 +99,21 @@ scripts/check.sh --release --bless" \
         "$GUARDS/binary-size.sh" --build
 fi
 
-run_step "clippy" "Fix the warnings above (some can be fixed with: cargo clippy --fix --workspace --allow-dirty)" \
-    cargo clippy --locked --workspace --all-targets --quiet -- -D warnings
+if [[ $clippy == 1 ]]; then
+    run_step "clippy" "Fix the warnings above (some can be fixed with: cargo clippy --fix --workspace --allow-dirty)" \
+        cargo clippy --locked --workspace --all-targets --quiet "${profile[@]}" -- -D warnings
+fi
 
 [[ $e2e == 1 ]] && export MDVIEW_E2E=1
 if [[ $quick == 1 ]]; then
     run_step "tests: mdview-core" "A parser test failed; see above." \
-        cargo test --locked --quiet -p mdview-core
+        cargo test --locked --quiet "${profile[@]}" -p mdview-core
     run_step "tests: docs in sync" "Fix the docs (or the code) as the messages above say." \
-        cargo test --locked --quiet -p mdview --test docs_sync
+        cargo test --locked --quiet "${profile[@]}" -p mdview --test docs_sync
 else
     run_step "tests: workspace" "A test failed; see above. Run one test file with
 cargo test --test <name>, e.g. cargo test --test cli." \
-        cargo test --locked --quiet --workspace
+        cargo test --locked --quiet "${profile[@]}" --workspace
     if [[ $release == 0 ]]; then
         "$GUARDS/binary-size.sh" || exit 1 # only acts on a fresh release build
     fi
