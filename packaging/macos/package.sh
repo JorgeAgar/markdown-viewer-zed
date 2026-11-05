@@ -12,7 +12,7 @@ app="$stage/mdview.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 lipo -create "$root/target/aarch64-apple-darwin/release/mdview" \
     "$root/target/x86_64-apple-darwin/release/mdview" -output "$app/Contents/MacOS/mdview"
-lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/mdview"
+lipo "$app/Contents/MacOS/mdview" -verify_arch arm64 x86_64
 cp "$root/packaging/macos/Info.plist" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$app/Contents/Info.plist"
