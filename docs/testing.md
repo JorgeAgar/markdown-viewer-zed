@@ -225,3 +225,6 @@ Event-registration hooks exercise the same Finder/Dock registration and
 delivery closures as production without requiring an OS event loop. These
 checks complement real native events; they do not claim to test LaunchServices
 or the GPU themselves.
+
+Native Windows capture also checks the window frame against the desktop work
+area, so an off-screen title bar cannot pass solely because rendering succeeds.

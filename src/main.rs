@@ -153,7 +153,13 @@ fn deliver_paths(window: &mut WindowHandle<Viewer>, paths: Vec<PathBuf>, cx: &mu
 /// All entry points (CLI, Finder and Dock) create the same viewer.
 fn open_viewer(loaded: Vec<viewer::Loaded>, cx: &mut App) -> WindowHandle<Viewer> {
     let fonts = pick_fonts(cx);
-    let bounds = Bounds::centered(None, size(px(920.), px(1040.)), cx);
+    let desired = size(px(920.), px(1040.));
+    #[cfg(windows)]
+    let desired = cx
+        .primary_display()
+        .map(|display| windows_initial_size(display.bounds().size))
+        .unwrap_or(desired);
+    let bounds = Bounds::centered(None, desired, cx);
     cx.open_window(viewer_window_options(bounds), |window, cx| {
         cx.new(|cx| Viewer::new(loaded, fonts, window, cx))
     })
@@ -223,6 +229,16 @@ fn pick_fonts(cx: &App) -> Fonts {
     }
 }
 
+#[cfg(any(windows, test))]
+fn windows_initial_size(display: gpui::Size<gpui::Pixels>) -> gpui::Size<gpui::Pixels> {
+    // GPUI centers the requested client size without constraining it to the
+    // monitor. Reserve space for the native frame and taskbar on small screens.
+    size(
+        (display.width - px(128.)).clamp(px(320.), px(920.)),
+        (display.height - px(128.)).clamp(px(240.), px(1040.)),
+    )
+}
+
 #[cfg(test)]
 mod window_contract_tests {
     use super::*;
@@ -261,5 +277,33 @@ mod window_contract_tests {
             gpui::WindowBackgroundAppearance::Opaque
         ));
         assert!(options.show && options.focus && options.is_resizable);
+    }
+}
+
+#[cfg(test)]
+mod window_size_tests {
+    use super::*;
+    #[test]
+    fn windows_initial_window_keeps_controls_on_small_desktops() {
+        for display in [
+            size(px(1024.), px(768.)),
+            size(px(800.), px(600.)),
+            size(px(720.), px(1280.)),
+        ] {
+            let initial = windows_initial_size(display);
+            assert!(
+                initial.width + px(128.) <= display.width,
+                "leave horizontal room for native frame"
+            );
+            assert!(
+                initial.height + px(128.) <= display.height,
+                "keep title bar and lower controls on screen"
+            );
+            assert!(initial.width >= px(320.) && initial.height >= px(240.));
+        }
+        assert_eq!(
+            windows_initial_size(size(px(2560.), px(1440.))),
+            size(px(920.), px(1040.))
+        );
     }
 }

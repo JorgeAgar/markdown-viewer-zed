@@ -1,6 +1,7 @@
 param([int]$AppProcessId, [string]$OutputPath, [string]$ExpectedTitle)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -17,6 +18,10 @@ if ($app.MainWindowTitle -notlike "*$ExpectedTitle*") { throw "Unexpected native
 Start-Sleep -Milliseconds 300
 $rect = New-Object ViewerWindow+RECT
 if (![ViewerWindow]::GetWindowRect($app.MainWindowHandle, [ref]$rect)) { throw 'Cannot inspect native window bounds' }
+$workArea = [System.Windows.Forms.Screen]::FromHandle($app.MainWindowHandle).WorkingArea
+if ($rect.Left -lt $workArea.Left -or $rect.Top -lt $workArea.Top -or $rect.Right -gt $workArea.Right -or $rect.Bottom -gt $workArea.Bottom) {
+    throw 'Native window controls or frame extend outside the desktop work area'
+}
 $bitmap = New-Object System.Drawing.Bitmap (($rect.Right-$rect.Left), ($rect.Bottom-$rect.Top))
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 try {

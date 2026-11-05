@@ -125,3 +125,6 @@ Finder/Dock events. Releases collect verified artifacts before publishing once.
 
 Native CI attempts actual Windows/macOS GPU presentation and records startup
 timings and light/dark screenshots; see [validation evidence](docs/testing.md#native-validation-evidence).
+
+On Windows, the initial window fits smaller desktops so its native title bar
+and controls remain on screen.
