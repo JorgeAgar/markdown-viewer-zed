@@ -626,6 +626,7 @@ mod tests {
         assert_eq!(tab_title(Path::new("/a/b/")), "b");
         assert_eq!(tab_title(Path::new("/")), "/");
         assert_eq!(tab_title(Path::new("/a/..")), "/a/..");
+        #[cfg(unix)]
         assert_eq!(
             tab_title(Path::new(OsStr::from_bytes(b"/x/caf\xe9.md"))),
             "caf\u{FFFD}.md"

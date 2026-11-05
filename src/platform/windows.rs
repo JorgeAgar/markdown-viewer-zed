@@ -210,6 +210,29 @@ fn read_message(reader: &mut impl Read) -> io::Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
+/// ShellExecute accepts native UTF-16 paths, including unpaired surrogates.
+/// Passing paths directly also avoids interpreting # and % as URL syntax.
+pub fn open_file(path: &std::path::Path) {
+    use windows::Win32::{UI::Shell::ShellExecuteW, UI::WindowsAndMessaging::SW_SHOWNORMAL};
+    let path = HSTRING::from(path.as_os_str());
+    unsafe {
+        let result = ShellExecuteW(
+            None,
+            windows::core::w!("open"),
+            &path,
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+        if (result.0 as isize) <= 32 {
+            eprintln!(
+                "mdview: failed to open local file (Windows shell error {})",
+                result.0 as isize
+            );
+        }
+    }
+}
+
 pub fn cleanup() {} // Closing the process handles releases the pipe.
 
 #[cfg(test)]

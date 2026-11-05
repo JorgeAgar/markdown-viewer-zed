@@ -185,3 +185,8 @@ installed help, uninstall). `tests/windows_cli.rs` tests binary handoff to a
 real named pipe; transport tests cover malformed frames and UTF-16 paths.
 Windows API crates are target-specific and already present in GPUI's tree;
 the Linux runtime dependency snapshot is unchanged.
+
+Native Windows CI caught a remaining Unix byte-path title assertion; it is
+Unix-only while shared title tests still run on every platform. Windows local
+file opening uses native shell paths to avoid URL conversion for non-Unicode
+filenames.

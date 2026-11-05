@@ -57,6 +57,7 @@ pub fn is_markdown(path: &Path) -> bool {
 }
 
 /// Percent-encoded URL for an absolute local file, including Windows drive/UNC paths.
+#[cfg(any(unix, test))]
 pub fn file_url(path: &Path) -> String {
     reqwest::Url::from_file_path(path)
         .expect("local link paths are absolute")

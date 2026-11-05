@@ -267,7 +267,8 @@ server permission to activate its window. Messages are length-prefixed UTF-16
 paths (bounded to 16 MiB), preserving Unicode and unpaired surrogate units.
 `--new` skips IPC. Pipe handles are released by the OS at exit.
 
-File URLs use the existing URL library to percent-encode names and represent
-drive, UNC and verbatim drive paths. Segoe UI and Consolas are font fallbacks;
+Unix file URLs use the existing URL library to percent-encode names. Windows
+opens non-Markdown local files through ShellExecute with native UTF-16 paths,
+preserving drive, UNC and verbatim paths without URL conversion. Segoe UI and Consolas are font fallbacks;
 font environment overrides remain available. The optimized Windows executable
 uses the GUI subsystem so opening files does not create a console window.
