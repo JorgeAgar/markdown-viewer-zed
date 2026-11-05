@@ -193,7 +193,7 @@ normalized paths like production startup. Modification-time tests respect
 Windows' 100 ns SystemTime precision while retaining 1 ns checks on Unix.
 
 macOS runs the full workspace tests, clippy and optimized builds on Apple
-Silicon and Intel, then assembles and mounts a Universal DMG. Shared headless
+Silicon, then assembles and mounts an arm64 DMG. Shared headless
 lifecycle tests cover reusing a window, recreating a closed window with files,
 and reopening an empty window. URL event tests cover escaped and Unicode
 Finder paths and reject non-file URLs. Native desktop testing remains required

@@ -13,7 +13,7 @@ Native release artifacts are published on the
 [Releases page](https://github.com/JorgeAgar/markdown-viewer-zed/releases).
 See [installation and releases](docs/releases.md) for system requirements
 and the tag-based release process: Linux x86_64 tarball, Windows x64 installer,
-and a Universal macOS DMG for Apple Silicon and Intel. All platforms share the
+and an arm64 macOS DMG for Apple Silicon. All platforms share the
 Markdown viewing features.
 
 To build from source:

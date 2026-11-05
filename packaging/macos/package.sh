@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Universal app and DMG. Run on a Mac with both release binaries built.
+# Apple Silicon app and DMG. Run on a Mac with the arm64 release binary built.
 set -euo pipefail
 version=${1:?usage: package.sh VERSION [OUTPUT_DIR]}
 out=${2:-dist}
@@ -10,9 +10,8 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 app="$stage/mdview.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-lipo -create "$root/target/aarch64-apple-darwin/release/mdview" \
-    "$root/target/x86_64-apple-darwin/release/mdview" -output "$app/Contents/MacOS/mdview"
-lipo "$app/Contents/MacOS/mdview" -verify_arch arm64 x86_64
+cp "$root/target/aarch64-apple-darwin/release/mdview" "$app/Contents/MacOS/mdview"
+lipo "$app/Contents/MacOS/mdview" -verify_arch arm64
 cp "$root/packaging/macos/Info.plist" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$app/Contents/Info.plist"
@@ -35,7 +34,7 @@ codesign --verify --deep --strict "$app"
 ln -s /Applications "$stage/Applications"
 # Only app + Applications symlink belong in the mounted image.
 rm -rf "$stage/icon.iconset"
-dmg="$out/mdview-v$version-macos-universal.dmg"
+dmg="$out/mdview-v$version-macos-arm64.dmg"
 hdiutil create -volname mdview -srcfolder "$stage" -ov -format UDZO "$dmg"
 if [[ $identity != - ]]; then
     codesign --timestamp --sign "$identity" "$dmg"

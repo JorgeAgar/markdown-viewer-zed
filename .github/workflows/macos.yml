@@ -1,4 +1,4 @@
-name: macOS build and Universal DMG
+name: macOS Apple Silicon build and DMG
 on:
   workflow_call:
     inputs:
@@ -26,16 +26,8 @@ env:
 
 jobs:
   build:
-    name: macOS ${{ matrix.target }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            target: aarch64-apple-darwin
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-    runs-on: ${{ matrix.os }}
+    name: macOS Apple Silicon
+    runs-on: macos-15
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -44,30 +36,30 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          key: macos-${{ matrix.target }}
+          key: macos-aarch64-apple-darwin
           cache-on-failure: true
       - name: Full native headless tests
         run: cargo test --locked --workspace --profile ci
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings
       - name: Build optimized Metal application
-        run: cargo build --locked --release --target '${{ matrix.target }}'
+        run: cargo build --locked --release --target 'aarch64-apple-darwin'
       - name: Native GUI presentation, startup and theme evidence
-        run: python3 scripts/validation/native_gui.py target/${{ matrix.target }}/release/mdview
+        run: python3 scripts/validation/native_gui.py target/aarch64-apple-darwin/release/mdview
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: native-gui-${{ matrix.target }}
+          name: native-gui-aarch64-apple-darwin
           path: target/native-validation/
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-bin-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/mdview
+          name: macos-bin-aarch64-apple-darwin
+          path: target/aarch64-apple-darwin/release/mdview
           if-no-files-found: error
 
   package:
-    name: Package and verify Universal DMG
+    name: Package and verify Apple Silicon DMG
     needs: build
     runs-on: macos-15
     timeout-minutes: 30
@@ -77,10 +69,6 @@ jobs:
         with:
           name: macos-bin-aarch64-apple-darwin
           path: target/aarch64-apple-darwin/release
-      - uses: actions/download-artifact@v4
-        with:
-          name: macos-bin-x86_64-apple-darwin
-          path: target/x86_64-apple-darwin/release
       - name: Import release signing credentials
         if: inputs.require-signing
         env:
