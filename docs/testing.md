@@ -178,3 +178,24 @@ and FIFO tests are gated individually so shared viewer tests remain portable.
 Git attributes preserve LF source/snapshot inputs on Windows; the deliberate
 CRLF fixture is exempt so newline handling remains tested without changing
 expected snapshots.
+
+Windows runs the full headless workspace suite and clippy, builds an optimized
+DirectX executable and smoke-tests the actual installer (install, upgrade,
+installed help, uninstall). `tests/windows_cli.rs` tests binary handoff to a
+real named pipe; transport tests cover malformed frames and UTF-16 paths.
+Windows API crates are target-specific and already present in GPUI's tree;
+the Linux runtime dependency snapshot is unchanged.
+
+Native Windows CI caught a remaining Unix byte-path title assertion; it is
+Unix-only while shared title tests still run on every platform. Windows local
+file opening uses native shell paths to avoid URL conversion for non-Unicode
+filenames.
+
+Named-pipe clients wait for delivery acknowledgement, covering connections
+that arrive before the server begins accepting. Headless viewer fixtures use
+normalized paths like production startup. Modification-time tests respect
+Windows' 100 ns SystemTime precision while retaining 1 ns checks on Unix.
+
+The documentation checker represents repository paths with `/` on every OS,
+so Rust filename/suffix checks match Markdown references on Windows too. Its
+regression test still distinguishes existing source paths from missing ones.

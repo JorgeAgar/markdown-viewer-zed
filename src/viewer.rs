@@ -596,7 +596,10 @@ mod tests {
             cwd.join("no-such-dir-mdview/x.md")
         );
         // An existing relative path is canonicalized too.
-        assert_eq!(normalize(Path::new("Cargo.toml")), cwd.join("Cargo.toml"));
+        assert_eq!(
+            normalize(Path::new("Cargo.toml")),
+            std::fs::canonicalize(cwd.join("Cargo.toml")).unwrap()
+        );
         // Non-UTF-8 names survive.
         #[cfg(unix)]
         {
@@ -608,7 +611,7 @@ mod tests {
     #[test]
     fn reload_detection() {
         let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
-        let t1 = t0 + Duration::from_nanos(1);
+        let t1 = t0 + Duration::from_nanos(if cfg!(windows) { 100 } else { 1 });
         assert!(!needs_reload(Some(t0), Some(t0)), "unchanged");
         assert!(needs_reload(Some(t0), Some(t1)), "modified");
         assert!(needs_reload(Some(t1), Some(t0)), "older (restored backup)");
@@ -623,6 +626,7 @@ mod tests {
         assert_eq!(tab_title(Path::new("/a/b/")), "b");
         assert_eq!(tab_title(Path::new("/")), "/");
         assert_eq!(tab_title(Path::new("/a/..")), "/a/..");
+        #[cfg(unix)]
         assert_eq!(
             tab_title(Path::new(OsStr::from_bytes(b"/x/caf\xe9.md"))),
             "caf\u{FFFD}.md"

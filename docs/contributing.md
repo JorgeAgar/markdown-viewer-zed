@@ -17,9 +17,13 @@ You need:
 - **A desktop file portal** (`xdg-desktop-portal` plus a backend such as
   `-gtk` or `-gnome`). The `Ctrl+O` file picker needs it.
 
-mdview only runs on Linux today. GPUI itself also supports macOS and Windows,
-but mdview's single-instance socket is Unix-only and it hasn't been tested
-there.
+Windows builds need the MSVC Rust toolchain, Visual Studio C++ build tools and
+the Windows SDK (including `fxc.exe`, used to compile GPUI shaders at build time).
+Build with `cargo build --locked --release`. Run `cargo test --locked --workspace
+--profile ci` and clippy natively; Linux retains the dependency/size guards.
+Inno Setup 6 builds the installer from `packaging/windows/mdview.iss`.
+Native CI exercises installation, upgrade and uninstallation. Actual GPU/UI
+and startup validation still requires a Windows desktop.
 
 ## Build, run, test
 

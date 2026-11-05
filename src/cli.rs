@@ -49,6 +49,7 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Command {
 /// Where the single-instance socket lives: `$XDG_RUNTIME_DIR/mdview.sock`,
 /// else `$TMPDIR/mdview-$USER.sock`. The fallback is only computed when
 /// needed.
+#[cfg(any(unix, test))]
 pub fn socket_path_in(
     runtime_dir: Option<OsString>,
     fallback: impl FnOnce() -> (PathBuf, String),
@@ -67,6 +68,7 @@ pub fn socket_path_in(
 ///
 /// The format is text, so it can't carry every path: non-UTF-8 bytes become
 /// U+FFFD, and a path containing `\n` is split in two.
+#[cfg(any(unix, test))]
 pub fn encode_paths(paths: &[PathBuf]) -> String {
     let msg: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
     msg.join("\n")
@@ -74,6 +76,7 @@ pub fn encode_paths(paths: &[PathBuf]) -> String {
 
 /// Reads a message written by [`encode_paths`]. Empty lines are skipped, and
 /// so is a `\r` right before a `\n`.
+#[cfg(any(unix, test))]
 pub fn decode_paths(msg: &str) -> Vec<PathBuf> {
     msg.lines()
         .filter(|l| !l.is_empty())

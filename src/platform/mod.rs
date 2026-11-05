@@ -2,3 +2,7 @@
 #[cfg(unix)]
 #[path = "unix.rs"]
 pub mod ipc;
+
+#[cfg(windows)]
+#[path = "windows.rs"]
+pub mod ipc;

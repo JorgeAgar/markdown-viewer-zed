@@ -1,6 +1,6 @@
 # Releases
 
-Releases are Linux x86_64 tarballs. Windows support is planned separately.
+Releases include Linux x86_64 tarballs and Windows x64 installers.
 The binary uses the existing release profile: full LTO, one codegen unit,
 and stripped symbols. Packaging adds no startup work.
 
@@ -59,8 +59,29 @@ flowchart LR
     tested["Test and merge commit"] --> tag["Push version tag"]
     tag --> version["Verify package version"]
     version --> tests["Full headless tests and checks"]
-    tests --> build["Build Linux release binary"]
+    tests --> build["Build native Linux / Windows binaries"]
     build --> package["Package and smoke test tarball"]
     package --> collect["Collect verified platform artifacts + checksums"]
     collect --> publish["Publish GitHub Release once"]
+```
+
+## Windows
+
+Run the Windows x64 `setup.exe` asset. It installs for the current user without
+administrator privileges, creates a Start menu entry and supports uninstall
+through Windows Settings. Optional tasks add a desktop shortcut and Open with
+registration for Markdown extensions; they do not replace the default viewer.
+The application uses Direct3D 11 and requires Windows 10 version 1809 or newer
+and a compatible graphics driver. Native GPU testing on the minimum OS remains
+required before claiming that minimum as verified.
+
+The installer is currently unsigned; Windows may show an unknown-publisher or
+SmartScreen prompt. Authenticode credentials are needed to sign production
+Windows releases. Install/upgrade/uninstall and installed `--help` are smoke
+tested in native CI. This does not replace interactive GPU testing.
+
+Local packaging (PowerShell, after building):
+
+```powershell
+& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" /DAppVersion=0.1.0 "/DSourceDir=$PWD/target/release" packaging/windows/mdview.iss
 ```

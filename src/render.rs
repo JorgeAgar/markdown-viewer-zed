@@ -12,11 +12,14 @@ use gpui::{
 use crate::{
     graphics::{self, Kind},
     highlight::{Highlight, Tok},
-    links::{LinkTarget, classify_link, file_url, percent_decode},
+    links::{LinkTarget, classify_link, percent_decode},
     markdown::{Align, BOLD, Block, CODE, ITALIC, Image, LINK, RichText, STRIKE},
     theme::Theme,
     viewer::Viewer,
 };
+
+#[cfg(unix)]
+use crate::links::file_url;
 
 pub const CONTENT_MAX_WIDTH: f32 = 880.;
 pub const BASE_SIZE: f32 = 16.;
@@ -476,7 +479,12 @@ pub(crate) fn open_link(
                 })
                 .ok();
         }
-        LinkTarget::File(path) => cx.open_url(&file_url(&path)),
+        LinkTarget::File(path) => {
+            #[cfg(windows)]
+            crate::platform::ipc::open_file(&path);
+            #[cfg(unix)]
+            cx.open_url(&file_url(&path));
+        }
     }
 }
 

@@ -6,7 +6,7 @@
 .
 ├── src/
 │   ├── main.rs        Entry point: IPC handoff, key bindings, font choice, window creation
-│   ├── platform/      OS integration; unix.rs owns the Unix single-instance socket
+│   ├── platform/      OS integration; unix.rs owns Unix sockets, windows.rs owns named pipes
 │   ├── cli.rs         Argument parsing, help text, socket path and message format (GUI-free)
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
@@ -49,7 +49,7 @@ flowchart TD
     gpui[("crates/gpui<br/>GPUI (vendored)")]
     cmark[("pulldown-cmark")]
 
-    ipc["platform/unix.rs<br/>single-instance transport"]
+    ipc["platform IPC<br/>Unix sockets / Windows named pipes"]
     main --> ipc
     ipc --> cli
     main --> cli
@@ -257,3 +257,25 @@ case-insensitively (`links::heading_index`). Only top-level headings can be
 anchor targets. The path and the anchor are percent-decoded separately, so
 `a%23b.md` is a file named `a#b.md`. Only `://` and `mailto:` count as
 external; a query string (`b.md?x=1`) stays part of the file name.
+
+## Windows integration
+
+Windows uses GPUI's Direct3D 11 renderer and DirectWrite text. Single-instance
+handoff uses a local named pipe scoped by the current token's SID, with an ACL
+allowing only that user and rejecting remote clients. The client grants the
+server permission to activate its window. Messages are length-prefixed UTF-16
+paths (bounded to 16 MiB), preserving Unicode and unpaired surrogate units.
+The client waits for a server acknowledgement before closing the pipe, so
+requests arriving during first-window startup cannot disconnect too early.
+`--new` skips IPC. Pipe handles are released by the OS at exit.
+
+Unix file URLs use the existing URL library to percent-encode names. Windows
+opens non-Markdown local files through ShellExecute with native UTF-16 paths,
+preserving drive, UNC and verbatim paths without URL conversion. Segoe UI and Consolas are font fallbacks;
+font environment overrides remain available. The optimized Windows executable
+uses the GUI subsystem so opening files does not create a console window.
+
+Windows initial client dimensions are capped to the display with room for the
+native frame and taskbar, preserving the preferred 920×1040 size on larger
+monitors and the 320×240 minimum. This avoids centering an oversized window
+with an inaccessible title bar on small desktops.

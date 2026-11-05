@@ -1,0 +1,45 @@
+name: Windows build and installer
+on:
+  workflow_call:
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x86_64
+          cache-on-failure: true
+      - name: Full headless workspace tests
+        run: cargo test --locked --workspace --profile ci
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings
+      - name: Build optimized DirectX application
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - name: Package installer
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
+          $version = ($metadata.packages | Where-Object name -eq 'mdview').version
+          $source = Join-Path $env:GITHUB_WORKSPACE 'target/x86_64-pc-windows-msvc/release'
+          & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" "/DAppVersion=$version" "/DSourceDir=$source" packaging/windows/mdview.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+      - name: Test install, upgrade, help and uninstall
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem packaging/windows/dist/*-setup.exe).FullName
+          ./packaging/windows/smoke.ps1 -Installer $installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: packaging/windows/dist/*-setup.exe
+          if-no-files-found: error

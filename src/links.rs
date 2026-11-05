@@ -57,6 +57,7 @@ pub fn is_markdown(path: &Path) -> bool {
 }
 
 /// Percent-encoded URL for an absolute local file, including Windows drive/UNC paths.
+#[cfg(any(unix, test))]
 pub fn file_url(path: &Path) -> String {
     reqwest::Url::from_file_path(path)
         .expect("local link paths are absolute")
@@ -212,6 +213,38 @@ mod tests {
             "file:///a%20b/c%23d.png"
         );
         assert_eq!(file_url(Path::new("/a%20b?.png")), "file:///a%2520b%3F.png");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_and_urls() {
+        let base = Path::new(r"C:\docs");
+        assert_eq!(
+            classify_link(base, r"D:\other\a.md#intro"),
+            Markdown {
+                path: PathBuf::from(r"D:\other\a.md"),
+                anchor: Some("intro".into())
+            }
+        );
+        assert_eq!(
+            classify_link(base, r"\\server\share\a.md"),
+            Markdown {
+                path: PathBuf::from(r"\\server\share\a.md"),
+                anchor: None
+            }
+        );
+        assert_eq!(
+            file_url(Path::new(r"C:\a b\c#d.png")),
+            "file:///C:/a%20b/c%23d.png"
+        );
+        assert_eq!(
+            file_url(Path::new(r"\\server\share\a b.png")),
+            "file://server/share/a%20b.png"
+        );
+        assert_eq!(
+            file_url(Path::new(r"\\?\C:\a b.png")),
+            "file:///C:/a%20b.png"
+        );
     }
 
     #[test]
