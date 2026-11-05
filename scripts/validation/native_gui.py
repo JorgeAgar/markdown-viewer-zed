@@ -18,6 +18,18 @@ def checked(command, **kwargs):
     return subprocess.run(command, check=True, timeout=60, **kwargs)
 
 
+def notify_windows_theme_change():
+    import ctypes
+    send = ctypes.windll.user32.SendMessageTimeoutW
+    send.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_void_p,
+                     ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_size_t)]
+    send.restype = ctypes.c_void_p
+    result = ctypes.c_size_t()
+    setting = ctypes.c_wchar_p("ImmersiveColorSet")
+    if not send(0xFFFF, 0x001A, 0, ctypes.cast(setting, ctypes.c_void_p), 2, 5000, ctypes.byref(result)):
+        raise ctypes.WinError()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("binary", type=Path)
@@ -61,8 +73,8 @@ def main():
     # to complete before capturing the actual desktop for visual inspection.
     prior_theme = None
     if sys.platform == "darwin":
-        prior = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True)
-        prior_theme = prior.stdout.strip() if prior.returncode == 0 else None
+        prior = checked(["osascript", "-e", 'tell application "System Events" to get dark mode of appearance preferences'], capture_output=True, text=True)
+        prior_theme = prior.stdout.strip()
     elif sys.platform == "win32":
         import winreg
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
@@ -74,14 +86,12 @@ def main():
         for dark in [False, True]:
             theme = "dark" if dark else "light"
             if sys.platform == "darwin":
-                if dark:
-                    checked(["defaults", "write", "-g", "AppleInterfaceStyle", "-string", "Dark"])
-                else:
-                    subprocess.run(["defaults", "delete", "-g", "AppleInterfaceStyle"], capture_output=True)
+                checked(["osascript", "-e", 'tell application "System Events" to set dark mode of appearance preferences to ' + str(dark).lower()])
             elif sys.platform == "win32":
                 import winreg
                 with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
                     winreg.SetValueEx(key, "AppsUseLightTheme", 0, winreg.REG_DWORD, int(not dark))
+                notify_windows_theme_change()
             else:
                 raise RuntimeError("this script requires a native Windows or macOS desktop")
             with (output / f"{theme}-gui.log").open("w") as log:
@@ -103,16 +113,14 @@ def main():
                     process.wait(timeout=15)
     finally:
         if sys.platform == "darwin":
-            if prior_theme is None:
-                subprocess.run(["defaults", "delete", "-g", "AppleInterfaceStyle"], capture_output=True)
-            else:
-                checked(["defaults", "write", "-g", "AppleInterfaceStyle", "-string", prior_theme])
+            checked(["osascript", "-e", 'tell application "System Events" to set dark mode of appearance preferences to ' + prior_theme])
         elif sys.platform == "win32":
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
                 if prior_theme is None:
                     winreg.DeleteValue(key, "AppsUseLightTheme")
                 else:
                     winreg.SetValueEx(key, "AppsUseLightTheme", 0, prior_theme[1], prior_theme[0])
+            notify_windows_theme_change()
         (output / "report.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
 
