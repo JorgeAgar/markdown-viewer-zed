@@ -50,7 +50,7 @@ flowchart TD
     cmark[("pulldown-cmark")]
 
     ipc["platform IPC<br/>Unix sockets / Windows named pipes"]
-    mac["platform/mac.rs<br/>Finder/Dock events and menus"]
+    mac["platform/mac.rs<br/>Finder/Dock event hooks and menus"]
     main --> mac
     main --> ipc
     ipc --> cli
@@ -285,7 +285,10 @@ runs, queueing them on the same foreground channel as IPC. File URLs are
 decoded with the existing URL library. Event delivery reuses the current
 window; if it was closed, it creates the same Viewer again. Closing the last
 window keeps the macOS app running; Quit exits and cleans up its Unix socket.
-Command shortcuts and native menus supplement the shared Control bindings.
+Event-registration hooks delegate to GPUI and let headless tests
+exercise event delivery. Shared `viewer_window_options` preserves the native
+window contract across initial opens and reopens. Command shortcuts and native
+menus supplement the shared Control bindings.
 Helvetica Neue and Menlo are available as native font fallbacks.
 
 ```mermaid

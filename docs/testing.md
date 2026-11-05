@@ -164,8 +164,9 @@ target is under 10 minutes even with an empty cache, so CI builds with the
 job, and runs two jobs in parallel:
 
 - **test:** `scripts/check.sh --profile ci --no-clippy` (fmt, guards, every
-  headless test). Real window tests are local only, via
-  `scripts/check.sh --e2e`; CI does not install Xvfb or software Vulkan.
+  headless test). Linux real-window tests run locally via
+  `scripts/check.sh --e2e`. Native Windows/macOS jobs also attempt actual GPU
+  presentation and capture desktop evidence; no software Vulkan is installed.
 - **clippy:** `cargo clippy --workspace --all-targets -D warnings`.
 
 To reproduce a CI failure locally: `scripts/check.sh --profile ci`.
@@ -207,3 +208,20 @@ empty client has already disconnected.
 The documentation checker represents repository paths with `/` on every OS,
 so Rust filename/suffix checks match Markdown references on Windows too. Its
 regression test still distinguishes existing source paths from missing ones.
+
+## Native validation evidence
+
+`scripts/validation/native_gui.py BINARY` requires a Windows or macOS desktop.
+It launches the optimized app five times through the existing first-frame
+trace, checks real instance handoff, and captures light/dark desktop evidence.
+CI uploads logs, timings and screenshots as `native-gui-*` artifacts even when
+the GUI check fails. A runner without usable graphics or screen access fails
+validation; that is not treated as a successful or skipped desktop test.
+Screenshots need visual inspection before claiming rendering quality.
+
+Headless window-contract tests guard native chrome, window placement, desktop
+grouping, minimum usable dimensions and explicit opaque startup decorations.
+Event-registration hooks exercise the same Finder/Dock registration and
+delivery closures as production without requiring an OS event loop. These
+checks complement real native events; they do not claim to test LaunchServices
+or the GPU themselves.

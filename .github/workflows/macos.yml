@@ -52,6 +52,14 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings
       - name: Build optimized Metal application
         run: cargo build --locked --release --target '${{ matrix.target }}'
+      - name: Native GUI presentation, startup and theme evidence
+        run: python3 scripts/validation/native_gui.py target/${{ matrix.target }}/release/mdview
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-gui-${{ matrix.target }}
+          path: target/native-validation/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: macos-bin-${{ matrix.target }}

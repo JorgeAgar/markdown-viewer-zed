@@ -122,3 +122,6 @@ Platform integration is isolated under `src/platform/`; Markdown parsing and
 rendering stay shared. Windows uses DirectX and a per-user named pipe; Linux
 uses Vulkan and a Unix socket. macOS uses Metal, Unix IPC and native
 Finder/Dock events. Releases collect verified artifacts before publishing once.
+
+Native CI attempts actual Windows/macOS GPU presentation and records startup
+timings and light/dark screenshots; see [validation evidence](docs/testing.md#native-validation-evidence).

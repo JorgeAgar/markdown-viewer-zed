@@ -7,21 +7,23 @@ pub fn finder_paths(urls: Vec<String>) -> Vec<PathBuf> {
         .collect()
 }
 
-#[cfg(target_os = "macos")]
+// Registration hooks keep the OS API calls at the entry point while allowing
+// headless tests to exercise these exact delivery closures.
 pub fn configure(
-    app: &gpui::Application,
+    register_urls: impl FnOnce(Box<dyn FnMut(Vec<String>)>),
+    register_reopen: impl FnOnce(Box<dyn FnMut()>),
     tx: futures::channel::mpsc::UnboundedSender<Vec<PathBuf>>,
 ) {
     let reopen = tx.clone();
-    app.on_open_urls(move |urls| {
+    register_urls(Box::new(move |urls| {
         let paths = finder_paths(urls);
         if !paths.is_empty() {
             let _ = tx.unbounded_send(paths);
         }
-    });
-    app.on_reopen(move |_| {
+    }));
+    register_reopen(Box::new(move || {
         let _ = reopen.unbounded_send(Vec::new());
-    });
+    }));
 }
 
 #[cfg(target_os = "macos")]
@@ -66,6 +68,28 @@ pub fn install_menus(cx: &mut gpui::App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn registered_events_deliver_files_and_dock_reopens() {
+        let mut urls = None;
+        let mut reopen = None;
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        configure(
+            |callback| urls = Some(callback),
+            |callback| reopen = Some(callback),
+            tx,
+        );
+        let mut urls = urls.expect("Finder handler registered");
+        urls(vec!["file:///tmp/a%20b.md".into()]);
+        assert_eq!(rx.try_recv().unwrap(), vec![PathBuf::from("/tmp/a b.md")]);
+        urls(vec!["https://example.com".into()]);
+        assert!(
+            rx.try_recv().is_err(),
+            "non-file events must not open empty windows"
+        );
+        reopen.expect("Dock handler registered")();
+        assert!(rx.try_recv().unwrap().is_empty());
+    }
+
     #[test]
     fn finder_decodes_files_and_ignores_other_urls() {
         assert_eq!(

@@ -65,7 +65,15 @@ fn main() {
     let (tx, mut rx) = mpsc::unbounded::<Vec<PathBuf>>();
     let app = Application::new().with_http_client(std::sync::Arc::new(http::ImageHttpClient));
     #[cfg(target_os = "macos")]
-    platform::mac::configure(&app, tx.clone());
+    platform::mac::configure(
+        |callback| {
+            app.on_open_urls(callback);
+        },
+        |mut callback| {
+            app.on_reopen(move |_| callback());
+        },
+        tx.clone(),
+    );
     app.run(move |cx: &mut App| {
         #[cfg(target_os = "macos")]
         platform::mac::install_menus(cx);
@@ -146,21 +154,26 @@ fn deliver_paths(window: &mut WindowHandle<Viewer>, paths: Vec<PathBuf>, cx: &mu
 fn open_viewer(loaded: Vec<viewer::Loaded>, cx: &mut App) -> WindowHandle<Viewer> {
     let fonts = pick_fonts(cx);
     let bounds = Bounds::centered(None, size(px(920.), px(1040.)), cx);
-    cx.open_window(
-        WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions {
-                title: Some("mdview".into()),
-                ..Default::default()
-            }),
-            app_id: Some("mdview".into()),
-            window_decorations: Some(WindowDecorations::Server),
-            window_min_size: Some(size(px(320.), px(240.))),
-            ..Default::default()
-        },
-        |window, cx| cx.new(|cx| Viewer::new(loaded, fonts, window, cx)),
-    )
+    cx.open_window(viewer_window_options(bounds), |window, cx| {
+        cx.new(|cx| Viewer::new(loaded, fonts, window, cx))
+    })
     .expect("failed to open window")
+}
+
+/// Shared native-window contract: initial opens and Dock reopens must retain
+/// native chrome, desktop grouping, minimum size and the opaque startup path.
+fn viewer_window_options(bounds: Bounds<gpui::Pixels>) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        titlebar: Some(TitlebarOptions {
+            title: Some("mdview".into()),
+            ..Default::default()
+        }),
+        app_id: Some("mdview".into()),
+        window_decorations: Some(WindowDecorations::Server),
+        window_min_size: Some(size(px(320.), px(240.))),
+        ..Default::default()
+    }
 }
 
 /// Pick the first installed font from a short preference list (overridable via
@@ -207,5 +220,46 @@ fn pick_fonts(cx: &App) -> Fonts {
                 "Monaco",
             ],
         ),
+    }
+}
+
+#[cfg(test)]
+mod window_contract_tests {
+    use super::*;
+    #[test]
+    fn native_window_contract_survives_initialization_and_reopening() {
+        let bounds = Bounds::new(gpui::point(px(10.), px(20.)), size(px(920.), px(1040.)));
+        let options = viewer_window_options(bounds);
+        assert!(
+            matches!(options.window_bounds, Some(WindowBounds::Windowed(b)) if b == bounds),
+            "preserve caller's placement when opening/reopening"
+        );
+        let titlebar = options
+            .titlebar
+            .expect("native window controls must remain present");
+        assert_eq!(
+            titlebar.title.as_ref().map(|title| title.to_string()),
+            Some("mdview".to_string()),
+            "identify the window before document rendering"
+        );
+        assert_eq!(
+            options.app_id.as_deref(),
+            Some("mdview"),
+            "desktop grouping must remain stable"
+        );
+        assert_eq!(
+            options.window_min_size,
+            Some(size(px(320.), px(240.))),
+            "prevent unusably small viewer windows"
+        );
+        assert!(
+            matches!(options.window_decorations, Some(WindowDecorations::Server)),
+            "opaque startup optimization needs explicit server decorations"
+        );
+        assert!(matches!(
+            options.window_background,
+            gpui::WindowBackgroundAppearance::Opaque
+        ));
+        assert!(options.show && options.focus && options.is_resizable);
     }
 }
