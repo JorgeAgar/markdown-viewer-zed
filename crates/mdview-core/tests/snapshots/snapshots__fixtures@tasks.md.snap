@@ -1,0 +1,60 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/tasks.md
+---
+list bullet
+  item [x]
+    paragraph
+      "done"
+  item [ ]
+    paragraph
+      "todo"
+  item [x]
+    paragraph
+      "capital X"
+  item
+    paragraph
+      "plain item"
+  item
+    paragraph
+      "[ ]not a task (no space)"
+  item
+    paragraph
+      "[y] not a task"
+list ordered start=1
+  item [x]
+    paragraph
+      "ordered task"
+  item [ ]
+    paragraph
+      "another"
+list bullet
+  item [ ]
+    paragraph
+      "loose task"
+  item [x]
+    paragraph
+      "loose done"
+    paragraph
+      "with a second paragraph"
+  item [ ]
+    paragraph
+      "parent"
+    list bullet
+      item [x]
+        paragraph
+          "nested child"
+      item [ ]
+        paragraph
+          "other child"
+quote
+  list bullet
+    item [x]
+      paragraph
+        "task in a quote"
+list bullet
+  item [x]
+    paragraph
+      "⟦B|bold⟧ task with ⟦L0|link⟧"
+      link 0: u

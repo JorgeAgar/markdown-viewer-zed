@@ -5,9 +5,16 @@ edition = "2024"
 description = "A tiny, fast-starting, GPU-rendered Markdown viewer built on GPUI (Zed's UI framework)"
 license = "Apache-2.0"
 
+[workspace]
+members = [".", "crates/mdview-core"]
+# The vendored GPUI is a patch, not part of mdview's own code: keep it out of
+# workspace-wide fmt, clippy and tests. fuzz/ needs libFuzzer and its own
+# build flags (see fuzz/README.md).
+exclude = ["crates/gpui", "fuzz"]
+
 [dependencies]
+mdview-core = { path = "crates/mdview-core" }
 gpui = "0.2.2"
-pulldown-cmark = { version = "0.13", default-features = false }
 futures = "0.3"
 # Display math: RaTeX (a Rust port of KaTeX), with the KaTeX fonts embedded.
 ratex-parser = "0.1.15"
@@ -24,6 +31,15 @@ resvg = { version = "0.45", default-features = false, features = ["text", "syste
 image = { version = "0.25", default-features = false }
 ttf-parser = "0.25"
 
+[dev-dependencies]
+# Golden images for display math (src/graphics/tests.rs). Already compiled
+# in through GPUI, with these features; listed so the tests don't rely on it.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Headless GPUI (TestAppContext, test platform) for the Viewer tests in
+# src/viewer/app_tests.rs. Dev-dependency features aren't unified into
+# `cargo build --release` (resolver 3), so none of it reaches the binary.
+gpui = { version = "0.2.2", features = ["test-support"] }
+
 [profile.release]
 opt-level = 3
 lto = "fat"
@@ -38,6 +54,18 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# CI (scripts/check.sh --profile ci): compile time matters more than run time,
+# since a cold build of GPUI and its dependencies on a 2-core runner dominates.
+# Unoptimized dependencies and no debug info cut the compile work about 5x
+# versus the dev profile; the whole test suite still runs in about 10 s.
+[profile.ci]
+inherits = "dev"
+debug = false
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 0
 
 # Vendored GPUI 0.2.2 with mdview's startup fixes (see crates/gpui/MDVIEW.md).
 [patch.crates-io]

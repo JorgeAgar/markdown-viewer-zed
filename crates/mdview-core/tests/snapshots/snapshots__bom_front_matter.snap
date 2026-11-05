@@ -1,0 +1,6 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "﻿---\na: 1\n---\nText"
+---
+paragraph
+  "Text"

@@ -1,0 +1,6 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "﻿# Heading after a BOM\n"
+---
+heading h1 #heading-after-a-bom
+  "Heading after a BOM"

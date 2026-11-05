@@ -1,0 +1,24 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/sql.txt
+---
+|⟦com|-- Users with orders⟧
+|⟦kw|CREATE⟧ ⟦kw|TABLE⟧ ⟦kw|IF⟧ ⟦kw|NOT⟧ ⟦kw|EXISTS⟧ users (
+|    id ⟦ty|BIGSERIAL⟧ ⟦kw|PRIMARY⟧ ⟦kw|KEY⟧,
+|    email ⟦ty|VARCHAR⟧(⟦num|255⟧) ⟦kw|NOT⟧ ⟦const|NULL⟧ ⟦kw|UNIQUE⟧,
+|    created_at ⟦ty|TIMESTAMPTZ⟧ ⟦kw|DEFAULT⟧ ⟦fn|now⟧()
+|);
+|
+|⟦com|/* Block comment */⟧
+|⟦kw|SELECT⟧ u.email, ⟦fn|COUNT⟧(o.id) ⟦kw|AS⟧ orders
+|⟦kw|FROM⟧ users u
+|⟦kw|LEFT⟧ ⟦kw|JOIN⟧ orders o ⟦kw|ON⟧ o.user_id = u.id
+|⟦kw|WHERE⟧ u.created_at > ⟦str|'2026-01-01'⟧ ⟦kw|AND⟧ o.total >= ⟦num|10.5⟧
+|⟦kw|GROUP⟧ ⟦kw|BY⟧ u.email
+|⟦kw|HAVING⟧ ⟦fn|count⟧(*) > ⟦num|1⟧
+|⟦kw|ORDER⟧ ⟦kw|BY⟧ orders ⟦kw|DESC⟧
+|⟦kw|LIMIT⟧ ⟦num|10⟧;
+|
+|⟦kw|insert⟧ ⟦kw|into⟧ t (a, b) ⟦kw|values⟧ (⟦num|1⟧, ⟦const|null⟧), (⟦num|2⟧, ⟦const|TRUE⟧);
+|

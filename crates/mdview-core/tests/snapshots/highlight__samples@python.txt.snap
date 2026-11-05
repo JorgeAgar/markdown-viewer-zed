@@ -1,0 +1,28 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/python.txt
+---
+|⟦com|#!/usr/bin/env python3⟧
+|⟦str|"""Module docstring."""⟧
+|⟦kw|from⟧ dataclasses ⟦kw|import⟧ dataclass
+|⟦kw|import⟧ os
+|
+|⟦attr|@dataclass⟧(frozen=⟦const|True⟧)
+|⟦kw|class⟧ ⟦ty|Point⟧:
+|    x: ⟦ty|float⟧ = ⟦num|0.0⟧
+|    y: ⟦ty|float⟧ = ⟦num|0.0⟧
+|
+|    ⟦kw|def⟧ ⟦fn|norm⟧(⟦const|self⟧) -> ⟦ty|float⟧:
+|        ⟦str|'''Method docstring.'''⟧
+|        ⟦kw|return⟧ (⟦const|self⟧.x ** ⟦num|2⟧ + ⟦const|self⟧.y ** ⟦num|2⟧) ** ⟦num|.5⟧  ⟦com|# comment⟧
+|
+|⟦kw|async⟧ ⟦kw|def⟧ ⟦fn|main⟧(argv: ⟦ty|list⟧[⟦ty|str⟧] | ⟦const|None⟧ = ⟦const|None⟧) -> ⟦ty|int⟧:
+|    path = os.environ.⟦fn|get⟧(⟦str|"HOME"⟧, ⟦str|'x'⟧)
+|    ⟦kw|if⟧ path ⟦kw|is⟧ ⟦const|None⟧ ⟦kw|or⟧ ⟦kw|not⟧ argv:
+|        ⟦kw|raise⟧ ⟦fn|ValueError⟧(f⟦str|"bad {path!r}"⟧)
+|    data = {⟦str|"a"⟧: ⟦num|1⟧, ⟦str|"b"⟧: [⟦const|True⟧, ⟦const|False⟧, ⟦const|None⟧]}
+|    ⟦kw|match⟧ data:
+|        ⟦kw|case⟧ {⟦str|"a"⟧: ⟦num|1⟧}: ⟦kw|print⟧(⟦fn|len⟧(data), ⟦num|0x1F⟧, ⟦num|1e-3⟧, ⟦const|CONSTANT_NAME⟧)
+|    ⟦kw|return⟧ ⟦num|0⟧
+|

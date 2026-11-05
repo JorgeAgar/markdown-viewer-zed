@@ -1,0 +1,16 @@
+import 'package:flutter/material.dart';
+
+@immutable
+class Counter extends StatelessWidget {
+  const Counter({super.key, required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = '''Count:
+$count''';
+    return Text(label, style: null);
+  }
+}
+
+Future<void> main() async => await Future.delayed(Duration(seconds: 1));

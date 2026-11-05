@@ -68,6 +68,12 @@ fn lex(s: &str) -> Vec<T> {
                     }
                     out.push(T::Cmd(name));
                 }
+                // `\` before any whitespace (a newline, a tab) is a control
+                // space, like `\ `.
+                Some(&n) if n.is_whitespace() => {
+                    it.next();
+                    out.push(T::Cmd(" ".into()));
+                }
                 Some(&n) => {
                     it.next();
                     out.push(T::Cmd(n.to_string()));
@@ -261,17 +267,18 @@ impl Parser<'_> {
             return s;
         }
         self.i += 1;
+        // Inner braces only group, as in TeX: `\text{a {b}}` is "a b".
         let mut depth = 0;
         while let Some(t) = self.next() {
             match t {
-                T::Open => {
-                    depth += 1;
-                    s.push('{');
-                }
+                T::Open => depth += 1,
                 T::Close if depth == 0 => break,
-                T::Close => {
-                    depth -= 1;
-                    s.push('}');
+                T::Close => depth -= 1,
+                // Any run of whitespace (line breaks too) is one space.
+                T::Ch(c) if c.is_whitespace() => {
+                    if !s.ends_with(' ') {
+                        s.push(' ');
+                    }
                 }
                 T::Ch(c) => s.push(c),
                 T::Cmd(c) => match symbol(&c) {
@@ -467,24 +474,28 @@ impl Parser<'_> {
                 }
             }
             "mathit" => {
-                let g = self.arg(w);
-                let len = g.s.len();
-                let base = w.s.len();
+                // The whole group is italic: replace (not add to) the ranges
+                // it already has, or they would overlap.
+                let mut g = self.arg(w);
+                g.italic.clear();
+                if !g.s.is_empty() {
+                    g.italic.push(0..g.s.len());
+                }
                 w.append(g);
-                w.italic.push(base..base + len);
             }
             "mathbb" | "Bbb" | "mathcal" | "mathscr" | "mathfrak" => {
                 let s = self.raw_arg();
                 let mapped: String = s.chars().map(|c| alphabet(name, c)).collect();
                 w.ord(&mapped, false);
             }
+            // The group's own operator spacing is replaced by the class's.
             "mathbin" => {
                 let g = self.arg(w);
-                w.sym(&g.s, Class::Bin);
+                w.sym(g.s.trim(), Class::Bin);
             }
             "mathrel" => {
                 let g = self.arg(w);
-                w.sym(&g.s, Class::Rel);
+                w.sym(g.s.trim(), Class::Rel);
             }
             "mathord" | "mathopen" | "mathclose" | "mathpunct" | "mathinner" | "underbrace"
             | "overbrace" | "boxed" | "fbox" | "smash" | "cancel" | "bcancel" | "xcancel"
@@ -548,8 +559,9 @@ impl Parser<'_> {
             j += 1;
         }
         match self.t.get(j) {
-            Some(T::Ch('(')) | Some(T::Sup) | Some(T::Sub) | None => {}
-            Some(T::Cmd(c)) if c == "left" || c == "limits" => {}
+            // Nothing follows inside this group (`{\arg\min}_x`) either.
+            Some(T::Ch('(')) | Some(T::Sup) | Some(T::Sub) | Some(T::Close) | None => {}
+            Some(T::Cmd(c)) if c == "left" || c == "right" || c == "limits" => {}
             _ => w.space("\u{2009}"),
         }
     }
@@ -1169,6 +1181,41 @@ mod tests {
     }
 
     #[test]
+    fn whitespace_in_text_is_one_space() {
+        assert_eq!(u("\\text{a\r\n b\t\tc  d}"), "a b c d");
+        assert_eq!(u("x \\text{ if\n} y"), "x if y");
+    }
+
+    #[test]
+    fn backslash_before_whitespace_is_a_space() {
+        for tex in ["a\\ b", "a\\\nb", "a\\\r\nb", "a\\\tb"] {
+            assert_eq!(u(tex), "a b", "{tex:?}");
+        }
+    }
+
+    #[test]
+    fn no_thin_space_after_a_function_that_ends_a_group() {
+        assert_eq!(u(r"\underset{x}{\arg\min} f"), "arg\u{2009}minₓf");
+        assert_eq!(u(r"{\sin}^2 x"), "sin²x");
+        assert_eq!(u(r"\left( \sin \right)"), "(sin)");
+        assert_eq!(u(r"\sin x"), "sin\u{2009}x");
+    }
+
+    #[test]
+    fn mathbin_and_mathrel_space_once() {
+        assert_eq!(u(r"a \mathrel{=} b \mathbin{+} c"), "a = b + c");
+        assert_eq!(u(r"a \mathrel{\sim} b"), "a ∼ b");
+        assert_eq!(u(r"\mathbin{\star} x"), "⋆x");
+    }
+
+    #[test]
+    fn braces_inside_text_only_group() {
+        assert_eq!(u(r"\text{a {nested} \{b\} c}"), "a nested {b} c");
+        assert_eq!(u(r"\mathbb{{R}}"), "ℝ");
+        assert_eq!(u(r"\text{a {b"), "a b");
+    }
+
+    #[test]
     fn italic_ranges_cover_variables() {
         let m = to_unicode(r"x + \sin y");
         let it: Vec<&str> = m.italic.iter().map(|r| &m.text[r.clone()]).collect();
@@ -1178,5 +1225,14 @@ mod tests {
         for r in &m.italic {
             assert!(m.text.is_char_boundary(r.start) && m.text.is_char_boundary(r.end));
         }
+    }
+
+    #[test]
+    fn mathit_italic_ranges_do_not_overlap() {
+        // `\mathit{x}` used to report `x` as italic twice ([0..1, 0..1]),
+        // which made `RichText::push_math` slice backwards and panic.
+        let m = to_unicode(r"\mathit{xy} + \mathit{\alpha 1}");
+        assert_eq!(m.text, "xy + α1");
+        assert_eq!(m.italic, [0..2, 5..8]);
     }
 }

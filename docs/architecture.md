@@ -5,14 +5,19 @@
 ```
 .
 ├── src/
-│   ├── main.rs        Entry point: arguments, single-instance socket, key bindings, font choice, window creation
+│   ├── main.rs        Entry point: single-instance socket, key bindings, font choice, window creation
+│   ├── cli.rs         Argument parsing, help text, socket path and message format (GUI-free)
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
-│   ├── markdown.rs    Markdown → block model (pulldown-cmark), plus parser tests
-│   ├── highlight.rs   Syntax highlighting for code blocks (hand-written lexers, no GPUI)
-│   ├── latex.rs       Inline math: LaTeX → Unicode text (no GPUI)
+│   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model → GPUI elements; link handling
+│   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (GUI-free)
 │   └── theme.rs       Light and dark palettes
+├── crates/mdview-core/  The GUI-free core, a separate crate so it can't depend on GPUI
+│   └── src/
+│       ├── markdown.rs    Markdown → block model (pulldown-cmark), plus parser tests
+│       ├── highlight.rs   Syntax highlighting for code blocks (hand-written lexers)
+│       └── latex.rs       Inline math: LaTeX → Unicode text
 ├── crates/gpui/       Vendored GPUI 0.2.2 with startup fixes (see gpui-fork.md)
 ├── patches/           Those fixes as a diff against upstream GPUI
 ├── examples/          Sample Markdown files for manual testing
@@ -24,26 +29,35 @@
 ```mermaid
 flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
+    cli["cli.rs<br/>parse_args(), encode/decode_paths()"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
-    markdown["markdown.rs<br/>parse() → Document"]
-    highlight["highlight.rs<br/>highlight() → Vec of Highlight"]
-    latex["latex.rs<br/>to_unicode() → MathText"]
+    tabs["tabs.rs<br/>Tabs: list + active index"]
+    subgraph core["crates/mdview-core (no GPUI)"]
+        markdown["markdown.rs<br/>parse() → Document"]
+        highlight["highlight.rs<br/>highlight() → Vec of Highlight"]
+        latex["latex.rs<br/>to_unicode() → MathText"]
+    end
     graphics["graphics.rs<br/>element() → image, async + cached"]
     ratex[("RaTeX<br/>(KaTeX port)")]
     merman[("merman<br/>(Mermaid)")]
     resvg[("resvg")]
     render["render.rs<br/>top_block() → AnyElement"]
+    links["links.rs<br/>classify_link() → LinkTarget"]
     theme["theme.rs<br/>Theme"]
     gpui[("crates/gpui<br/>GPUI (vendored)")]
     cmark[("pulldown-cmark")]
 
+    main --> cli
     main --> viewer
+    viewer --> tabs
     main --> gpui
     viewer --> markdown
     viewer --> render
     viewer --> theme
     render --> markdown
     render --> theme
+    render --> links
+    viewer --> links
     render --> gpui
     viewer --> gpui
     markdown --> cmark
@@ -59,9 +73,13 @@ flowchart TD
 
 Rules that keep this structure simple:
 
-- **`markdown.rs`, `highlight.rs` and `latex.rs` know nothing about GPUI.** It turns text into plain data
-  (`Document`). That keeps it fast, easy to unit-test and safe to run on any
-  thread.
+- **`markdown.rs`, `highlight.rs` and `latex.rs` know nothing about GPUI.**
+  They live in their own crate, `crates/mdview-core`, which doesn't depend on
+  GPUI, so the compiler enforces this. They turn text into plain data
+  (`Document`). That keeps them fast, easy to unit-test (`cargo test -p
+  mdview-core` builds and runs in seconds) and safe to run on any thread. The
+  app re-exports them at its crate root, so app code still writes
+  `crate::markdown`.
 - **`render.rs` only reads that data.** It never parses Markdown again. It's
   the only place where Markdown concepts become visual elements.
 - **`viewer.rs` owns all state**: tabs, which tab is active, scroll positions
@@ -121,8 +139,7 @@ as part of their parent's row.
 ```mermaid
 classDiagram
     class Viewer {
-        tabs: Vec~Tab~
-        active: usize
+        tabs: Tabs~Tab~
         focus: FocusHandle
         fonts: Fonts
         window_title: SharedString
@@ -134,11 +151,19 @@ classDiagram
         mtime: Option~SystemTime~
         list: ListState  scroll + measured heights
     }
-    Viewer "1" --> "*" Tab
+    class Tabs~T~ {
+        items: Vec~T~
+        active: usize
+    }
+    Viewer --> Tabs
+    Tabs "1" --> "*" Tab
 ```
 
 - Paths are canonicalized (`normalize`), so opening the same file twice just
-  switches to its tab.
+  switches to its tab (`Tabs::activate_first`).
+- Closing a tab keeps the active tab if it's still open. Closing the active
+  tab activates its right neighbor, or its left one if it was the last
+  (`Tabs::close`). Next/previous tab wrap around.
 - `Tab::replace` swaps in a newly parsed document and keeps the scroll
   position. Live reload and `Ctrl+R` both use it.
 
@@ -181,6 +206,9 @@ The socket lives at `$XDG_RUNTIME_DIR/mdview.sock`, or
 `$TMPDIR/mdview-$USER.sock` when `XDG_RUNTIME_DIR` isn't set. The protocol is
 deliberately trivial: the client writes absolute paths separated by `\n` and
 closes the connection. An empty message just raises the window.
+`cli::encode_paths` / `cli::decode_paths` implement it. Because it's text,
+it can't carry every path: non-UTF-8 bytes arrive as U+FFFD, a `\n` inside
+a path splits it, and a `\r` before a `\n` is dropped.
 
 ```mermaid
 sequenceDiagram
@@ -206,7 +234,8 @@ for benchmarks and debugging.
 
 ## Links
 
-`render::open_link` decides what clicking a link does:
+`links::classify_link` decides what clicking a link does (it returns a
+`LinkTarget`, which `render::open_link` acts on):
 
 | Link | Action |
 | --- | --- |
@@ -215,5 +244,8 @@ for benchmarks and debugging.
 | Relative or absolute `*.md` (with an optional `#anchor`) | Open in a tab (or switch to it), then scroll to the anchor |
 | Any other local file | Open with the system handler (`file://…`) |
 
-Anchor slugs follow GitHub's rules (`markdown::slugify`). Only top-level
-headings can be anchor targets.
+Anchor slugs follow GitHub's rules (`markdown::slugify`) and are matched
+case-insensitively (`links::heading_index`). Only top-level headings can be
+anchor targets. The path and the anchor are percent-decoded separately, so
+`a%23b.md` is a file named `a#b.md`. Only `://` and `mailto:` count as
+external; a query string (`b.md?x=1`) stays part of the file name.

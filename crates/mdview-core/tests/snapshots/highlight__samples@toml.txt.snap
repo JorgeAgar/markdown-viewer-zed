@@ -1,0 +1,20 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/toml.txt
+---
+|⟦ty|[package]⟧
+|⟦prop|name⟧ = ⟦str|"mdview"⟧
+|⟦prop|version⟧ = ⟦str|"0.1.0"⟧
+|⟦prop|edition⟧ = ⟦num|2024⟧
+|
+|⟦ty|[dependencies]⟧
+|⟦prop|pulldown-cmark⟧ = { version = ⟦str|"0.13"⟧, default-features = ⟦const|false⟧ }
+|⟦prop|list⟧ = [⟦num|1⟧, ⟦num|2.5⟧, ⟦num|-3⟧, ⟦num|+4⟧, ⟦num|0x1F⟧, ⟦num|1_000⟧]
+|⟦prop|dotted.key⟧ = ⟦const|true⟧
+|⟦prop|"quoted key"⟧ = ⟦str|'literal'⟧
+|
+|⟦ty|[[bin]]⟧
+|⟦prop|path⟧ = ⟦str|"src/main.rs"⟧ ⟦com|# comment⟧
+|⟦prop|date⟧ = ⟦num|2026-11-04T12:00:00Z⟧
+|

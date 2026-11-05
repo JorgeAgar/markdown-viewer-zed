@@ -1,0 +1,19 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/diff.txt
+---
+|⟦meta|diff --git a/src/main.rs b/src/main.rs⟧
+|⟦meta|index 3b18e51..a9c7f2d 100644⟧
+|⟦meta|--- a/src/main.rs⟧
+|⟦meta|+++ b/src/main.rs⟧
+|⟦meta|@@ -1,4 +1,5 @@⟧
+| fn main() {
+|⟦del|-    println!("old");⟧
+|⟦ins|+    println!("new");⟧
+|⟦ins|+    // added⟧
+| }
+|⟦del|< legacy removed⟧
+|⟦ins|> legacy added⟧
+|\ No newline at end of file
+|

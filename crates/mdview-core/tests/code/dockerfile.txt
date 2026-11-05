@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1
+FROM rust:1.90 AS build
+WORKDIR /src
+ARG FEATURES=""
+ENV CARGO_TERM_COLOR=always PATH=$PATH:/opt/bin
+COPY . .
+RUN cargo build --release --features "${FEATURES}" \
+    && strip target/release/mdview
+
+FROM debian:stable-slim
+COPY --from=build /src/target/release/mdview /usr/local/bin/
+EXPOSE 8080
+USER nobody
+ENTRYPOINT ["mdview"]
+CMD ["--help"]

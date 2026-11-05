@@ -1,0 +1,37 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/unicode.md
+---
+heading h1 #日本語の見出し
+  "日本語の見出し"
+paragraph
+  "中文段落，带有⟦B|粗体⟧和⟦I|斜体⟧。한국어 텍스트."
+heading h2 #مرحبا-بالعالم
+  "مرحبا بالعالم"
+paragraph
+  "שלום ⟦B|עולם⟧ and mixed العربية English."
+paragraph
+  "Emoji: 👍🏽 👩⟨U+200D⟩👩⟨U+200D⟩👧⟨U+200D⟩👦 🇫🇷 ❤⟨U+FE0F⟩ ⟦I|🎉 italic emoji⟧"
+paragraph
+  "Combining: e⟨U+0301⟩ vs é, ǹ, a⟨U+0310⟩ — ⟦B|é⟧ and ⟦I|é⟧"
+paragraph
+  "Zero-width: a⟨U+200B⟩b (ZWSP), soft⟨U+00AD⟩hyphen, RTL⟨U+202E⟩override⟨U+202C⟩ mark, word⟨U+2060⟩joiner, BOM⟨U+FEFF⟩in text."
+paragraph
+  "Full-width： ＡＢＣ⟨U+3000⟩１２３"
+heading h2 #ğüzel-çağrı-ölçü
+  "Ğüzel Çağrı Ölçü"
+heading h2 #cafe-decomposed
+  "Cafe⟨U+0301⟩ decomposed"
+heading h2 #zerowidth-in-heading
+  "Zero⟨U+200B⟩width in heading"
+paragraph
+  "⟦L0|リンク⟧ and ⟦C|コード⟧."
+  link 0: 日本.md
+table aligns=[none, none]
+  header
+    "列"
+    "値"
+  row 0
+    "😀"
+    "✓"

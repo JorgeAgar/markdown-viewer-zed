@@ -1,0 +1,932 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+---
+== diff
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|⟦del|--[[ lua ]] x⟧
+|⟦del|<!-- html --> x⟧
+|// line
+|# hash
+|⟦del|-- dash⟧
+|; semi
+|"dq" x
+|'sq' x
+|`bt` x
+|"""tdq
+|""" x
+|'''tsq''' x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|#include <x>
+|  #define X
+|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>
+|true false null nil None NULL nullptr undefined NaN Infinity this self Self super cls it iota
+|True False Nothing Just TRUE FALSE Some Ok Err
+|fn f def g func h function i fun j defp k class C
+|Foo FOO_BAR X1 fooBar(1) x
+|0x1F 1.5e-3 .5 1_000 10n 1e+5 0..10 x.5
+|SELECT Select select from Where int VARCHAR
+|a { color: red; -webkit-x: 1; } #fff .b:hover x
+|{"key": "value", "n": 1}
+|if else for while return import let const var
+|int char void bool string number String u8 i32 float str
+|
+== sh
+|⟦fn|/*⟧ block */ x
+|(⟦fn|*⟧ ml *) x
+|{⟦fn|-⟧ hs ⟦attr|-}⟧ x
+|⟦fn|--[[⟧ lua ]] x
+|⟦fn|<!--⟧ html ⟦attr|-->⟧ x
+|⟦fn|//⟧ line
+|⟦com|# hash⟧
+|⟦fn|--⟧ dash
+|; ⟦fn|semi⟧
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`⟦fn|bt⟧` ⟦fn|x⟧
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|⟦fn|@attr⟧ @a.b-c x
+|⟦var|$var⟧ ⟦var|${braced}⟧ ⟦var|$(paren)⟧ ⟦var|$⟧
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|⟦fn|true⟧ false null nil None NULL nullptr undefined NaN Infinity this self Self super cls it iota
+|⟦fn|True⟧ False Nothing Just TRUE FALSE Some Ok Err
+|⟦fn|fn⟧ f def g func h ⟦kw|function⟧ ⟦fn|i⟧ fun j defp k class C
+|⟦fn|Foo⟧ FOO_BAR X1 fooBar(⟦fn|1⟧) x
+|⟦fn|0x1F⟧ 1.5e-3 .5 1_000 10n 1e+5 0..10 x.5
+|⟦fn|SELECT⟧ Select ⟦kw|select⟧ ⟦fn|from⟧ Where int VARCHAR
+|⟦fn|a⟧ { ⟦fn|color:⟧ red; ⟦fn|-webkit-x:⟧ ⟦num|1⟧; ⟦fn|}⟧ ⟦com|#fff .b:hover x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: 1}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦fn|import⟧ let const var
+|⟦fn|int⟧ char void bool string number String u8 i32 float str
+|
+== html
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|⟦com|<!-- html -->⟧ x
+|// line
+|# hash
+|-- dash
+|; semi
+|"dq" x
+|'sq' x
+|`bt` x
+|"""tdq
+|""" x
+|'''tsq''' x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|#include <⟦tag|x⟧>
+|  #define X
+|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<⟦tag|u8⟧>
+|true false null nil None NULL nullptr undefined NaN Infinity this self Self super cls it iota
+|True False Nothing Just TRUE FALSE Some Ok Err
+|fn f def g func h function i fun j defp k class C
+|Foo FOO_BAR X1 fooBar(1) x
+|0x1F 1.5e-3 .5 1_000 10n 1e+5 0..10 x.5
+|SELECT Select select from Where int VARCHAR
+|a { color: red; -webkit-x: 1; } #fff .b:hover x
+|{"key": "value", "n": 1}
+|if else for while return import let const var
+|int char void bool string number String u8 i32 float str
+|
+== yaml
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|// line
+|⟦com|# hash⟧
+|-- dash
+|⟦com|; semi⟧
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil None NULL nullptr undefined NaN Infinity this self Self super cls it iota
+|⟦const|True⟧ ⟦const|False⟧ Nothing Just TRUE FALSE Some Ok Err
+|fn f def g func h function i fun j defp k class C
+|Foo FOO_BAR X1 fooBar(1) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ .5 ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0..10⟧ x.5
+|SELECT Select select from Where int VARCHAR
+|a { color: red; -webkit-x: 1; } ⟦com|#fff .b:hover x⟧
+|⟦prop|{"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|if else for while return import let const var
+|int char void bool string number String u8 i32 float str
+|
+== rust
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦attr|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|''⟧⟦attr|'tsq⟧⟦str|''⟧⟦attr|'⟧ x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|⟦attr|#[attr]⟧ ⟦attr|#![inner]⟧ ⟦str|r"raw"⟧ ⟦str|r#"h"#⟧ ⟦str|br"b"⟧ ⟦attr|'a⟧ ⟦str|'c'⟧ ⟦str|'\n'⟧ ⟦attr|name!⟧() a != b ⟦fn|Vec⟧::<⟦ty|u8⟧>
+|⟦const|true⟧ ⟦const|false⟧ null nil ⟦const|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ this ⟦const|self⟧ ⟦const|Self⟧ ⟦const|super⟧ cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦const|Some⟧ ⟦const|Ok⟧ ⟦const|Err⟧
+|⟦kw|fn⟧ ⟦fn|f⟧ def g func h function i fun j defp k class ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ import ⟦kw|let⟧ ⟦kw|const⟧ var
+|int ⟦ty|char⟧ void ⟦ty|bool⟧ string number ⟦ty|String⟧ ⟦ty|u8⟧ ⟦ty|i32⟧ float ⟦ty|str⟧
+|
+== c
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|⟦attr|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|⟦attr|#include⟧ <x>
+|  ⟦attr|#define⟧ X
+|⟦attr|#⟧[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ null nil None ⟦const|NULL⟧ ⟦const|nullptr⟧ undefined NaN Infinity this self Self super cls it iota
+|True False Nothing Just ⟦const|TRUE⟧ ⟦const|FALSE⟧ Some Ok Err
+|fn f def g func h function i fun j defp k class C
+|Foo ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ Select select from Where ⟦ty|int⟧ ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ import let ⟦kw|const⟧ var
+|⟦ty|int⟧ ⟦ty|char⟧ ⟦ty|void⟧ ⟦ty|bool⟧ string number String u8 i32 ⟦ty|float⟧ str
+|
+== cpp
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|⟦attr|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|⟦attr|#include⟧ <x>
+|  ⟦attr|#define⟧ ⟦ty|X⟧
+|⟦attr|#⟧[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ null nil ⟦ty|None⟧ ⟦const|NULL⟧ ⟦const|nullptr⟧ undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ ⟦kw|this⟧ self ⟦ty|Self⟧ super cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g func h function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ ⟦ty|int⟧ ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ let ⟦kw|const⟧ var
+|⟦ty|int⟧ ⟦ty|char⟧ ⟦ty|void⟧ ⟦ty|bool⟧ string number ⟦ty|String⟧ u8 i32 ⟦ty|float⟧ str
+|
+== csharp
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|⟦attr|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|⟦attr|#include⟧ <x>
+|  ⟦attr|#define⟧ ⟦ty|X⟧
+|⟦attr|#⟧[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ ⟦kw|this⟧ self ⟦ty|Self⟧ super cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g func h function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ ⟦ty|int⟧ ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ import let ⟦kw|const⟧ ⟦kw|var⟧
+|⟦ty|int⟧ ⟦ty|char⟧ ⟦ty|void⟧ ⟦ty|bool⟧ ⟦ty|string⟧ number ⟦ty|String⟧ u8 i32 ⟦ty|float⟧ str
+|
+== go
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|⟦str|`bt`⟧ x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define X
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ null ⟦const|nil⟧ None ⟦const|NULL⟧ nullptr undefined NaN Infinity this self Self super cls it ⟦const|iota⟧
+|True False Nothing Just ⟦const|TRUE⟧ ⟦const|FALSE⟧ Some Ok Err
+|fn f def g ⟦kw|func⟧ ⟦fn|h⟧ function i fun j defp k class C
+|Foo ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ Select ⟦kw|select⟧ from Where ⟦ty|int⟧ ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ while ⟦kw|return⟧ ⟦kw|import⟧ let ⟦kw|const⟧ ⟦kw|var⟧
+|⟦ty|int⟧ char void ⟦ty|bool⟧ ⟦ty|string⟧ number String u8 i32 float str
+|
+== java
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|⟦attr|@attr⟧ ⟦attr|@a.b-c⟧ x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ ⟦const|this⟧ self ⟦ty|Self⟧ ⟦kw|super⟧ cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g func h function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ ⟦ty|int⟧ ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ let ⟦kw|const⟧ ⟦kw|var⟧
+|⟦ty|int⟧ ⟦ty|char⟧ ⟦ty|void⟧ bool string number ⟦ty|String⟧ u8 i32 ⟦ty|float⟧ str
+|
+== kotlin
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq
+|"""⟧ x
+|⟦str|'''tsq'''⟧ x
+|⟦attr|@attr⟧ ⟦attr|@a.b-c⟧ x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ ⟦const|this⟧ self ⟦ty|Self⟧ ⟦kw|super⟧ cls ⟦const|it⟧ iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g func h function i ⟦kw|fun⟧ ⟦fn|j⟧ defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ let const ⟦kw|var⟧
+|int char void bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== swift
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|'sq' x
+|`bt` x
+|⟦str|"""tdq
+|"""⟧ x
+|'''tsq''' x
+|⟦attr|@attr⟧ ⟦attr|@a.b-c⟧ x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ 'a 'c' '\n' name!() a != b ⟦ty|Vec⟧::<u8>
+|⟦const|true⟧ ⟦const|false⟧ null ⟦const|nil⟧ ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ this ⟦const|self⟧ ⟦const|Self⟧ ⟦const|super⟧ cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g ⟦kw|func⟧ ⟦fn|h⟧ function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ ⟦kw|let⟧ const ⟦kw|var⟧
+|int char void bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== dart
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq
+|"""⟧ x
+|⟦str|'''tsq'''⟧ x
+|⟦attr|@attr⟧ ⟦attr|@a.b-c⟧ x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ ⟦kw|this⟧ self ⟦ty|Self⟧ ⟦kw|super⟧ cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g func h function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ let ⟦kw|const⟧ ⟦kw|var⟧
+|int char ⟦kw|void⟧ bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== scala
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq
+|"""⟧ x
+|⟦str|'''tsq'''⟧ x
+|⟦attr|@attr⟧ ⟦attr|@a.b-c⟧ x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ ⟦const|this⟧ self ⟦ty|Self⟧ ⟦kw|super⟧ cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f ⟦kw|def⟧ ⟦fn|g⟧ func h function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ let const ⟦kw|var⟧
+|int char void bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== javascript
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|⟦str|`bt`⟧ x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr ⟦const|undefined⟧ ⟦const|NaN⟧ ⟦const|Infinity⟧ ⟦const|this⟧ self ⟦ty|Self⟧ ⟦kw|super⟧ cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g func h ⟦kw|function⟧ ⟦fn|i⟧ fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select ⟦kw|from⟧ ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ ⟦kw|let⟧ ⟦kw|const⟧ ⟦kw|var⟧
+|int char ⟦kw|void⟧ bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== typescript
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|⟦str|`bt`⟧ x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|⟦attr|@attr⟧ ⟦attr|@a.b-c⟧ x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr ⟦const|undefined⟧ ⟦const|NaN⟧ ⟦const|Infinity⟧ ⟦const|this⟧ self ⟦ty|Self⟧ ⟦kw|super⟧ cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g func h ⟦kw|function⟧ ⟦fn|i⟧ fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select ⟦kw|from⟧ ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ ⟦kw|let⟧ ⟦kw|const⟧ ⟦kw|var⟧
+|int char ⟦kw|void⟧ bool ⟦ty|string⟧ ⟦ty|number⟧ ⟦ty|String⟧ u8 i32 float str
+|
+== python
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|// line
+|⟦com|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq
+|"""⟧ x
+|⟦str|'''tsq'''⟧ x
+|⟦attr|@attr⟧ ⟦attr|@a.b-c⟧ x
+|$var ${braced} $(paren) $
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|true false null nil ⟦const|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ this ⟦const|self⟧ ⟦ty|Self⟧ super ⟦const|cls⟧ it iota
+|⟦const|True⟧ ⟦const|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f ⟦kw|def⟧ ⟦fn|g⟧ func h function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select ⟦kw|from⟧ ⟦ty|Where⟧ ⟦ty|int⟧ ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } ⟦com|#fff .b:hover x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ ⟦kw|import⟧ let const var
+|⟦ty|int⟧ char void ⟦ty|bool⟧ string number ⟦ty|String⟧ u8 i32 ⟦ty|float⟧ ⟦ty|str⟧
+|
+== ruby
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|// line
+|⟦com|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|⟦str|`bt`⟧ x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ null ⟦const|nil⟧ ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ this ⟦const|self⟧ ⟦ty|Self⟧ ⟦kw|super⟧ cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f ⟦kw|def⟧ ⟦fn|g⟧ func h function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } ⟦com|#fff .b:hover x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ import let const var
+|int char void bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== php
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|⟦com|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|⟦var|$var⟧ ⟦var|${braced}⟧ ⟦var|$(paren)⟧ $
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ this self ⟦ty|Self⟧ super cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|⟦kw|fn⟧ f def g func h ⟦kw|function⟧ ⟦fn|i⟧ fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } ⟦com|#fff .b:hover x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ import let ⟦kw|const⟧ ⟦kw|var⟧
+|int char void bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== lua
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|⟦com|--[[ lua ]]⟧ x
+|<!⟦com|-- html --> x⟧
+|// line
+|# hash
+|⟦com|-- dash⟧
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|#include <x>
+|  #define X
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ null ⟦const|nil⟧ None ⟦const|NULL⟧ nullptr undefined NaN Infinity this ⟦const|self⟧ Self super cls it iota
+|True False Nothing Just ⟦const|TRUE⟧ ⟦const|FALSE⟧ Some Ok Err
+|fn f def g func h ⟦kw|function⟧ ⟦fn|i⟧ fun j defp k class C
+|Foo ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ Select select from Where int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ import let const var
+|int char void bool string number String u8 i32 float str
+|
+== sql
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|⟦com|--[[ lua ]] x⟧
+|<!⟦com|-- html --> x⟧
+|// line
+|# hash
+|⟦com|-- dash⟧
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|#include <x>
+|  #define X
+|#[attr] #![⟦kw|inner⟧] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil None ⟦const|NULL⟧ nullptr undefined NaN Infinity this self Self super cls it iota
+|⟦const|True⟧ ⟦const|False⟧ Nothing Just ⟦const|TRUE⟧ ⟦const|FALSE⟧ Some Ok Err
+|fn f def g func h ⟦kw|function⟧ i fun j defp k class C
+|Foo ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦kw|SELECT⟧ ⟦kw|Select⟧ ⟦kw|select⟧ ⟦kw|from⟧ ⟦kw|Where⟧ ⟦ty|int⟧ ⟦ty|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ for while ⟦kw|return⟧ import let const var
+|⟦ty|int⟧ ⟦ty|char⟧ void ⟦ty|bool⟧ string number String u8 i32 ⟦ty|float⟧ str
+|
+== css
+|⟦com|/* block */⟧ ⟦tag|x⟧
+|(* ⟦tag|ml⟧ *) ⟦tag|x⟧
+|{- hs -} ⟦tag|x⟧
+|⟦tag|--⟧[[ ⟦tag|lua⟧ ]] ⟦tag|x⟧
+|<!⟦tag|--⟧ ⟦tag|html⟧ ⟦tag|--⟧> ⟦tag|x⟧
+|// ⟦tag|line⟧
+|# ⟦tag|hash⟧
+|⟦tag|--⟧ ⟦tag|dash⟧
+|; ⟦tag|semi⟧
+|⟦str|"dq"⟧ ⟦tag|x⟧
+|⟦str|'sq'⟧ ⟦tag|x⟧
+|`⟦tag|bt⟧` ⟦tag|x⟧
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ ⟦tag|x⟧
+|⟦kw|@attr⟧ ⟦kw|@a.b-c⟧ ⟦tag|x⟧
+|$⟦tag|var⟧ ${braced} $(⟦tag|paren⟧) $
+|#⟦tag|include⟧ <⟦tag|x⟧>
+|  #⟦tag|define⟧ ⟦tag|X⟧
+|#[⟦tag|attr⟧] #![⟦tag|inner⟧] ⟦tag|r⟧⟦str|"raw"⟧ ⟦tag|r⟧#⟦str|"h"⟧# ⟦tag|br⟧⟦str|"b"⟧ ⟦str|'a '⟧⟦tag|c⟧⟦str|' '⟧\⟦tag|n⟧⟦str|' name!() a != b Vec::<u8>⟧
+|⟦tag|true⟧ ⟦tag|false⟧ ⟦tag|null⟧ ⟦tag|nil⟧ ⟦tag|None⟧ ⟦tag|NULL⟧ ⟦tag|nullptr⟧ ⟦tag|undefined⟧ ⟦tag|NaN⟧ ⟦tag|Infinity⟧ ⟦tag|this⟧ ⟦tag|self⟧ ⟦tag|Self⟧ ⟦tag|super⟧ ⟦tag|cls⟧ ⟦tag|it⟧ ⟦tag|iota⟧
+|⟦tag|True⟧ ⟦tag|False⟧ ⟦tag|Nothing⟧ ⟦tag|Just⟧ ⟦tag|TRUE⟧ ⟦tag|FALSE⟧ ⟦tag|Some⟧ ⟦tag|Ok⟧ ⟦tag|Err⟧
+|⟦tag|fn⟧ ⟦tag|f⟧ ⟦tag|def⟧ ⟦tag|g⟧ ⟦tag|func⟧ ⟦tag|h⟧ ⟦tag|function⟧ ⟦tag|i⟧ ⟦tag|fun⟧ ⟦tag|j⟧ ⟦tag|defp⟧ ⟦tag|k⟧ ⟦tag|class⟧ ⟦tag|C⟧
+|⟦tag|Foo⟧ ⟦tag|FOO_BAR⟧ ⟦tag|X1⟧ ⟦tag|fooBar⟧(⟦num|1⟧) ⟦tag|x⟧
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ ⟦tag|x⟧.⟦num|5⟧
+|⟦tag|SELECT⟧ ⟦tag|Select⟧ ⟦tag|select⟧ ⟦tag|from⟧ ⟦tag|Where⟧ ⟦tag|int⟧ ⟦tag|VARCHAR⟧
+|⟦tag|a⟧ { ⟦prop|color⟧: red; ⟦prop|-webkit-x⟧: ⟦num|1⟧; } #⟦tag|fff⟧ .⟦tag|b⟧:⟦tag|hover⟧ ⟦tag|x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦tag|if⟧ ⟦tag|else⟧ ⟦tag|for⟧ ⟦tag|while⟧ ⟦tag|return⟧ ⟦tag|import⟧ ⟦tag|let⟧ ⟦tag|const⟧ ⟦tag|var⟧
+|⟦tag|int⟧ ⟦tag|char⟧ ⟦tag|void⟧ ⟦tag|bool⟧ ⟦tag|string⟧ ⟦tag|number⟧ ⟦tag|String⟧ ⟦tag|u8⟧ ⟦tag|i32⟧ ⟦tag|float⟧ ⟦tag|str⟧
+|
+== json
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|'sq' x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|'''tsq''' x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|#include <x>
+|  #define X
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ 'a 'c' '\n' name!() a != b Vec::<u8>
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil None ⟦const|NULL⟧ nullptr undefined NaN Infinity this self Self super cls it iota
+|True False Nothing Just ⟦const|TRUE⟧ ⟦const|FALSE⟧ Some Ok Err
+|fn f def g func h function i fun j defp k class C
+|Foo ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ Select select from Where int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦prop|"key"⟧: ⟦str|"value"⟧, ⟦prop|"n"⟧: ⟦num|1⟧}
+|if else for while return import let const var
+|int char void bool string number String u8 i32 float str
+|
+== haskell
+|/* block */ x
+|(* ml *) x
+|⟦com|{- hs -}⟧ x
+|⟦com|--[[ lua ]] x⟧
+|<!⟦com|-- html --> x⟧
+|// line
+|# hash
+|⟦com|-- dash⟧
+|; semi
+|⟦str|"dq"⟧ x
+|'sq' x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|'''tsq''' x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ 'a 'c' '\n' name!() a != b ⟦ty|Vec⟧::<u8>
+|true false null nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ this self ⟦ty|Self⟧ super cls it iota
+|⟦const|True⟧ ⟦const|False⟧ ⟦const|Nothing⟧ ⟦const|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|fn f def g func h function i fun j defp k ⟦kw|class⟧ ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ for while return ⟦kw|import⟧ ⟦kw|let⟧ const var
+|int char void bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== zig
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|⟦com|// line⟧
+|# hash
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$⟦kw|var⟧ ${braced} $(paren) $
+|#include <x>
+|  #define ⟦ty|X⟧
+|#[attr] #![inner] r⟦str|"raw"⟧ r#⟦str|"h"⟧# br⟦str|"b"⟧ ⟦str|'a '⟧c⟦str|' '⟧\n⟦str|' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil ⟦ty|None⟧ ⟦const|NULL⟧ nullptr ⟦const|undefined⟧ ⟦ty|NaN⟧ ⟦ty|Infinity⟧ this self ⟦ty|Self⟧ super cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|⟦kw|fn⟧ ⟦fn|f⟧ def g func h function i fun j defp k class ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } #fff .b:hover x
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ ⟦kw|while⟧ ⟦kw|return⟧ import let ⟦kw|const⟧ ⟦kw|var⟧
+|int char ⟦ty|void⟧ ⟦ty|bool⟧ string number ⟦ty|String⟧ ⟦ty|u8⟧ ⟦ty|i32⟧ float str
+|
+== nix
+|⟦com|/* block */⟧ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|// line
+|⟦com|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|'sq' x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|'''tsq''' x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ ⟦const|null⟧ nil None ⟦const|NULL⟧ nullptr undefined NaN Infinity this self Self super cls it iota
+|True False Nothing Just ⟦const|TRUE⟧ ⟦const|FALSE⟧ Some Ok Err
+|fn f def g func h function i fun j defp k class C
+|Foo ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ Select select from Where int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } ⟦com|#fff .b:hover x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ for while return ⟦kw|import⟧ ⟦kw|let⟧ const var
+|int char void bool string number String u8 i32 float str
+|
+== elixir
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|// line
+|⟦com|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq
+|"""⟧ x
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|$var ${braced} $(paren) $
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|⟦const|true⟧ ⟦const|false⟧ null ⟦const|nil⟧ ⟦ty|None⟧ ⟦const|NULL⟧ nullptr undefined ⟦ty|NaN⟧ ⟦ty|Infinity⟧ this self ⟦ty|Self⟧ super cls it iota
+|⟦ty|True⟧ ⟦ty|False⟧ ⟦ty|Nothing⟧ ⟦ty|Just⟧ ⟦const|TRUE⟧ ⟦const|FALSE⟧ ⟦ty|Some⟧ ⟦ty|Ok⟧ ⟦ty|Err⟧
+|⟦kw|fn⟧ f ⟦kw|def⟧ ⟦fn|g⟧ func h function i fun j ⟦kw|defp⟧ ⟦fn|k⟧ class ⟦ty|C⟧
+|⟦ty|Foo⟧ ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ ⟦ty|Select⟧ select from ⟦ty|Where⟧ int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } ⟦com|#fff .b:hover x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|⟦kw|if⟧ ⟦kw|else⟧ ⟦kw|for⟧ while return ⟦kw|import⟧ let const var
+|int char void bool string number ⟦ty|String⟧ u8 i32 float str
+|
+== make
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|// line
+|⟦com|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|⟦var|$var⟧ ⟦var|${braced}⟧ ⟦var|$(paren)⟧ $
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|true false null nil None ⟦const|NULL⟧ nullptr undefined NaN Infinity this self Self super cls it iota
+|True False Nothing Just ⟦const|TRUE⟧ ⟦const|FALSE⟧ Some Ok Err
+|fn f def g func h function i fun j defp k class C
+|Foo ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ Select select from Where int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } ⟦com|#fff .b:hover x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|if ⟦kw|else⟧ for while return import let const var
+|int char void bool string number String u8 i32 float str
+|
+== dockerfile
+|/* block */ x
+|(* ml *) x
+|{- hs -} x
+|--[[ lua ]] x
+|<!-- html --> x
+|// line
+|⟦com|# hash⟧
+|-- dash
+|; semi
+|⟦str|"dq"⟧ x
+|⟦str|'sq'⟧ x
+|`bt` x
+|⟦str|"""tdq⟧
+|⟦str|""" x⟧
+|⟦str|'''tsq'''⟧ x
+|@attr @a.b-c x
+|⟦var|$var⟧ ⟦var|${braced}⟧ ⟦var|$(paren)⟧ $
+|⟦com|#include <x>⟧
+|  ⟦com|#define X⟧
+|⟦com|#[attr] #![inner] r"raw" r#"h"# br"b" 'a 'c' '\n' name!() a != b Vec::<u8>⟧
+|true false null nil None ⟦const|NULL⟧ nullptr undefined NaN Infinity this self Self super cls it iota
+|True False Nothing Just ⟦const|TRUE⟧ ⟦const|FALSE⟧ Some Ok Err
+|fn f def g func h function i fun j defp k class C
+|Foo ⟦const|FOO_BAR⟧ ⟦const|X1⟧ ⟦fn|fooBar⟧(⟦num|1⟧) x
+|⟦num|0x1F⟧ ⟦num|1.5e-3⟧ ⟦num|.5⟧ ⟦num|1_000⟧ ⟦num|10n⟧ ⟦num|1e+5⟧ ⟦num|0⟧..⟦num|10⟧ x.⟦num|5⟧
+|⟦const|SELECT⟧ Select select from Where int ⟦const|VARCHAR⟧
+|a { color: red; -webkit-x: ⟦num|1⟧; } ⟦com|#fff .b:hover x⟧
+|{⟦str|"key"⟧: ⟦str|"value"⟧, ⟦str|"n"⟧: ⟦num|1⟧}
+|if else for while return import let const var
+|int char void bool string number String u8 i32 float str
+|

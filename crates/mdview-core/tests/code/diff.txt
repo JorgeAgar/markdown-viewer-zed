@@ -1,0 +1,13 @@
+diff --git a/src/main.rs b/src/main.rs
+index 3b18e51..a9c7f2d 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,4 +1,5 @@
+ fn main() {
+-    println!("old");
++    println!("new");
++    // added
+ }
+< legacy removed
+> legacy added
+\ No newline at end of file

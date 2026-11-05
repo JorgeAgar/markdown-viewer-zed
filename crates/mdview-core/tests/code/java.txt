@@ -1,0 +1,20 @@
+package com.example;
+
+import java.util.List;
+
+/** Javadoc. */
+@FunctionalInterface
+public interface Shape {
+    double area();
+}
+
+public final class Circle implements Shape {
+    private static final double PI_ISH = 3.14159d;
+    @Override
+    public double area() {
+        List<String> names = List.of("a", "b");
+        char c = 'c';
+        long big = 1_000_000L;
+        return this.r * this.r * PI_ISH; // comment
+    }
+}

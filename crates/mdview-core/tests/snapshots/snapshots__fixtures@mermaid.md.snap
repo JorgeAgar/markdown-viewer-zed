@@ -1,0 +1,19 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/mermaid.md
+---
+mermaid
+  |flowchart LR
+  |    A[Start] --> B{Decide}
+  |    B -->|yes| C[Done]
+mermaid
+  |sequenceDiagram
+  |    A->>B: Hi
+mermaid
+  |pie
+  |    "a" : 1
+mermaid
+  |
+mermaid
+  |graph TD; tilde-->fence

@@ -1,0 +1,18 @@
+// @ts-check
+import { readFile } from "node:fs/promises";
+
+export default class Store extends EventTarget {
+  #items = new Map();
+  static VERSION = 2;
+
+  async load(path) {
+    const text = await readFile(path, 'utf8');
+    const tpl = `multi
+line ${text.length}`;
+    return JSON.parse(text) ?? null;
+  }
+}
+
+function helper(x = undefined) { return typeof x === "number" ? x * 1e3 : NaN; }
+const arrow = (a, b) => a + b; /* inline block */
+let re = /a+b/g, n = 0xFF, inf = Infinity, self = this;

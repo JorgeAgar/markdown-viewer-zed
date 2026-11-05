@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""Module docstring."""
+from dataclasses import dataclass
+import os
+
+@dataclass(frozen=True)
+class Point:
+    x: float = 0.0
+    y: float = 0.0
+
+    def norm(self) -> float:
+        '''Method docstring.'''
+        return (self.x ** 2 + self.y ** 2) ** .5  # comment
+
+async def main(argv: list[str] | None = None) -> int:
+    path = os.environ.get("HOME", 'x')
+    if path is None or not argv:
+        raise ValueError(f"bad {path!r}")
+    data = {"a": 1, "b": [True, False, None]}
+    match data:
+        case {"a": 1}: print(len(data), 0x1F, 1e-3, CONSTANT_NAME)
+    return 0

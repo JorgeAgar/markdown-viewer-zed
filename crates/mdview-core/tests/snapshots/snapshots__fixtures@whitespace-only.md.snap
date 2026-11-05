@@ -1,0 +1,6 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/whitespace-only.md
+---
+(no blocks)

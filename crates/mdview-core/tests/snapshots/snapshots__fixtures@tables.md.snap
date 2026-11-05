@@ -1,0 +1,81 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/tables.md
+---
+table aligns=[left, center, right, none]
+  header
+    "Left"
+    "Center"
+    "Right"
+    "None"
+  row 0
+    "l"
+    "c"
+    "r"
+    "n"
+table aligns=[none, none, none, none]
+  header
+    "⟦B|Bold⟧"
+    "⟦I|Italic⟧"
+    "⟦C|code⟧"
+    "⟦L0|link⟧"
+    link 0: u
+  row 0
+    "⟦S|strike⟧"
+    "⟦C|a | b⟧"
+    "escaped | pipe"
+    "⟦L0|[img]⟧"
+    link 0: i.png
+table aligns=[none, none, none]
+  header
+    "a"
+    "b"
+    "c"
+  row 0
+    "short"
+    ""
+    ""
+  row 1
+    "too"
+    "many"
+    "cells"
+  row 2
+    ""
+    ""
+    ""
+table aligns=[none, none, none]
+  header
+    "No"
+    "leading"
+    "pipes"
+  row 0
+    "1"
+    "2"
+    "3"
+table aligns=[none]
+  header
+    "single"
+  row 0
+    "column"
+paragraph
+  "Paragraph right before"
+table aligns=[none, none]
+  header
+    "x"
+    "y"
+  row 0
+    "1"
+    "2"
+table aligns=[none, none]
+  header
+    "math"
+    "unicode"
+  row 0
+    "⟦I|x⟧²"
+    "日本語 🎉"
+table aligns=[none]
+  header
+    "header only"
+paragraph
+  "| not | a table | | missing delimiter row |"

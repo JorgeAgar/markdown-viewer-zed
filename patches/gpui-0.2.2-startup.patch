@@ -1,6 +1,6 @@
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/blade/blade_renderer.rs gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs
---- gpui-0.2.2/src/platform/blade/blade_renderer.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs	2026-11-03 17:10:26.741302295 -0500
+--- gpui-0.2.2/src/platform/blade/blade_renderer.rs
++++ gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs
 @@ -166,141 +166,172 @@
              write_mask: gpu::ColorWrites::default(),
          }];
@@ -310,8 +310,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
      fn destroy(&mut self, gpu: &gpu::Context) {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/client.rs gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
---- gpui-0.2.2/src/platform/linux/wayland/client.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs	2026-11-03 17:10:21.744612505 -0500
+--- gpui-0.2.2/src/platform/linux/wayland/client.rs
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
 @@ -446,6 +446,9 @@
  
  impl WaylandClient {
@@ -335,8 +335,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          let seat = seat.unwrap();
          let globals = Globals::new(
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/window.rs gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs
---- gpui-0.2.2/src/platform/linux/wayland/window.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs	2026-11-03 17:10:26.747302295 -0500
+--- gpui-0.2.2/src/platform/linux/wayland/window.rs
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs
 @@ -152,7 +152,14 @@
                      height: options.bounds.size.height.0 as u32,
                      depth: 1,
@@ -354,8 +354,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
              BladeRenderer::new(gpu_context, &raw_window, config)?
          };
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/x11/client.rs gpui-0.2.2-mdview/src/platform/linux/x11/client.rs
---- gpui-0.2.2/src/platform/linux/x11/client.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/x11/client.rs	2026-11-03 17:10:21.744834536 -0500
+--- gpui-0.2.2/src/platform/linux/x11/client.rs
++++ gpui-0.2.2-mdview/src/platform/linux/x11/client.rs
 @@ -302,6 +302,9 @@
  
  impl X11Client {
@@ -379,8 +379,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection)
              .context("Failed to create resource database")?;
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/window.rs gpui-0.2.2-mdview/src/platform/mac/window.rs
---- gpui-0.2.2/src/platform/mac/window.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/mac/window.rs	2026-11-03 17:10:21.743888830 -0500
+--- gpui-0.2.2/src/platform/mac/window.rs
++++ gpui-0.2.2-mdview/src/platform/mac/window.rs
 @@ -582,6 +582,7 @@
              display_id,
              window_min_size,
@@ -390,8 +390,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          executor: ForegroundExecutor,
          renderer_context: renderer::Context,
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform.rs gpui-0.2.2-mdview/src/platform.rs
---- gpui-0.2.2/src/platform.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform.rs	2026-11-03 17:09:51.707966040 -0500
+--- gpui-0.2.2/src/platform.rs
++++ gpui-0.2.2-mdview/src/platform.rs
 @@ -1181,6 +1181,15 @@
      pub window_min_size: Option<Size<Pixels>>,
      #[cfg(target_os = "macos")]
@@ -408,9 +408,23 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  }
  
  /// Represents the status of how a window should be opened.
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/taffy.rs gpui-0.2.2-mdview/src/taffy.rs
+--- gpui-0.2.2/src/taffy.rs
++++ gpui-0.2.2-mdview/src/taffy.rs
+@@ -309,7 +309,9 @@
+             unit: &Option<u16>,
+         ) -> Vec<taffy::GridTemplateComponent<T>> {
+             // grid-template-columns: repeat(<number>, minmax(0, 1fr));
+-            unit.map(|count| vec![repeat(count, vec![minmax(length(0.0), fr(1.0))])])
++            // mdview: typed literals. Untyped ones relied on the f32 fallback
++            // that rustc is phasing out (float_literal_f32_fallback, #154024).
++            unit.map(|count| vec![repeat(count, vec![minmax(length(0.0_f32), fr(1.0_f32))])])
+                 .unwrap_or_default()
+         }
+ 
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/window.rs gpui-0.2.2-mdview/src/window.rs
---- gpui-0.2.2/src/window.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/window.rs	2026-11-03 17:09:51.708357251 -0500
+--- gpui-0.2.2/src/window.rs
++++ gpui-0.2.2-mdview/src/window.rs
 @@ -968,6 +968,8 @@
                  window_min_size,
                  #[cfg(target_os = "macos")]

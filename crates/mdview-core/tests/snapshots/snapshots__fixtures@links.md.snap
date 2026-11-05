@@ -1,0 +1,56 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/links.md
+---
+paragraph
+  "Inline ⟦L0|link⟧ and ⟦L1|with title⟧."
+  link 0: https://example.com
+  link 1: https://example.com
+paragraph
+  "Reference ⟦L0|full⟧, ⟦L1|collapsed⟧, and ⟦L2|shortcut⟧."
+  link 0: https://example.com/ref
+  link 1: https://example.com/collapsed
+  link 2: https://example.com/short cut
+paragraph
+  "Autolinks ⟦L0|https://example.com/auto⟧ and ⟦L1|mailto:me@example.com⟧ and ⟦L2|me@example.com⟧."
+  link 0: https://example.com/auto
+  link 1: mailto:me@example.com
+  link 2: mailto:me@example.com
+paragraph
+  "Bare URLs https://example.com/bare and www.example.com are not links."
+paragraph
+  "Styled: ⟦BL0|bold⟧⟦L0| and ⟧⟦IL0|italic⟧⟦L0| text⟧, ⟦BL1|bold link⟧, ⟦IL2|italic⟧⟦I| after⟧."
+  link 0: u1
+  link 1: u2
+  link 2: u3
+paragraph
+  "Crossing: ⟦B|bold ⟧⟦BL0|link** text⟧⟦B| and ⟧⟦BL1|link **bold⟧⟦B| text⟧."
+  link 0: u4
+  link 1: u5
+paragraph
+  "Code in link: ⟦CL0|code⟧⟦L0| text⟧. Empty text: . Anchor: ⟦L2|section⟧."
+  link 0: u6
+  link 1: u7
+  link 2: #heading-slug
+paragraph
+  "Relative: ⟦L0|doc⟧, ⟦L1|doc with anchor⟧, ⟦L2|dir⟧."
+  link 0: other.md
+  link 1: other.md#part
+  link 2: ../dir/file.txt
+paragraph
+  "[Missing reference][nope] stays text, and [brackets] too."
+paragraph
+  "Escaped [not a link](u8) and ⟦L0|link with ] bracket⟧."
+  link 0: u9
+paragraph
+  "⟦L0|a⟧⟦L1|b⟧ adjacent, and ⟦L2|same⟧ ⟦L3|same⟧ twice."
+  link 0: u10
+  link 1: u11
+  link 2: u12
+  link 3: u12
+paragraph
+  "Percent-encoded ⟦L0|space⟧ and ⟦L1|unicode⟧ and ⟦L2|query⟧."
+  link 0: my%20file.md
+  link 1: ü.md
+  link 2: https://x.y/?a=1&b=2

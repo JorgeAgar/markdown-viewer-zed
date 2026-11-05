@@ -1,0 +1,20 @@
+package demo
+
+import kotlinx.coroutines.*
+
+@JvmInline
+value class Id(val raw: String)
+
+data class User(val id: Id, var name: String?)
+
+fun greet(user: User): String {
+    val text = """
+        Hello, ${user.name}!
+    """.trimIndent()
+    return when (user.name) {
+        null -> "anonymous"
+        else -> text
+    }
+}
+
+suspend fun main() = coroutineScope { launch { println(greet(User(Id("1"), null))) } }

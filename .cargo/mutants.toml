@@ -1,0 +1,153 @@
+# cargo-mutants 27.1 reads this from the workspace root, even with -p mdview-core.
+# 27.1 has a visit_expr_struct bug: field deletions bypass allows_mutant(),
+# so those explicit exclusions remain listed/reported until the tool is fixed.
+# Exact mutation names keep exclusions scoped to reviewed equivalent substitutions.
+exclude_re = [
+
+    # Rust handles single quotes as characters/lifetimes before consulting quotes;
+    # BASE only adds single quotes.
+    '''^crates/mdview-core/src/highlight\.rs:162:9: delete field quotes from struct Lang expression in lang_def$''',
+
+    # C# and Dart inherit true/false/null unchanged; their extra `this` is already a
+    # keyword.
+    '''^crates/mdview-core/src/highlight\.rs:264:9: delete field constants from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:196:9: delete field constants from struct Lang expression in lang_def$''',
+
+    # SQL and Nix constants equal BASE exactly.
+    '''^crates/mdview-core/src/highlight\.rs:367:9: delete field constants from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:414:9: delete field constants from struct Lang expression in lang_def$''',
+
+    # CSS takes its own identifier branch, which never consults keywords or
+    # constants.
+    '''^crates/mdview-core/src/highlight\.rs:374:9: delete field keywords from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:375:9: delete field constants from struct Lang expression in lang_def$''',
+
+    # Every find caller supplies a nonempty delimiter and from <= len. At from ==
+    # len, windows already returns None.
+    '''^crates/mdview-core/src/highlight\.rs:545:29: replace > with == in find$''',
+    '''^crates/mdview-core/src/highlight\.rs:545:21: replace \|\| with && in find$''',
+    '''^crates/mdview-core/src/highlight\.rs:545:29: replace > with >= in find$''',
+
+    # At j == i + 1 the preceding byte is #, never an identifier. Multiplying by 1
+    # only relaxes the same impossible case.
+    '''^crates/mdview-core/src/highlight\.rs:611:38: replace > with >= in generic$''',
+    '''^crates/mdview-core/src/highlight\.rs:611:42: replace \+ with \* in generic$''',
+
+    # Starting the attribute scan at # adds one ignored byte before [ or !; all
+    # subsequent nesting is identical.
+    '''^crates/mdview-core/src/highlight\.rs:625:31: replace \+ with \* in generic$''',
+
+    # Starting an identifier scan at i instead of i + 1 scans one extra byte already
+    # known to satisfy the loop predicate.
+    '''^crates/mdview-core/src/highlight\.rs:759:27: replace \+ with \* in generic$''',
+
+    # Without the shell whitespace fast path, the word scan has length zero and
+    # advances one byte; cmd_pos is unchanged.
+    '''^crates/mdview-core/src/highlight\.rs:883:22: replace \|\| with && in shell$''',
+
+    # Resuming on the entity semicolon only rescans ignored text; the entity token
+    # is unchanged.
+    '''^crates/mdview-core/src/highlight\.rs:994:23: replace \+ with \* in markup$''',
+
+    # Re-searching from the opening quote finds the same closing quote (or EOF). A
+    # newline terminator always needs the search; / 1 only changes whether that
+    # redundant search happens for a closed string.
+    '''^crates/mdview-core/src/highlight\.rs:1017:48: replace && with \|\| in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1017:38: replace < with <= in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1017:57: replace - with / in markup$''',
+
+    # Resuming at > or the preceding byte adds only ignored text outside the tag
+    # (including an already consumed closing quote); no new construct can start
+    # there.
+    '''^crates/mdview-core/src/highlight\.rs:1035:20: replace \+ with - in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1035:20: replace \+ with \* in markup$''',
+
+    # An empty key emits no Property (Out drops empty ranges). value skips the : or
+    # = delimiter either way.
+    '''^crates/mdview-core/src/highlight\.rs:1104:24: replace match guard k > i with true in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1104:26: replace > with >= in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1107:31: replace \+ with \* in config$''',
+
+    # A scalar word starts with a byte accepted by its scan, so j > i; max(i + 1)
+    # and max(i * 1) both return j.
+    '''^crates/mdview-core/src/highlight\.rs:1161:25: replace \+ with \* in value$''',
+
+    # Upright is only enabled inside font commands, which replace all italic ranges
+    # before appending. W::sub already resets every other field; script inheritance
+    # remains tested.
+    '''^crates/mdview-core/src/latex\.rs:127:13: delete field upright from struct W expression in W::sub$''',
+
+    # Only prev == Ord affects binary spacing. Start and Bin are indistinguishable
+    # for all subsequent operations.
+    '''^crates/mdview-core/src/latex\.rs:153:13: delete match arm Class::Bin in W::sym$''',
+
+    # Without the Close arm, item consumes the closing token and does nothing,
+    # exactly like this arm.
+    '''^crates/mdview-core/src/latex\.rs:229:17: delete match arm \(T::Close, _\) in Parser<'_>::seq$''',
+
+    # The upright flag only controls intermediate italic ranges. This command clears
+    # those ranges, then assigns the final font ranges explicitly.
+    '''^crates/mdview-core/src/latex\.rs:465:74: replace && with \|\| in Parser<'_>::cmd$''',
+    '''^crates/mdview-core/src/latex\.rs:465:50: replace && with \|\| in Parser<'_>::cmd$''',
+    '''^crates/mdview-core/src/latex\.rs:465:34: replace != with == in Parser<'_>::cmd$''',
+    '''^crates/mdview-core/src/latex\.rs:465:58: replace != with == in Parser<'_>::cmd$''',
+    '''^crates/mdview-core/src/latex\.rs:465:82: replace != with == in Parser<'_>::cmd$''',
+
+    # w.sub() already sets italic to an empty Vec; the body only reads s afterwards.
+    '''^crates/mdview-core/src/latex\.rs:596:13: delete field italic from struct W expression in Parser<'_>::environment$''',
+
+    # trim_start retaining zero-length spans is unobservable: its only caller
+    # immediately calls trim_end, which removes them before returning the paragraph.
+    '''^crates/mdview-core/src/markdown\.rs:100:27: replace < with <= in RichText::trim_start$''',
+
+    # These parser option flags have disjoint bits; OR and XOR produce the same
+    # option set.
+    '''^crates/mdview-core/src/markdown\.rs:202:9: replace \| with \^ in parse$''',
+    '''^crates/mdview-core/src/markdown\.rs:201:9: replace \| with \^ in parse$''',
+    '''^crates/mdview-core/src/markdown\.rs:200:9: replace \| with \^ in parse$''',
+    '''^crates/mdview-core/src/markdown\.rs:199:9: replace \| with \^ in parse$''',
+    '''^crates/mdview-core/src/markdown\.rs:198:9: replace \| with \^ in parse$''',
+
+    # The wildcard match arm also ignores Event::Html.
+    '''^crates/mdview-core/src/markdown\.rs:273:17: delete match arm Event::Html\(_\) in P<'a>::blocks$''',
+
+    # The fallback blocks() parses paragraph children and consumes End(Paragraph),
+    # exactly like the explicit arm.
+    '''^crates/mdview-core/src/markdown\.rs:281:13: delete match arm Tag::Paragraph in P<'a>::block$''',
+
+    # HtmlBlock contains only Html events then End(HtmlBlock). The fallback blocks()
+    # ignores the Html events and consumes End, just like skip_to_end().
+    '''^crates/mdview-core/src/markdown\.rs:400:13: delete match arm Tag::HtmlBlock in P<'a>::block$''',
+
+    # skip_to_end is called only for HtmlBlock, whose children are Html events with
+    # no nested Start/End events. depth is always zero; the first End always
+    # returns.
+    '''^crates/mdview-core/src/markdown\.rs:410:17: delete match arm Event::Start\(_\) in P<'a>::skip_to_end$''',
+    '''^crates/mdview-core/src/markdown\.rs:411:34: replace match guard depth == 0 with true in P<'a>::skip_to_end$''',
+    '''^crates/mdview-core/src/markdown\.rs:412:17: delete match arm Event::End\(_\) in P<'a>::skip_to_end$''',
+    '''^crates/mdview-core/src/markdown\.rs:410:42: replace \+= with -= in P<'a>::skip_to_end$''',
+    '''^crates/mdview-core/src/markdown\.rs:410:42: replace \+= with \*= in P<'a>::skip_to_end$''',
+    '''^crates/mdview-core/src/markdown\.rs:412:40: replace -= with \+= in P<'a>::skip_to_end$''',
+    '''^crates/mdview-core/src/markdown\.rs:412:40: replace -= with /= in P<'a>::skip_to_end$''',
+
+    # inlines(true) stops only at a non-inline event or DisplayMath. DisplayMath is
+    # handled by the preceding arm, so this inline guard is unreachable.
+    '''^crates/mdview-core/src/markdown\.rs:453:29: replace match guard is_inline\(ev\) with false in P<'a>::paragraph$''',
+
+    # CODE is added only to a single Code event, never to the running style; OR and
+    # XOR agree.
+    '''^crates/mdview-core/src/markdown\.rs:506:53: replace \| with \^ in P<'a>::inlines$''',
+
+    # The unlinked-image branch requires link == None; LINK is cleared together with
+    # link, so style cannot already contain LINK.
+    '''^crates/mdview-core/src/markdown\.rs:530:55: replace \| with \^ in P<'a>::inlines$''',
+
+    # pulldown-cmark treats footnote references as links and does not emit them
+    # inside links; image descriptions are handled earlier. The running style cannot
+    # contain LINK here.
+    '''^crates/mdview-core/src/markdown\.rs:540:56: replace \| with \^ in P<'a>::inlines$''',
+
+    # The list handler consumes both tight and loose TaskListMarker events before
+    # parsing item inlines.
+    '''^crates/mdview-core/src/markdown\.rs:542:17: delete match arm Event::TaskListMarker\(c\) in P<'a>::inlines$''',
+]

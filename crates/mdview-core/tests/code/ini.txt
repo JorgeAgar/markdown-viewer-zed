@@ -1,0 +1,8 @@
+; INI comment
+[Desktop Entry]
+Name=mdview
+Exec=mdview %F
+Terminal=false
+MimeType=text/markdown;
+# hash comment
+key with spaces = value

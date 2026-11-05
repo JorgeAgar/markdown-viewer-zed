@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Goal: under 10 minutes even with an empty cache. Almost all of a cold run is
+# compiling GPUI and its dependencies on a 2-core runner, so: the `ci` cargo
+# profile (dependencies unoptimized, no debug info: ~5x less compile work than
+# the dev profile), one build per job, and clippy in a parallel job.
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # Build-time and runtime libraries GPUI needs on Linux: xkbcommon and xcb
+  # are linked; fontconfig, freetype, Wayland and the Vulkan loader are
+  # loaded or built against.
+  GPUI_DEPS: >-
+    pkg-config libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev
+    libfontconfig-dev libfreetype-dev libvulkan1
+
+jobs:
+  test:
+    name: fmt, guards, tests, window tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries, Xvfb, Mesa lavapipe and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $GPUI_DEPS \
+            xvfb xauth mesa-vulkan-drivers fonts-dejavu-core
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: scripts/check.sh (fmt, guards, all tests)
+        run: scripts/check.sh --profile ci --no-clippy
+      # Reuses the build above. Not verified on GitHub's runners yet (written
+      # and tested locally on Wayland only); make it blocking once it has
+      # passed reliably for a while.
+      - name: Window tests (X11 on Xvfb, software Vulkan)
+        continue-on-error: true
+        env:
+          MDVIEW_E2E: "1"
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: |
+          unset WAYLAND_DISPLAY
+          xvfb-run -a -s "-screen 0 1920x1080x24" \
+            cargo test --locked --profile ci --test cli -- --test-threads=1
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $GPUI_DEPS
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy -D warnings
+        run: cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings

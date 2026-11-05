@@ -1,0 +1,24 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/haskell.txt
+---
+|⟦com|{-# LANGUAGE OverloadedStrings #-}⟧
+|⟦kw|module⟧ ⟦ty|Main⟧ (main) ⟦kw|where⟧
+|
+|⟦kw|import⟧ ⟦kw|qualified⟧ ⟦ty|Data⟧.⟦ty|Map⟧ ⟦kw|as⟧ ⟦ty|M⟧
+|
+|⟦com|-- | A shape.⟧
+|⟦kw|data⟧ ⟦ty|Shape⟧ = ⟦ty|Circle⟧ ⟦ty|Double⟧ | ⟦ty|Square⟧ ⟦ty|Double⟧ ⟦kw|deriving⟧ (⟦ty|Show⟧, ⟦ty|Eq⟧)
+|
+|area :: ⟦ty|Shape⟧ -> ⟦ty|Double⟧
+|area (⟦ty|Circle⟧ r) = pi * r ^ ⟦num|2⟧
+|area (⟦ty|Square⟧ s) = s * s
+|
+|main :: ⟦const|IO⟧ ()
+|main = ⟦kw|do⟧
+|  ⟦kw|let⟧ m = ⟦ty|M⟧.fromList [(⟦num|1⟧, ⟦str|"one"⟧)]
+|  print (area (⟦ty|Circle⟧ ⟦num|1.0⟧), ⟦const|Just⟧ 'x', ⟦const|Nothing⟧, ⟦const|True⟧)
+|  ⟦com|{- block
+|     comment -}⟧
+|

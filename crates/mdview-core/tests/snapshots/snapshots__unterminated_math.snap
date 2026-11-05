@@ -1,0 +1,6 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "$$\nx^2"
+---
+paragraph
+  "$$ x^2"

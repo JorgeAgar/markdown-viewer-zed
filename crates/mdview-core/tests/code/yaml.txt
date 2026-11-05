@@ -1,0 +1,33 @@
+# Config
+---
+name: mdview
+version: 0.1.0
+enabled: true
+disabled: off
+nothing: ~
+ratio: -1.5e3
+time: 12:30:00
+list:
+  - item one
+  - key: value # trailing comment
+  - - nested
+quoted: "a: b # not a comment" 'single'
+anchor: &base
+  x: 1
+ref: *base
+url: http://example.com#frag
+[section]
+key = "value"
+answer = 42 ; not a comment here
+flag=yes
+...
+
+  [nested]
+  # indented comment
+'quoted key': 'it\' true
+: true
+= false
+  orphan scalar
+  ---
+-  nested: true
+named: &base-name [true, 1]

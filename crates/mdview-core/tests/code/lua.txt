@@ -1,0 +1,14 @@
+-- Line comment
+--[[ Block
+     comment ]]
+local M = {}
+
+function M.greet(name)
+  local msg = "Hello, " .. (name or 'world')
+  for i = 1, 10 do
+    if i % 2 == 0 then print(i, msg, nil, true) end
+  end
+  return msg
+end
+
+return M

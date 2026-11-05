@@ -1,0 +1,49 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/math.md
+---
+paragraph
+  "Inline ⟦I|E⟧ = ⟦I|mc⟧², ⟦I|α⟧ + ⟦I|β⟧, and ½."
+paragraph
+  "Inline display math"
+math
+  |x^2
+paragraph
+  "in the middle of a sentence."
+math
+  |\int_0^\infty e^{-x}\,dx = 1
+paragraph
+  "Before"
+math
+  |a^2 + b^2 = c^2
+paragraph
+  "after"
+math
+  |\sum_{i=1}^n i = \frac{n(n+1)}{2}
+math
+  |\text{uppercase info string}
+paragraph
+  "Prices: $5 and $10 are not math. Escaped $x$ isn't either."
+paragraph
+  "$ spaced $ and ⟦I|x⟧y⟦I|z⟧."
+math
+  |\begin{pmatrix} a & b \\ c & d \end{pmatrix}
+list bullet
+  item
+    paragraph
+      "list ⟦I|x⟧ᵢ item"
+  item
+    math
+      |y
+paragraph
+  "⟦B|Bold ⟧⟦BI|x⟧⟦B| math⟧ and ⟦L0|link ⟧⟦IL0|y⟧ and ⟦C|$code$⟧."
+  link 0: u
+paragraph
+  "⟦I|xy⟧ ℝⁿ ⟦I|x⟨U+0302⟩⟧ ∛⟦I|x⟧ \unknown⟦I|a⟧"
+math
+  |
+paragraph
+  "⟦I|xy⟧ across lines."
+paragraph
+  "⟦I|Already italic x + y stays italic.⟧"

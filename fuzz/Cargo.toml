@@ -1,0 +1,44 @@
+# Fuzz targets for crates/mdview-core (cargo-fuzz layout). Not part of the
+# workspace: see fuzz/README.md for how to run them.
+[package]
+name = "mdview-core-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace (it's also excluded from the root one).
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mdview-core = { path = "../crates/mdview-core" }
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "highlight"
+path = "fuzz_targets/highlight.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "latex"
+path = "fuzz_targets/latex.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+# Catch arithmetic overflow and debug_asserts while fuzzing.
+debug-assertions = true
+overflow-checks = true

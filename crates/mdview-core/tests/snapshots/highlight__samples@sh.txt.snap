@@ -1,0 +1,24 @@
+---
+source: crates/mdview-core/tests/highlight.rs
+expression: out
+input_file: crates/mdview-core/tests/code/sh.txt
+---
+|⟦com|#!/usr/bin/env bash⟧
+|⟦com|# Build and install.⟧
+|⟦kw|set⟧ ⟦fn|-euo⟧ pipefail
+|⟦var|PREFIX⟧=⟦str|"${PREFIX:-/usr/local}"⟧ CARGO_TERM_COLOR=always cargo build ⟦attr|--release⟧
+|⟦kw|for⟧ ⟦fn|f⟧ ⟦kw|in⟧ *.md; ⟦kw|do⟧
+|    ⟦fn|echo⟧ ⟦str|"file: $f"⟧ | ⟦fn|grep⟧ ⟦attr|-v⟧ ⟦str|'skip'⟧ >> ⟦str|"$LOG"⟧   ⟦com|# inline comment⟧
+|⟦kw|done⟧
+|⟦kw|if⟧ ⟦fn|[⟧ ⟦attr|-n⟧ ⟦str|"$1"⟧ ] && ⟦fn|test⟧ ⟦var|$#⟧ ⟦attr|-gt⟧ ⟦num|2⟧; ⟦kw|then⟧ ⟦kw|export⟧ PATH=⟦var|$HOME⟧/bin:⟦var|$PATH⟧; ⟦kw|fi⟧
+|⟦fn|echo⟧ ⟦var|$(date)⟧ `⟦fn|uname⟧ ⟦attr|-r⟧` ⟦var|$?⟧ ⟦var|$@⟧ ⟦var|${#arr[@]}⟧ \"⟦fn|escaped\⟧⟦str|" \é⟧
+|⟦kw|case⟧ ⟦str|"$x"⟧ ⟦kw|in⟧ a) ⟦kw|exit⟧ ⟦fn|1⟧;; ⟦kw|esac⟧
+|⟦kw|local⟧ name=value; ⟦kw|readonly⟧ X=1
+|⟦com|$⟧ ⟦fn|cargo⟧ test ⟦attr|-p⟧ mdview-core
+|⟦com|%⟧ ⟦fn|ls⟧ ⟦attr|-la⟧ ~/src
+|⟦fn|not#comment⟧ url#frag
+|
+|⟦fn|printf⟧ ⟦str|'%s\n'⟧ ⟦str|'single\'⟧ tail
+|⟦fn|printf⟧ ⟦str|"%s"⟧ ⟦str|"double\"quoted"⟧
+|⟦fn|=invalid⟧ echo
+|

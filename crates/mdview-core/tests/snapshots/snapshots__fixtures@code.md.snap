@@ -1,0 +1,40 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/code.md
+---
+code rust
+  |⟦kw|fn⟧ ⟦fn|main⟧() {
+  |    ⟦attr|println!⟧(⟦str|"hi"⟧);
+  |}
+code rust
+  |⟦kw|let⟧ info_string = ⟦str|"first word only"⟧;
+code RUST
+  |⟦kw|let⟧ upper = ⟦num|1⟧;
+code python
+  |⟦kw|def⟧ ⟦fn|tilde⟧(): ⟦kw|pass⟧
+code (no lang)
+  |indented code
+  |block
+code (no lang)
+  |no language
+code unknownlang
+  |plain text
+code (no lang)
+  |
+code sh
+  |⟦fn|trailing⟧ blank lines
+  |
+  |
+code markdown
+  |```nested
+  |fence
+  |```
+list bullet
+  item
+    code js
+      |⟦kw|const⟧ inList = ⟦const|true⟧;
+code c
+  |⇥tab-indented
+code json
+  |{⟦prop|"spaces"⟧: ⟦str|"around info"⟧}

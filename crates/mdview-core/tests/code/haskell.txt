@@ -1,0 +1,18 @@
+{-# LANGUAGE OverloadedStrings #-}
+module Main (main) where
+
+import qualified Data.Map as M
+
+-- | A shape.
+data Shape = Circle Double | Square Double deriving (Show, Eq)
+
+area :: Shape -> Double
+area (Circle r) = pi * r ^ 2
+area (Square s) = s * s
+
+main :: IO ()
+main = do
+  let m = M.fromList [(1, "one")]
+  print (area (Circle 1.0), Just 'x', Nothing, True)
+  {- block
+     comment -}

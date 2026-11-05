@@ -1,0 +1,27 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/crlf.md
+---
+heading h1 #crlf-heading
+  "CRLF heading"
+paragraph
+  "A paragraph with a soft break."
+list bullet
+  item
+    paragraph
+      "item one"
+  item
+    paragraph
+      "item two"
+code rust
+  |⟦kw|let⟧ crlf = ⟦const|true⟧;
+table aligns=[none, none]
+  header
+    "a"
+    "b"
+  row 0
+    "1"
+    "2"
+paragraph
+  "Hard⏎break"

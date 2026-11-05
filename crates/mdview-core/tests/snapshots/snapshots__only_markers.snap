@@ -1,0 +1,13 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "-\n*\n+\n1.\n>\n"
+---
+list bullet
+  item
+list bullet
+  item
+list bullet
+  item
+list ordered start=1
+  item
+quote

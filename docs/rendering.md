@@ -16,7 +16,7 @@ flowchart LR
 Parsing happens **once per load**. Frames never look at the raw Markdown again,
 so scrolling only re-renders the rows that are visible.
 
-## 1. Parsing (`src/markdown.rs`)
+## 1. Parsing (`crates/mdview-core/src/markdown.rs`)
 
 `parse()` collects every pulldown-cmark event into a `Vec` and walks it with a
 small recursive-descent parser (`struct P`):
@@ -91,7 +91,7 @@ scrolling needs one.
 
 ### Syntax highlighting
 
-`src/highlight.rs` is a set of small hand-written lexers, not a grammar
+`crates/mdview-core/src/highlight.rs` is a set of small hand-written lexers, not a grammar
 engine: a generic lexer configured per language (keywords, types, comment and
 string syntax, and a few flags such as "capitalized words are types"), plus
 line-based lexers for shell sessions, diffs, HTML/XML and YAML/TOML/INI. It
@@ -112,7 +112,7 @@ uncolored.
 Inline and display math are handled differently, because GPUI lays out a
 paragraph as a single run of text and can't put an image inside it.
 
-- **Inline** `$…$` is turned into text while parsing (`src/latex.rs`): Greek
+- **Inline** `$…$` is turned into text while parsing (`crates/mdview-core/src/latex.rs`): Greek
   letters and symbols become Unicode characters, `x^2` becomes `x²` (or
   `x^(…)` when there's no superscript character), `\frac{a}{b}` becomes
   `a/b`, `\mathbb{R}` becomes `ℝ`, and variables are italic. It isn't a

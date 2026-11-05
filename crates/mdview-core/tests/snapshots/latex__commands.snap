@@ -1,0 +1,126 @@
+---
+source: crates/mdview-core/tests/latex.rs
+expression: table(cases.iter().map(|s| s.to_string()))
+---
+x^{0123456789+-=()} x_{0123456789+-=()} x^{-} x_{\pm} ⇒ ⟦I|x⟧⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾⟦I|x⟧₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎⟦I|x⟧⁻⟦I|x⟧_±
+x^{abcdefghijklmnoprstuvwxyz} x^{q} x^{ABDEGHIJKLMNOPRTUVW} x^{C} ⇒ ⟦I|x⟧ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ⟦I|x⟧^⟦I|qx⟧ᴬᴮᴰᴱᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾᴿᵀᵁⱽᵂ⟦I|x⟧^⟦I|C⟧
+x^{\alpha\beta\gamma\delta\theta\varphi\chi} x^{*} x^{\ast} x^{\prime\prime} x^{\circ} x^{\epsilon} ⇒ ⟦I|x⟧ᵅᵝᵞᵟᶿᵠᵡ⟦I|x⟧*⟦I|x⟧*⟦I|x⟧′′⟦I|x⟧°⟦I|x⟧^⟦I|ϵ⟧
+x_{aehijklmnoprstuvx} x_{b} x_{\beta\gamma\rho\varphi\chi} x_{\alpha} ⇒ ⟦I|x⟧ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ⟦I|x⟧_⟦I|bx⟧ᵦᵧᵨᵩᵪ⟦I|x⟧_⟦I|α⟧
+x^{{a+b}} x_{{a=b}} \mathrm{{x}+{y}} ⇒ ⟦I|x⟧ᵃ⁺ᵇ⟦I|x⟧_(⟦I|a⟧=⟦I|b⟧)x + y
+\text{a\@b\unknown c} ⇒ a@b c
+\frac{(a+b}{c} \frac{a+b)}{c} ⇒ ((⟦I|a⟧ + ⟦I|b⟧)/⟦I|c⟧(⟦I|a⟧ + ⟦I|b⟧))/⟦I|c⟧
+x^{''} ⇒ ⟦I|x⟧″
+\mathcal{A1!} \mathscr{z9} \mathfrak{x7?} \mathbb{0 9} ⇒ 𝒜1!𝓏9𝔵7?𝟘 𝟡
+\alpha\beta\gamma\delta\epsilon\varepsilon\zeta\eta\theta\vartheta\iota\kappa\lambda\mu\nu\xi\omicron\pi\varpi\rho\varrho\sigma\varsigma\tau\upsilon\phi\varphi\chi\psi\omega ⇒ ⟦I|αβγδϵεζηθϑικλμνξοπϖρϱσςτυϕφχψω⟧
+\Gamma\Delta\Theta\Lambda\Xi\Pi\Sigma\Upsilon\Phi\Psi\Omega ⇒ ΓΔΘΛΞΠΣΥΦΨΩ
+a \pm b \mp c \times d \div e \cdot f \ast g \star h \circ i \bullet j ⇒ ⟦I|a⟧ ± ⟦I|b⟧ ∓ ⟦I|c⟧ × ⟦I|d⟧ ÷ ⟦I|e⟧ ⋅ ⟦I|f⟧ ∗ ⟦I|g⟧ ⋆ ⟦I|h⟧ ∘ ⟦I|i⟧ ∙ ⟦I|j⟧
+a \oplus b \ominus c \otimes d \odot e \cup f \cap g \sqcup h \sqcap i \wedge j \land k \vee l \lor m \setminus n \dagger o \ddagger p \amalg q ⇒ ⟦I|a⟧ ⊕ ⟦I|b⟧ ⊖ ⟦I|c⟧ ⊗ ⟦I|d⟧ ⊙ ⟦I|e⟧ ∪ ⟦I|f⟧ ∩ ⟦I|g⟧ ⊔ ⟦I|h⟧ ⊓ ⟦I|i⟧ ∧ ⟦I|j⟧ ∧ ⟦I|k⟧ ∨ ⟦I|l⟧ ∨ ⟦I|m⟧ ∖ ⟦I|n⟧ † ⟦I|o⟧ ‡ ⟦I|p⟧ ⨿ ⟦I|q⟧
+a \le b \leq c \ge d \geq e \leqslant f \geqslant g \ne h \neq i \approx j \equiv k \sim l \simeq m \cong n \propto o ⇒ ⟦I|a⟧ ≤ ⟦I|b⟧ ≤ ⟦I|c⟧ ≥ ⟦I|d⟧ ≥ ⟦I|e⟧ ⩽ ⟦I|f⟧ ⩾ ⟦I|g⟧ ≠ ⟦I|h⟧ ≠ ⟦I|i⟧ ≈ ⟦I|j⟧ ≡ ⟦I|k⟧ ∼ ⟦I|l⟧ ≃ ⟦I|m⟧ ≅ ⟦I|n⟧ ∝ ⟦I|o⟧
+a \ll b \gg c \prec d \succ e \preceq f \succeq g \subset h \supset i \subseteq j \supseteq k \subsetneq l \supsetneq m ⇒ ⟦I|a⟧ ≪ ⟦I|b⟧ ≫ ⟦I|c⟧ ≺ ⟦I|d⟧ ≻ ⟦I|e⟧ ⪯ ⟦I|f⟧ ⪰ ⟦I|g⟧ ⊂ ⟦I|h⟧ ⊃ ⟦I|i⟧ ⊆ ⟦I|j⟧ ⊇ ⟦I|k⟧ ⊊ ⟦I|l⟧ ⊋ ⟦I|m⟧
+a \in A \notin B \ni c \mid d \nmid e \parallel f \perp g \vdash h \dashv i \models j \coloneqq k \doteq l \triangleq m ⇒ ⟦I|a⟧ ∈ ⟦I|A⟧ ∉ ⟦I|B⟧ ∋ ⟦I|c⟧ ∣ ⟦I|d⟧ ∤ ⟦I|e⟧ ∥ ⟦I|f⟧ ⊥ ⟦I|g⟧ ⊢ ⟦I|h⟧ ⊣ ⟦I|i⟧ ⊨ ⟦I|j⟧ ≔ ⟦I|k⟧ ≐ ⟦I|l⟧ ≜ ⟦I|m⟧
+\to \rightarrow \gets \leftarrow \leftrightarrow \Rightarrow \Leftarrow \Leftrightarrow \implies \impliedby \iff ⇒ → → ← ← ↔ ⇒ ⇐ ⇔ ⟹ ⟸ ⟺
+\longrightarrow \longleftarrow \longleftrightarrow \mapsto \longmapsto \hookrightarrow \hookleftarrow \uparrow \downarrow \updownarrow \Uparrow \Downarrow \nearrow \searrow \rightleftharpoons ⇒ ⟶ ⟵ ⟷ ↦ ⟼ ↪ ↩ ↑ ↓ ↕ ⇑ ⇓ ↗ ↘ ⇌
+\sum \prod \coprod \int \iint \iiint \oint \bigcup \bigcap \bigoplus \bigotimes \bigvee \bigwedge \bigsqcup ⇒ ∑∏∐∫∬∭∮⋃⋂⨁⨂⋁⋀⨆
+\langle x \rangle \lceil x \rceil \lfloor x \rfloor \lvert x \rvert \lVert x \rVert \vert \Vert \| \{ x \} \lbrace \rbrace \lbrack \rbrack \backslash ⇒ ⟨⟦I|x⟧⟩⌈⟦I|x⟧⌉⌊⟦I|x⟧⌋|⟦I|x⟧|‖⟦I|x⟧‖|‖‖{⟦I|x⟧}{}[]\
+\infty \partial \nabla \forall \exists \nexists \emptyset \varnothing \neg \lnot \ldots \dots \cdots \vdots \ddots \prime \angle ⇒ ∞∂∇∀∃∄∅∅¬¬……⋯⋮⋱′∠
+\triangle \square \Box \blacksquare \qed \Diamond \hbar \hslash \ell \wp \Re \Im \aleph \beth \top \bot \therefore \because ⇒ △□□■■◇⟦I|ℏℏℓ⟧℘ℜℑℵℶ⊤⊥∴∵
+\checkmark \degree \flat \sharp \natural \clubsuit \diamondsuit \heartsuit \spadesuit \imath \jmath \S \P \% \$ \& \# \_ ⇒ ✓°♭♯♮♣♢♡♠⟦I|ıȷ⟧§¶%$&#_
+\frac{1}{2} \frac{1}{3} \frac{2}{3} \frac14 \frac{3}{4} \frac{1}{5} \frac{1}{6} \frac{1}{8} \frac{1}{7} ⇒ ½⅓⅔¼¾⅕⅙⅛1/7
+\frac{a}{b} \dfrac{x+1}{y} \tfrac{a}{b c} \cfrac{(a+b)}{2} \frac{-x}{2} \frac{a/b}{c} ⇒ ⟦I|a⟧/⟦I|b⟧(⟦I|x⟧ + 1)/⟦I|y⟧⟦I|a⟧/⟦I|bc⟧(⟦I|a⟧ + ⟦I|b⟧)/2(−⟦I|x⟧)/2(⟦I|a⟧/⟦I|b⟧)/⟦I|c⟧
+\binom{n}{k} \dbinom{n+1}{2} \tbinom ab ⇒ (⟦I|n⟧ choose ⟦I|k⟧)(⟦I|n⟧ + 1 choose 2)(⟦I|a⟧ choose ⟦I|b⟧)
+\sqrt{2} \sqrt[3]{x} \sqrt[4]{x} \sqrt[n]{x} \sqrt[n+1]{x} \sqrt{x+1} \sqrt[q]{y} ⇒ √2∛⟦I|x⟧∜⟦I|x⟧ⁿ√⟦I|x⟧ⁿ⁺¹√⟦I|x⟧√(⟦I|x⟧ + 1)(q)√⟦I|y⟧
+x^2 x_i x^{10} x_{ij} x^{-1} x^{n+1} x_{a,b} x^{\alpha} x_\beta x^{(n)} x^{\prime} x^{*} x^\circ x'' f''' ⇒ ⟦I|x⟧²⟦I|x⟧ᵢ⟦I|x⟧¹⁰⟦I|x⟧ᵢⱼ⟦I|x⟧⁻¹⟦I|x⟧ⁿ⁺¹⟦I|x⟧_(⟦I|a⟧,⟦I|b⟧)⟦I|x⟧ᵅ⟦I|x⟧ᵦ⟦I|x⟧⁽ⁿ⁾⟦I|x⟧′⟦I|x⟧*⟦I|x⟧°⟦I|x⟧″⟦I|f⟧‴
+x^{qx} x_{y} x_{qz} e^{i\pi} a^{b^c} x_{1}^{2} x^ x_ ^2 _3 ⇒ ⟦I|x⟧^(⟦I|qx⟧)⟦I|x⟧_⟦I|yx⟧_(⟦I|qz⟧)⟦I|e⟧^(⟦I|iπ⟧)⟦I|a⟧^(⟦I|b⟧ᶜ)⟦I|x⟧₁²⟦I|x⟧ˣ_²₃
+\hat{x} \widehat{xy} \tilde{a} \widetilde{ab} \bar{x} \overline{AB} \widebar{z} \underline{u} \vec{v} \overrightarrow{AB} \overleftarrow{CD} ⇒ ⟦I|x⟨U+0302⟩xy⟨U+0302⟩a⟨U+0303⟩ab⟨U+0303⟩x⟨U+0305⟩A⟨U+0305⟩B⟨U+0305⟩z⟨U+0305⟩u⟨U+0332⟩v⟨U+20D7⟩AB⟨U+20D7⟩CD⟨U+20D6⟩⟧
+\dot{x} \ddot{y} \dddot{z} \acute{e} \grave{a} \check{c} \breve{u} \mathring{A} ⇒ ⟦I|x⟨U+0307⟩y⟨U+0308⟩z⟨U+20DB⟩e⟨U+0301⟩a⟨U+0300⟩c⟨U+030C⟩u⟨U+0306⟩A⟨U+030A⟩⟧
+\mathbb{RNZQCHP} \mathbb{ab12} \Bbb{R} \mathcal{ABEFHILMRZ} \mathcal{ego} \mathscr{L} \mathfrak{CHIRZag} \mathbb{x!} ⇒ ℝℕℤℚℂℍℙ𝕒𝕓𝟙𝟚ℝ𝒜ℬℰℱℋℐℒℳℛ𝒵ℯℊℴℒℭℌℑℜℨ𝔞𝔤𝕩!
+\mathrm{d}x \mathbf{v} \mathsf{S} \mathtt{tt} \mathit{if} \mathnormal{n} \boldsymbol{\beta} \bm{x} \operatorname{sgn} x \operatorname*{argmax}_x \mathop{lim} y \mathup{e} ⇒ d⟦I|x⟧vStt⟦I|if⟧⟦I|n⟧⟦I|β⟧⟦I|x⟧sgn⟨U+2009⟩⟦I|x⟧argmaxₓlim⟨U+2009⟩⟦I|y⟧e
+\text{if } x > 0 \textrm{rm} \textnormal{n} \textup{u} \mbox{m} \hbox{h} \textsf{sf} \texttt{tt} \textmd{md} \textit{it} \emph{em} \textsl{sl} \textbf{bf} ⇒ if ⟦I|x⟧ > 0rmnumhsfttmd⟦I|itemsl⟧bf
+\text{a {nested} \alpha b_c^d & e} \text x ⇒ a nested α b_c^d & ex
+\sin x \cos(x) \tan^2 x \log_2 n \ln x \exp x \lim_{x \to 0} \max \min \sup \inf \det A \gcd(a,b) \Pr(A) \arg z \ker f \dim V \deg p \hom \lcm \mod \bmod \tr \Tr \rank \sgn \argmax \argmin \lg \sec \csc \cot \arcsin \arccos \arctan \sinh \cosh \tanh \coth \liminf \limsup ⇒ sin⟨U+2009⟩⟦I|x⟧cos(⟦I|x⟧)tan²⟦I|x⟧log₂⟦I|n⟧ln⟨U+2009⟩⟦I|x⟧exp⟨U+2009⟩⟦I|x⟧lim_(⟦I|x⟧→0)max⟨U+2009⟩min⟨U+2009⟩sup⟨U+2009⟩inf⟨U+2009⟩det⟨U+2009⟩⟦I|A⟧gcd(⟦I|a⟧,⟨U+2009⟩⟦I|b⟧)Pr(⟦I|A⟧)arg⟨U+2009⟩⟦I|z⟧ker⟨U+2009⟩⟦I|f⟧dim⟨U+2009⟩⟦I|V⟧deg⟨U+2009⟩⟦I|p⟧hom⟨U+2009⟩lcm⟨U+2009⟩mod⟨U+2009⟩bmod⟨U+2009⟩tr⟨U+2009⟩Tr⟨U+2009⟩rank⟨U+2009⟩sgn⟨U+2009⟩argmax⟨U+2009⟩argmin⟨U+2009⟩lg⟨U+2009⟩sec⟨U+2009⟩csc⟨U+2009⟩cot⟨U+2009⟩arcsin⟨U+2009⟩arccos⟨U+2009⟩arctan⟨U+2009⟩sinh⟨U+2009⟩cosh⟨U+2009⟩tanh⟨U+2009⟩coth⟨U+2009⟩liminf⟨U+2009⟩limsup
+\sin \left( x \right) \sin\limits ⇒ sin(⟦I|x⟧)sin
+a\,b\:c\>d\;e\quad f\qquad g\ h\!i~j \thinspace k \medspace l \thickspace m \negthinspace n ⇒ ⟦I|a⟧⟨U+2009⟩⟦I|b⟧⟨U+205F⟩⟦I|c⟧⟨U+205F⟩⟦I|d⟧⟨U+2004⟩⟦I|e⟧⟨U+2003⟩⟦I|f⟧⟨U+2003⟩⟨U+2003⟩⟦I|g⟧ ⟦I|hi⟧⟨U+00A0⟩⟦I|j⟧⟨U+2009⟩⟦I|k⟧⟨U+205F⟩⟦I|l⟧⟨U+2004⟩⟦I|mn⟧
+a \\ b \newline c \cr d ⇒ ⟦I|a⟧; ⟦I|b⟧; ⟦I|c⟧; ⟦I|d⟧
+\left( \frac{a}{b} \right) \left. x \right| \middle| \big( \Big[ \bigg\{ \Bigg| \bigl( \bigr) \Bigl( \Bigr) \biggl \biggr \Biggl \Biggr ⇒ (⟦I|a⟧/⟦I|b⟧)⟦I|x⟧||([{|()()
+\displaystyle x \textstyle y \scriptstyle z \scriptscriptstyle w \limits \nolimits \nonumber \notag \mathstrut \strut \relax \allowbreak ⇒ ⟦I|xyzw⟧
+\label{eq:1} x \hspace{1em} y \vspace{2pt} z \kern{1pt} w \mkern{2mu} v \hskip{3pt} u \phantom{xyz} t ⇒ ⟦I|xyzwvut⟧
+\mathbin{\star} \mathrel{\sim} a \mathbin{+} b \mathrel{=} c \mathord{x} \mathopen{(} \mathclose{)} \mathpunct{,} \mathinner{y} ⇒ ⋆ ∼ ⟦I|a⟧ + ⟦I|b⟧ = ⟦I|c⟧⟦I|x⟧(),⟨U+2009⟩⟦I|y⟧
+\underbrace{a+b}_{n} \overbrace{c}^{m} \boxed{x} \fbox{y} \smash{z} \cancel{a} \bcancel{b} \xcancel{c} \sout{d} ⇒ ⟦I|a⟧ + ⟦I|b⟧ₙ⟦I|c⟧ᵐ⟦I|x⟧⟦I|y⟧⟦I|z⟧⟦I|a⟧⟦I|b⟧⟦I|c⟧⟦I|d⟧
+\color{red} x \textcolor{blue}{y} \colorbox{yellow}{z} ⇒ ⟦I|x⟧⟦I|y⟧⟦I|z⟧
+\overset{!}{=} \stackrel{def}{=} \underset{x}{\arg\min} ⇒ = ^!= ᵈᵉᶠarg⟨U+2009⟩minₓ
+a \not= b \not\in C \not\subset D \not\subseteq E \not\equiv f \not\sim g \not< h \not\le i ⇒ ⟦I|a⟧ ≠ ⟦I|b⟧ ∉ ⟦I|C⟧ ⊄ ⟦I|D⟧ ⊈ ⟦I|E⟧ ≢ ⟦I|f⟧ ≁ ⟦I|g⟧ <⟨U+0338⟩ ⟦I|h⟧ ≤⟨U+0338⟩ ⟦I|i⟧
+x \tag{1} y \tag*{A} ⇒ ⟦I|x⟧⟨U+2003⟩(1)⟦I|y⟧⟨U+2003⟩(A)
+\begin{pmatrix} a & b \\ c & d \end{pmatrix} ⇒ (a  b; c  d)
+\begin{bmatrix}1&2\end{bmatrix} \begin{Bmatrix}x\end{Bmatrix} \begin{vmatrix}a\end{vmatrix} \begin{Vmatrix}b\end{Vmatrix} \begin{matrix}m\end{matrix} ⇒ [1  2]{x}|a|‖b‖m
+f(x) = \begin{cases} 1 & x > 0 \\ 0 & \text{otherwise} \end{cases} ⇒ ⟦I|f⟧(⟦I|x⟧) = { 1  x > 0; 0  otherwise
+\begin{dcases} a \end{dcases} \begin{aligned} x &= 1 \\ y &= 2 \end{aligned} \begin{align*} z \end{align*} ⇒ { ax  = 1; y  = 2z
+\begin{array}{cc} a & b \end{array} \begin{tabular}{l} t \end{tabular} \begin{unknown} u \end{unknown} ⇒ a  btu
+\begin{pmatrix} a \begin{bmatrix} b \end{bmatrix} \end{pmatrix} ⇒ (a[b])
+\foo \bar \baz{x} \unknown[opt]{arg} \@ \1 ⇒ \foo\⟨U+0305⟩b⟨U+0305⟩a⟨U+0305⟩z⟨U+0305⟩⟦I|x⟧\unknown[⟦I|opt⟧]⟦I|arg⟧\@\1
+a % comment⏎ b ⇒ ⟦I|ab⟧
+{a}{b}{{c}} ⇒ ⟦I|a⟧⟦I|b⟧⟦I|c⟧
+-x + -y = -(a - b) \cdot -c ⇒ −⟦I|x⟧ + −⟦I|y⟧ = −(⟦I|a⟧ − ⟦I|b⟧) ⋅ −⟦I|c⟧
+a = b, c; d : e < f > g ⇒ ⟦I|a⟧ = ⟦I|b⟧,⟨U+2009⟩⟦I|c⟧;⟨U+2009⟩⟦I|d⟧ : ⟦I|e⟧ < ⟦I|f⟧ > ⟦I|g⟧
+(a) [b] \{c\} ⇒ (⟦I|a⟧)[⟦I|b⟧]{⟦I|c⟧}
+f(x, y)_{i} ⇒ ⟦I|f⟧(⟦I|x⟧,⟨U+2009⟩⟦I|y⟧)ᵢ
+\operatorname{Var}(X) = E[X^2] - E[X]^2 ⇒ Var(⟦I|X⟧) = ⟦I|E⟧[⟦I|X⟧²] − ⟦I|E⟧[⟦I|X⟧]²
+\int_0^1 f(x)\,dx \oint_C \sum_{n=0}^{\infty} \frac{1}{n!} ⇒ ∫₀¹⟦I|f⟧(⟦I|x⟧)⟨U+2009⟩⟦I|dx⟧∮_⟦I|C⟧∑ₙ₌₀^∞1/⟦I|n⟧!
+{ ⇒ 
+} ⇒ 
+{{{ ⇒ 
+}}} ⇒ 
+\frac{a ⇒ ⟦I|a⟧/
+\frac ⇒ /
+\sqrt[ ⇒ √
+\sqrt[3 ⇒ ∛
+\begin{pmatrix} a ⇒ (a)
+\begin ⇒ 
+\end{pmatrix} ⇒ 
+x^ ⇒ ⟦I|x⟧
+x_ ⇒ ⟦I|x⟧
+x^{ ⇒ ⟦I|x⟧
+\ ⇒ 
+a\ ⇒ ⟦I|a⟧
+\\ ⇒ ;
+\text{ ⇒ 
+\mathbb{ ⇒ 
+\left ⇒ 
+\not ⇒ ⟨U+0338⟩
+\hat ⇒ 
+^ ⇒ 
+_ ⇒ 
+& ⇒ 
+% ⇒ 
+'' ⇒ ″
+ ⇒ 
+    ⇒ 
+\, ⇒ 
+\quad x \quad ⇒ ⟦I|x⟧
+日本 é \alpha ⇒ 日本é⟦I|α⟧
+x^é x_日 ⇒ ⟦I|x⟧^é⟦I|x⟧_日
+\mathbb{é} ⇒ é
+\text{日本語} ⇒ 日本語
+\frac{é}{日} ⇒ é/日
+\hat{é} ⇒ é⟨U+0302⟩
+\sqrt[é]{x} ⇒ (é)√⟦I|x⟧
+\mathit{\alpha \mathrm{b} c} ⇒ ⟦I|αbc⟧
+\mathrm{\mathit{x}} ⇒ x
+\boldsymbol{} ⇒ 
+\mathit{} ⇒ 
+\textit{ a } ⇒ ⟦I|a⟧
+x\textit{ } ⇒ ⟦I|x⟧
+ \textit{ a b }  ⇒ ⟦I|a b⟧
+~x~ ⇒ ⟦I|x⟧
+\mathbb{R}^{n \times m} ⇒ ℝ^(⟦I|n⟧×⟦I|m⟧)
+x^{\frac{1}{2}} ⇒ ⟦I|x⟧^½
+x_{\text{max}} ⇒ ⟦I|x⟧ₘₐₓ
+\vec{\alpha} ⇒ ⟦I|α⟨U+20D7⟩⟧
+\hat{} ⇒ 
+\sqrt{} ⇒ √
+\frac{}{} ⇒ /
+\binom{}{} ⇒ ( choose )
+x^{} ⇒ ⟦I|x⟧
+\left\{ x \right\} ⇒ {⟦I|x⟧}
+\left\langle x \right\rangle ⇒ ⟨⟦I|x⟧⟩
+a\mid b ⇒ ⟦I|a⟧ ∣ ⟦I|b⟧
+\{ x \mid x > 0 \} ⇒ {⟦I|x⟧ ∣ ⟦I|x⟧ > 0}

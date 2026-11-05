@@ -1,0 +1,29 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/images.md
+---
+images
+  image alone.png alt="Alone"
+images
+  image one.png alt="One"
+  image two.png alt="Two"
+  image three.png alt="Three on the next line"
+paragraph
+  "Text before ⟦L0|[inline]⟧ and after."
+  link 0: inline.png
+images
+  image no-alt.png alt=""
+images
+  image ref.png alt="Ref image"
+images
+  image titled.png alt="Title"
+images
+  image https://img.shields.io/badge.svg alt="Badge"
+paragraph
+  "Text and a ⟦L0|[badge]⟧ inside."
+  link 0: https://ci
+images
+  image styled-alt.png alt="alt with emphasis and code"
+images
+  image https://example.com/remote.png alt="remote"

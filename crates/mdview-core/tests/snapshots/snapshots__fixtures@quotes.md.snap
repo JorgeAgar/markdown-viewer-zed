@@ -1,0 +1,54 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/quotes.md
+---
+quote
+  paragraph
+    "Simple quote."
+quote
+  paragraph
+    "Multi line quote."
+quote
+  paragraph
+    "Nested"
+  quote
+    paragraph
+      "twice"
+    quote
+      paragraph
+        "thrice"
+quote
+  heading h1 #heading-in-a-quote
+    "Heading in a quote"
+  list bullet
+    item
+      paragraph
+        "list in a quote"
+      list bullet
+        item
+          paragraph
+            "nested"
+          quote
+            paragraph
+              "quote in a list in a quote"
+  code rust
+    |⟦com|// code in a quote⟧
+list bullet
+  item
+    paragraph
+      "list"
+    quote
+      paragraph
+        "quote in a list"
+      list bullet
+        item
+          paragraph
+            "list in a quote in a list"
+          quote
+            paragraph
+              "and deeper"
+quote
+  paragraph
+    "Starts with an empty line."
+quote

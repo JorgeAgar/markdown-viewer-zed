@@ -22,7 +22,7 @@ cargo build --release
 | `Ctrl+PgDn` / `Ctrl+PgUp`            | Next / previous tab                       |
 | `Ctrl+R` / `F5`                      | Reload                                    |
 | `Ctrl+Q`                             | Quit                                      |
-| `↑ ↓` `j k` `PgUp PgDn` `Space` `Home End` `g G` | Scroll                       |
+| `↑ ↓` `j k` `PgUp PgDn` `Space` `Shift+Space` `Home End` `g G` | Scroll        |
 | Middle click on a tab                | Close it                                  |
 
 Code blocks are syntax highlighted, and ```` ```mermaid ```` blocks are drawn
@@ -76,15 +76,22 @@ to contribute, and the roadmap are documented, with diagrams, in
 
 ```
 src/main.rs      startup, single-instance socket, key bindings, font pick
+src/cli.rs       argument parsing, help text, socket message format
 src/viewer.rs    window: tabs, actions, live reload, drag & drop
-src/markdown.rs  Markdown -> block model (pulldown-cmark)
-src/highlight.rs syntax highlighting for code blocks (built-in lexers)
-src/latex.rs     inline math -> Unicode text
+src/tabs.rs      the tab list and active tab
+src/links.rs     link routing (anchors, other Markdown files, URLs)
 src/graphics.rs  display math and Mermaid -> images, rendered in the background and cached
 src/render.rs    block model -> GPUI elements
 src/theme.rs     light/dark palettes (follows the system appearance)
+crates/mdview-core/  the GUI-free core (no GPUI dependency, fast tests):
+  src/markdown.rs   Markdown -> block model (pulldown-cmark)
+  src/highlight.rs  syntax highlighting for code blocks (built-in lexers)
+  src/latex.rs      inline math -> Unicode text
 crates/gpui/     vendored GPUI 0.2.2 with startup fixes (see MDVIEW.md)
 patches/         those fixes as a diff against upstream gpui 0.2.2
+tests/           end-to-end tests of the binary, docs checks, guard snapshots
+scripts/         check.sh (run before every commit), guards, startup and mutation tests
+fuzz/            fuzz targets for the parser
 docs/            documentation for contributors (with diagrams)
 ```
 

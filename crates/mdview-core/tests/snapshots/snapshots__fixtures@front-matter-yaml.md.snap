@@ -1,0 +1,7 @@
+---
+source: crates/mdview-core/tests/snapshots.rs
+expression: "dump::document(&doc)"
+input_file: crates/mdview-core/tests/fixtures/front-matter-yaml.md
+---
+heading h1 #after-the-front-matter
+  "After the front matter"

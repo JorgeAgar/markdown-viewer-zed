@@ -1,0 +1,184 @@
+---
+source: crates/mdview-core/tests/latex.rs
+expression: "table(FUNCTIONS.iter().flat_map(|f|\n[format!(\"\\\\{f} x\"), format!(\"\\\\{f}(x)\"),\nformat!(\"\\\\{f}^2 x\")]).chain(ACCENTS.iter().flat_map(|a|\n[format!(\"\\\\{a}{{x}}\"), format!(\"\\\\{a}{{AB}}\"), format!(\"\\\\{a} y\")])))"
+---
+\sin x ⇒ sin⟨U+2009⟩⟦I|x⟧
+\sin(x) ⇒ sin(⟦I|x⟧)
+\sin^2 x ⇒ sin²⟦I|x⟧
+\cos x ⇒ cos⟨U+2009⟩⟦I|x⟧
+\cos(x) ⇒ cos(⟦I|x⟧)
+\cos^2 x ⇒ cos²⟦I|x⟧
+\tan x ⇒ tan⟨U+2009⟩⟦I|x⟧
+\tan(x) ⇒ tan(⟦I|x⟧)
+\tan^2 x ⇒ tan²⟦I|x⟧
+\cot x ⇒ cot⟨U+2009⟩⟦I|x⟧
+\cot(x) ⇒ cot(⟦I|x⟧)
+\cot^2 x ⇒ cot²⟦I|x⟧
+\sec x ⇒ sec⟨U+2009⟩⟦I|x⟧
+\sec(x) ⇒ sec(⟦I|x⟧)
+\sec^2 x ⇒ sec²⟦I|x⟧
+\csc x ⇒ csc⟨U+2009⟩⟦I|x⟧
+\csc(x) ⇒ csc(⟦I|x⟧)
+\csc^2 x ⇒ csc²⟦I|x⟧
+\arcsin x ⇒ arcsin⟨U+2009⟩⟦I|x⟧
+\arcsin(x) ⇒ arcsin(⟦I|x⟧)
+\arcsin^2 x ⇒ arcsin²⟦I|x⟧
+\arccos x ⇒ arccos⟨U+2009⟩⟦I|x⟧
+\arccos(x) ⇒ arccos(⟦I|x⟧)
+\arccos^2 x ⇒ arccos²⟦I|x⟧
+\arctan x ⇒ arctan⟨U+2009⟩⟦I|x⟧
+\arctan(x) ⇒ arctan(⟦I|x⟧)
+\arctan^2 x ⇒ arctan²⟦I|x⟧
+\sinh x ⇒ sinh⟨U+2009⟩⟦I|x⟧
+\sinh(x) ⇒ sinh(⟦I|x⟧)
+\sinh^2 x ⇒ sinh²⟦I|x⟧
+\cosh x ⇒ cosh⟨U+2009⟩⟦I|x⟧
+\cosh(x) ⇒ cosh(⟦I|x⟧)
+\cosh^2 x ⇒ cosh²⟦I|x⟧
+\tanh x ⇒ tanh⟨U+2009⟩⟦I|x⟧
+\tanh(x) ⇒ tanh(⟦I|x⟧)
+\tanh^2 x ⇒ tanh²⟦I|x⟧
+\coth x ⇒ coth⟨U+2009⟩⟦I|x⟧
+\coth(x) ⇒ coth(⟦I|x⟧)
+\coth^2 x ⇒ coth²⟦I|x⟧
+\log x ⇒ log⟨U+2009⟩⟦I|x⟧
+\log(x) ⇒ log(⟦I|x⟧)
+\log^2 x ⇒ log²⟦I|x⟧
+\ln x ⇒ ln⟨U+2009⟩⟦I|x⟧
+\ln(x) ⇒ ln(⟦I|x⟧)
+\ln^2 x ⇒ ln²⟦I|x⟧
+\lg x ⇒ lg⟨U+2009⟩⟦I|x⟧
+\lg(x) ⇒ lg(⟦I|x⟧)
+\lg^2 x ⇒ lg²⟦I|x⟧
+\exp x ⇒ exp⟨U+2009⟩⟦I|x⟧
+\exp(x) ⇒ exp(⟦I|x⟧)
+\exp^2 x ⇒ exp²⟦I|x⟧
+\lim x ⇒ lim⟨U+2009⟩⟦I|x⟧
+\lim(x) ⇒ lim(⟦I|x⟧)
+\lim^2 x ⇒ lim²⟦I|x⟧
+\liminf x ⇒ liminf⟨U+2009⟩⟦I|x⟧
+\liminf(x) ⇒ liminf(⟦I|x⟧)
+\liminf^2 x ⇒ liminf²⟦I|x⟧
+\limsup x ⇒ limsup⟨U+2009⟩⟦I|x⟧
+\limsup(x) ⇒ limsup(⟦I|x⟧)
+\limsup^2 x ⇒ limsup²⟦I|x⟧
+\max x ⇒ max⟨U+2009⟩⟦I|x⟧
+\max(x) ⇒ max(⟦I|x⟧)
+\max^2 x ⇒ max²⟦I|x⟧
+\min x ⇒ min⟨U+2009⟩⟦I|x⟧
+\min(x) ⇒ min(⟦I|x⟧)
+\min^2 x ⇒ min²⟦I|x⟧
+\sup x ⇒ sup⟨U+2009⟩⟦I|x⟧
+\sup(x) ⇒ sup(⟦I|x⟧)
+\sup^2 x ⇒ sup²⟦I|x⟧
+\inf x ⇒ inf⟨U+2009⟩⟦I|x⟧
+\inf(x) ⇒ inf(⟦I|x⟧)
+\inf^2 x ⇒ inf²⟦I|x⟧
+\det x ⇒ det⟨U+2009⟩⟦I|x⟧
+\det(x) ⇒ det(⟦I|x⟧)
+\det^2 x ⇒ det²⟦I|x⟧
+\dim x ⇒ dim⟨U+2009⟩⟦I|x⟧
+\dim(x) ⇒ dim(⟦I|x⟧)
+\dim^2 x ⇒ dim²⟦I|x⟧
+\ker x ⇒ ker⟨U+2009⟩⟦I|x⟧
+\ker(x) ⇒ ker(⟦I|x⟧)
+\ker^2 x ⇒ ker²⟦I|x⟧
+\deg x ⇒ deg⟨U+2009⟩⟦I|x⟧
+\deg(x) ⇒ deg(⟦I|x⟧)
+\deg^2 x ⇒ deg²⟦I|x⟧
+\gcd x ⇒ gcd⟨U+2009⟩⟦I|x⟧
+\gcd(x) ⇒ gcd(⟦I|x⟧)
+\gcd^2 x ⇒ gcd²⟦I|x⟧
+\lcm x ⇒ lcm⟨U+2009⟩⟦I|x⟧
+\lcm(x) ⇒ lcm(⟦I|x⟧)
+\lcm^2 x ⇒ lcm²⟦I|x⟧
+\arg x ⇒ arg⟨U+2009⟩⟦I|x⟧
+\arg(x) ⇒ arg(⟦I|x⟧)
+\arg^2 x ⇒ arg²⟦I|x⟧
+\hom x ⇒ hom⟨U+2009⟩⟦I|x⟧
+\hom(x) ⇒ hom(⟦I|x⟧)
+\hom^2 x ⇒ hom²⟦I|x⟧
+\Pr x ⇒ Pr⟨U+2009⟩⟦I|x⟧
+\Pr(x) ⇒ Pr(⟦I|x⟧)
+\Pr^2 x ⇒ Pr²⟦I|x⟧
+\mod x ⇒ mod⟨U+2009⟩⟦I|x⟧
+\mod(x) ⇒ mod(⟦I|x⟧)
+\mod^2 x ⇒ mod²⟦I|x⟧
+\bmod x ⇒ bmod⟨U+2009⟩⟦I|x⟧
+\bmod(x) ⇒ bmod(⟦I|x⟧)
+\bmod^2 x ⇒ bmod²⟦I|x⟧
+\tr x ⇒ tr⟨U+2009⟩⟦I|x⟧
+\tr(x) ⇒ tr(⟦I|x⟧)
+\tr^2 x ⇒ tr²⟦I|x⟧
+\Tr x ⇒ Tr⟨U+2009⟩⟦I|x⟧
+\Tr(x) ⇒ Tr(⟦I|x⟧)
+\Tr^2 x ⇒ Tr²⟦I|x⟧
+\rank x ⇒ rank⟨U+2009⟩⟦I|x⟧
+\rank(x) ⇒ rank(⟦I|x⟧)
+\rank^2 x ⇒ rank²⟦I|x⟧
+\sgn x ⇒ sgn⟨U+2009⟩⟦I|x⟧
+\sgn(x) ⇒ sgn(⟦I|x⟧)
+\sgn^2 x ⇒ sgn²⟦I|x⟧
+\argmax x ⇒ argmax⟨U+2009⟩⟦I|x⟧
+\argmax(x) ⇒ argmax(⟦I|x⟧)
+\argmax^2 x ⇒ argmax²⟦I|x⟧
+\argmin x ⇒ argmin⟨U+2009⟩⟦I|x⟧
+\argmin(x) ⇒ argmin(⟦I|x⟧)
+\argmin^2 x ⇒ argmin²⟦I|x⟧
+\hat{x} ⇒ ⟦I|x⟨U+0302⟩⟧
+\hat{AB} ⇒ ⟦I|AB⟨U+0302⟩⟧
+\hat y ⇒ ⟦I|y⟨U+0302⟩⟧
+\widehat{x} ⇒ ⟦I|x⟨U+0302⟩⟧
+\widehat{AB} ⇒ ⟦I|AB⟨U+0302⟩⟧
+\widehat y ⇒ ⟦I|y⟨U+0302⟩⟧
+\tilde{x} ⇒ ⟦I|x⟨U+0303⟩⟧
+\tilde{AB} ⇒ ⟦I|AB⟨U+0303⟩⟧
+\tilde y ⇒ ⟦I|y⟨U+0303⟩⟧
+\widetilde{x} ⇒ ⟦I|x⟨U+0303⟩⟧
+\widetilde{AB} ⇒ ⟦I|AB⟨U+0303⟩⟧
+\widetilde y ⇒ ⟦I|y⟨U+0303⟩⟧
+\bar{x} ⇒ ⟦I|x⟨U+0305⟩⟧
+\bar{AB} ⇒ ⟦I|A⟨U+0305⟩B⟨U+0305⟩⟧
+\bar y ⇒ ⟦I|y⟨U+0305⟩⟧
+\overline{x} ⇒ ⟦I|x⟨U+0305⟩⟧
+\overline{AB} ⇒ ⟦I|A⟨U+0305⟩B⟨U+0305⟩⟧
+\overline y ⇒ ⟦I|y⟨U+0305⟩⟧
+\widebar{x} ⇒ ⟦I|x⟨U+0305⟩⟧
+\widebar{AB} ⇒ ⟦I|A⟨U+0305⟩B⟨U+0305⟩⟧
+\widebar y ⇒ ⟦I|y⟨U+0305⟩⟧
+\underline{x} ⇒ ⟦I|x⟨U+0332⟩⟧
+\underline{AB} ⇒ ⟦I|A⟨U+0332⟩B⟨U+0332⟩⟧
+\underline y ⇒ ⟦I|y⟨U+0332⟩⟧
+\vec{x} ⇒ ⟦I|x⟨U+20D7⟩⟧
+\vec{AB} ⇒ ⟦I|AB⟨U+20D7⟩⟧
+\vec y ⇒ ⟦I|y⟨U+20D7⟩⟧
+\overrightarrow{x} ⇒ ⟦I|x⟨U+20D7⟩⟧
+\overrightarrow{AB} ⇒ ⟦I|AB⟨U+20D7⟩⟧
+\overrightarrow y ⇒ ⟦I|y⟨U+20D7⟩⟧
+\overleftarrow{x} ⇒ ⟦I|x⟨U+20D6⟩⟧
+\overleftarrow{AB} ⇒ ⟦I|AB⟨U+20D6⟩⟧
+\overleftarrow y ⇒ ⟦I|y⟨U+20D6⟩⟧
+\dot{x} ⇒ ⟦I|x⟨U+0307⟩⟧
+\dot{AB} ⇒ ⟦I|AB⟨U+0307⟩⟧
+\dot y ⇒ ⟦I|y⟨U+0307⟩⟧
+\ddot{x} ⇒ ⟦I|x⟨U+0308⟩⟧
+\ddot{AB} ⇒ ⟦I|AB⟨U+0308⟩⟧
+\ddot y ⇒ ⟦I|y⟨U+0308⟩⟧
+\dddot{x} ⇒ ⟦I|x⟨U+20DB⟩⟧
+\dddot{AB} ⇒ ⟦I|AB⟨U+20DB⟩⟧
+\dddot y ⇒ ⟦I|y⟨U+20DB⟩⟧
+\acute{x} ⇒ ⟦I|x⟨U+0301⟩⟧
+\acute{AB} ⇒ ⟦I|AB⟨U+0301⟩⟧
+\acute y ⇒ ⟦I|y⟨U+0301⟩⟧
+\grave{x} ⇒ ⟦I|x⟨U+0300⟩⟧
+\grave{AB} ⇒ ⟦I|AB⟨U+0300⟩⟧
+\grave y ⇒ ⟦I|y⟨U+0300⟩⟧
+\check{x} ⇒ ⟦I|x⟨U+030C⟩⟧
+\check{AB} ⇒ ⟦I|AB⟨U+030C⟩⟧
+\check y ⇒ ⟦I|y⟨U+030C⟩⟧
+\breve{x} ⇒ ⟦I|x⟨U+0306⟩⟧
+\breve{AB} ⇒ ⟦I|AB⟨U+0306⟩⟧
+\breve y ⇒ ⟦I|y⟨U+0306⟩⟧
+\mathring{x} ⇒ ⟦I|x⟨U+030A⟩⟧
+\mathring{AB} ⇒ ⟦I|AB⟨U+030A⟩⟧
+\mathring y ⇒ ⟦I|y⟨U+030A⟩⟧
