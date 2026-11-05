@@ -16,6 +16,9 @@ exclude = ["crates/gpui", "fuzz"]
 mdview-core = { path = "crates/mdview-core" }
 gpui = "0.2.2"
 futures = "0.3"
+# Already in GPUI's tree; blocking transport runs on smol's blocking pool.
+reqwest = { package = "zed-reqwest", version = "0.12.15-zed", default-features = false, features = ["blocking", "rustls-tls-native-roots"] }
+smol = "2"
 # Display math: RaTeX (a Rust port of KaTeX), with the KaTeX fonts embedded.
 ratex-parser = "0.1.15"
 ratex-layout = "0.1.15"

@@ -29,6 +29,9 @@ Code blocks are syntax highlighted, and ```` ```mermaid ```` blocks are drawn
 as diagrams. Math is supported: inline `$…$` becomes Unicode text (`x²`,
 `α ≤ β`), while `$$…$$` and ```` ```math ```` blocks are typeset like KaTeX.
 
+Standalone images load from local files or HTTP(S) URLs in the background,
+with alt text shown if loading fails.
+
 You can also drag files onto the window. Clicking a link to a local `.md` file
 opens it in a new tab, and `#anchor` links scroll to the matching heading. Open
 files reload automatically when they change on disk.
@@ -63,8 +66,8 @@ override the fonts.
 - **Small dependency footprint.** Besides GPUI, `pulldown-cmark` and
   `futures`, the only dependencies are RaTeX (a Rust port of KaTeX) for math
   and merman (the Rust Mermaid implementation Zed uses) for diagrams.
-  There's no HTTP stack and no editor. The release build uses full LTO and is
-  stripped.
+  Remote images reuse GPUI's existing HTTP/TLS dependencies, initialized
+  lazily. The release build uses full LTO and is stripped.
 
 ## Documentation
 
@@ -97,6 +100,5 @@ docs/            documentation for contributors (with diagrams)
 
 ## Not supported yet
 
-- Remote (`http://`) images. They show up as links.
 - Raw HTML blocks. They're skipped.
 - Text selection and copy.

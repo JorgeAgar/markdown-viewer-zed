@@ -33,6 +33,7 @@ flowchart TD
     end
     subgraph app["src/ unit tests (cargo test -p mdview)"]
         pure["tabs.rs, links.rs, cli.rs<br/>pure logic"]
+        http["http.rs<br/>loopback image downloads + redirects"]
         theme["theme.rs<br/>contrast ratios"]
         gfx["graphics/tests.rs<br/>math goldens, Mermaid"]
         viewer["viewer/app_tests.rs<br/>Viewer on GPUI's test platform"]
@@ -56,6 +57,7 @@ flowchart TD
 | Properties | `crates/mdview-core/tests/props.rs` | Panics and broken invariants on generated input: spans inside the text, on char boundaries, sorted, non-overlapping; valid link indices; highlight ranges for every language; LaTeX italic ranges |
 | Spec examples | `crates/mdview-core/tests/spec.rs`, `data/` | The same invariants on all CommonMark 0.31.2 and GFM examples, plus block counts against the spec's HTML |
 | Pure app logic | `src/tabs.rs`, `src/links.rs`, `src/cli.rs` | Tab dedupe and active tab after closing; link routing and percent decoding; argument parsing and the socket message format |
+| Image HTTP | `src/http.rs`, `src/viewer/app_tests.rs` | Loopback downloads, redirects, HTTP errors, and the viewer requesting URL images |
 | Theme | `src/theme.rs` | Contrast of every color on its background in both themes (see [Theme contrast](#theme-contrast)) |
 | Graphics | `src/graphics/tests.rs`, `tests/golden/math/` | Display math against golden images; Mermaid diagrams render, aren't blank and stay under the size limit; bad input gives an error, not a panic |
 | Viewer | `src/viewer/app_tests.rs` | Tabs, actions, live reload (on a fake clock), scrolling, anchors, link clicks, and drawing every example document in light and dark |

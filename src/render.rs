@@ -357,9 +357,8 @@ fn image(i: &Image, rcx: &RenderCx) -> AnyElement {
     } else {
         i.alt.clone().into()
     };
-    if i.url.contains("://") || i.url.starts_with("data:") {
-        // Remote images would need an HTTP stack; keep the viewer lean and
-        // show them as links instead.
+    if image_is_link(&i.url) {
+        // Unsupported URI schemes remain clickable.
         let url = i.url.clone();
         return div()
             .id(SharedString::from(i.url.clone()))
@@ -369,9 +368,8 @@ fn image(i: &Image, rcx: &RenderCx) -> AnyElement {
             .on_click(move |_, _, cx| cx.open_url(&url))
             .into_any_element();
     }
-    let path = rcx.base_dir.join(percent_decode(&i.url));
     let muted = t.muted;
-    img(path)
+    img(image_source(&i.url, &rcx.base_dir))
         .max_w_full()
         .object_fit(ObjectFit::ScaleDown)
         .with_fallback(move || {
@@ -479,5 +477,56 @@ pub(crate) fn open_link(
                 .ok();
         }
         LinkTarget::File(path) => cx.open_url(&file_url(&path)),
+    }
+}
+
+fn image_is_link(url: &str) -> bool {
+    (url.contains("://") && !url.starts_with("http://") && !url.starts_with("https://"))
+        || url.starts_with("data:")
+}
+
+fn image_source(url: &str, base_dir: &Path) -> gpui::ImageSource {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        gpui::SharedUri::from(url.to_owned()).into()
+    } else {
+        base_dir.join(percent_decode(url)).into()
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_image_schemes_stay_links() {
+        for url in ["ftp://example.com/a.png", "data:image/png;base64,abc"] {
+            assert!(image_is_link(url));
+        }
+        for url in [
+            "http://example.com/a.png",
+            "https://example.com/a.png",
+            "a.png",
+        ] {
+            assert!(!image_is_link(url));
+        }
+    }
+
+    #[test]
+    fn remote_images_use_uri_resources_and_preserve_escaping() {
+        for url in [
+            "http://example.com/a.png",
+            "https://example.com/a%20b.svg?q=x%23y",
+        ] {
+            assert!(matches!(image_source(url, Path::new("/docs")),
+                gpui::ImageSource::Resource(gpui::Resource::Uri(uri)) if uri.as_ref() == url));
+        }
+    }
+
+    #[test]
+    fn local_images_resolve_against_document_directory() {
+        for (url, expected) in [("a%20b.png", "/docs/a b.png"), ("/tmp/a.png", "/tmp/a.png")] {
+            assert!(matches!(image_source(url, Path::new("/docs")),
+                gpui::ImageSource::Resource(gpui::Resource::Path(path)) if path.as_ref() == Path::new(expected)));
+        }
     }
 }

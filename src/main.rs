@@ -8,6 +8,7 @@
 
 mod cli;
 mod graphics;
+mod http;
 mod links;
 mod render;
 mod tabs;
@@ -81,7 +82,8 @@ fn main() {
     // Parse in parallel with GPUI start-up.
     let preload = std::thread::spawn(move || paths.into_iter().map(viewer::load).collect());
 
-    Application::new().run(move |cx: &mut App| {
+    let app = Application::new().with_http_client(std::sync::Arc::new(http::ImageHttpClient));
+    app.run(move |cx: &mut App| {
         cx.bind_keys([
             KeyBinding::new("ctrl-o", Open, None),
             KeyBinding::new("ctrl-w", CloseTab, None),
