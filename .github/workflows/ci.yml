@@ -26,33 +26,21 @@ env:
 
 jobs:
   test:
-    name: fmt, guards, tests, window tests
+    name: fmt, guards, tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system libraries, Xvfb, Mesa lavapipe and fonts
+      - name: Install system libraries and fonts
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends $GPUI_DEPS \
-            xvfb xauth mesa-vulkan-drivers fonts-dejavu-core
+            fonts-dejavu-core
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: scripts/check.sh (fmt, guards, all tests)
         run: scripts/check.sh --profile ci --no-clippy
-      # Reuses the build above. Not verified on GitHub's runners yet (written
-      # and tested locally on Wayland only); make it blocking once it has
-      # passed reliably for a while.
-      - name: Window tests (X11 on Xvfb, software Vulkan)
-        continue-on-error: true
-        env:
-          MDVIEW_E2E: "1"
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-        run: |
-          unset WAYLAND_DISPLAY
-          xvfb-run -a -s "-screen 0 1920x1080x24" \
-            cargo test --locked --profile ci --test cli -- --test-threads=1
 
   clippy:
     name: clippy

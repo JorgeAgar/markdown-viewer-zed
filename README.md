@@ -9,6 +9,13 @@ in tabs.
 
 ## Usage
 
+Linux x86_64 binaries are available as tarballs on the
+[Releases page](https://github.com/JorgeAgar/markdown-viewer-zed/releases).
+See [installation and releases](docs/releases.md) for system requirements
+and the tag-based release process. Windows is not supported yet.
+
+To build from source:
+
 ```sh
 cargo build --release
 ./target/release/mdview README.md docs/*.md
@@ -74,6 +81,9 @@ override the fonts.
 The architecture, startup performance, rendering pipeline, the GPUI fork, how
 to contribute, and the roadmap are documented, with diagrams, in
 [`docs/`](docs/README.md). AI agents: see [`AGENTS.md`](AGENTS.md).
+
+GitHub CI runs formatting, guards, clippy and headless tests. Real window
+tests run locally with `scripts/check.sh --e2e`; see [testing](docs/testing.md).
 
 ## Layout
 
