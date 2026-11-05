@@ -47,17 +47,19 @@ git push origin v0.1.0
 
 Use the next version for subsequent releases. Never move a published tag.
 The release workflow rejects tags that do not match the app package version.
-It builds the Linux binary, packages it, checks the extracted binary's help
-output and shared libraries, then publishes a GitHub Release directly with
-one tarball and generated notes. There is no draft stage and no full test
-rerun: the tagged commit must already have been tested. A failed build does
+It runs formatting, guards, clippy and the full headless workspace test suite
+using the CI profile, then builds the Linux release binary, packages it,
+checks the extracted binary's help output and shared libraries, and publishes
+a GitHub Release directly with one tarball and generated notes. Real window
+tests remain local only. There is no draft stage. A failed test or build does
 not publish a release; fix the cause before rerunning the workflow.
 
 ```mermaid
 flowchart LR
     tested["Test and merge commit"] --> tag["Push version tag"]
     tag --> version["Verify package version"]
-    version --> build["Build Linux release binary"]
+    version --> tests["Full headless tests and checks"]
+    tests --> build["Build Linux release binary"]
     build --> package["Package and smoke test tarball"]
     package --> publish["Publish GitHub Release"]
 ```

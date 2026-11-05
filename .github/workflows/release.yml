@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - name: Check release tag against package version
         run: |
           cargo metadata --locked --no-deps --format-version 1 | python3 -c '
@@ -38,10 +40,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
-            libwayland-dev libfontconfig-dev libfreetype-dev libvulkan1
+            libwayland-dev libfontconfig-dev libfreetype-dev libvulkan1 fonts-dejavu-core
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-linux-x86_64
+      - name: Full headless test suite, formatting, guards and clippy
+        run: scripts/check.sh --profile ci
       - name: Build optimized binary
         run: cargo build --locked --release --target "$TARGET"
       - name: Package and verify tarball
