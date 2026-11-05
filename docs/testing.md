@@ -123,14 +123,18 @@ test notices shows untested logic.
 
 ```sh
 # cargo-mutants copies the tree into $TMPDIR. If /tmp is a tmpfs (RAM),
-# point it at the disk, or a large run can exhaust memory.
+# point it at the disk.
 export TMPDIR=~/.cache/mdview-mutants/tmp; mkdir -p "$TMPDIR"
-cargo mutants -p mdview-core --test-package mdview-core -j 3
-cargo mutants -p mdview -f src/tabs.rs -f src/links.rs -f src/cli.rs -j 1
+# Some mutants turn a lexer loop into one that never advances and keeps
+# allocating (e.g. `number_end` returning 0): gigabytes in seconds, long
+# before the timeout. Cap each process so they fail fast (and count as
+# caught) instead of taking the machine down.
+(ulimit -v 2500000; cargo mutants -p mdview-core --test-package mdview-core -j 2)
+(ulimit -v 6000000; cargo mutants -p mdview -f src/tabs.rs -f src/links.rs -f src/cli.rs -j 1)
 ```
 
-Don't use `--in-place`. If it is interrupted, the mutated source is left
-in your working tree. CI runs the core crate weekly and uploads
+Don't use `--in-place` in your working tree. If it is interrupted, the
+mutated source is left behind. CI runs the core crate weekly and uploads
 `mutants.out`.
 
 **Coverage:** `cargo llvm-cov -p mdview-core --html` (the report goes to

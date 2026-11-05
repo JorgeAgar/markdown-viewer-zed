@@ -74,7 +74,8 @@ cargo fmt
 - `InteractiveText` and scrollable divs need unique `ElementId`s within a list
   row. Use the row's `IdGen` in `render.rs`.
 - `cargo mutants` copies the tree into `$TMPDIR`. On machines where `/tmp`
-  is a tmpfs, set `TMPDIR` to a directory on disk (see docs/testing.md), and
-  never use `--in-place`.
+  is a tmpfs, set `TMPDIR` to a directory on disk, cap memory with
+  `ulimit -v` (some mutants allocate without end), and never use
+  `--in-place` in your working tree. See docs/testing.md.
 - The first release build compiles GPUI and takes several minutes. Later
   builds take about 1 minute, because of full LTO.
