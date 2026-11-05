@@ -464,6 +464,7 @@ mod app_tests;
 mod tests {
     use super::*;
     use crate::{markdown::Block, test_util::TempDir};
+    #[cfg(unix)]
     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
     fn heading(doc: &Document, ix: usize) -> String {
@@ -495,6 +496,7 @@ mod tests {
     /// between the read and the stat is recorded with the old content, and
     /// live reload never picks it up. A FIFO makes that race deterministic:
     /// reading blocks until a writer comes, and the write bumps the mtime.
+    #[cfg(unix)]
     #[test]
     fn load_takes_the_mtime_before_reading() {
         let dir = TempDir::new("fifo");
@@ -533,14 +535,20 @@ mod tests {
         let (p, res) = load(dir.join("nope.md"));
         assert_eq!(p, dir.join("nope.md"));
         let err = res.err().unwrap();
+        #[cfg(unix)]
         assert!(err.contains("No such file"), "{err}");
+        #[cfg(windows)]
+        assert!(err.contains("cannot find"), "{err}");
     }
 
     #[test]
     fn load_directory() {
         let dir = TempDir::new("dir");
         let err = load(dir.to_path_buf()).1.err().unwrap();
+        #[cfg(unix)]
         assert!(err.contains("directory"), "{err}");
+        #[cfg(windows)]
+        assert!(err.contains("denied"), "{err}");
     }
 
     #[test]
@@ -573,8 +581,11 @@ mod tests {
         assert_eq!(normalize(&file), canon);
         assert_eq!(normalize(&dir.join("sub/../a.md")), canon);
         assert_eq!(normalize(&dir.join("./a.md")), canon);
-        std::os::unix::fs::symlink(&file, dir.join("link.md")).unwrap();
-        assert_eq!(normalize(&dir.join("link.md")), canon);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&file, dir.join("link.md")).unwrap();
+            assert_eq!(normalize(&dir.join("link.md")), canon);
+        }
         // Missing absolute paths are kept as they are (not cleaned up).
         let missing = dir.join("sub/../missing.md");
         assert_eq!(normalize(&missing), missing);
@@ -587,8 +598,11 @@ mod tests {
         // An existing relative path is canonicalized too.
         assert_eq!(normalize(Path::new("Cargo.toml")), cwd.join("Cargo.toml"));
         // Non-UTF-8 names survive.
-        let raw = dir.join(OsStr::from_bytes(b"caf\xe9.md"));
-        assert_eq!(normalize(&raw), raw);
+        #[cfg(unix)]
+        {
+            let raw = dir.join(OsStr::from_bytes(b"caf\xe9.md"));
+            assert_eq!(normalize(&raw), raw);
+        }
     }
 
     #[test]

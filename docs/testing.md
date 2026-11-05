@@ -171,3 +171,7 @@ job, and runs two jobs in parallel:
 To reproduce a CI failure locally: `scripts/check.sh --profile ci`.
 
 Mutation testing is deliberately not in CI (it's slow); see above.
+
+The portable core also runs on native Windows and macOS CI runners. Unix
+socket integration tests remain Unix-specific; OS-specific byte paths, symlinks,
+and FIFO tests are gated individually so shared viewer tests remain portable.

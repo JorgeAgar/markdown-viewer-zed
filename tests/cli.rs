@@ -17,6 +17,8 @@
 //! `$XDG_RUNTIME_DIR/mdview.sock` (or `$TMPDIR/mdview-$USER.sock`), writes the
 //! absolute paths joined by '\n', and closes the connection.
 
+#![cfg(unix)]
+
 use std::{
     io::{BufRead, BufReader, Read},
     os::unix::{fs::MetadataExt, net::UnixListener},
