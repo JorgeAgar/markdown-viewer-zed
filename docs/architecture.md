@@ -5,7 +5,8 @@
 ```
 .
 ├── src/
-│   ├── main.rs        Entry point: single-instance socket, key bindings, font choice, window creation
+│   ├── main.rs        Entry point: IPC handoff, key bindings, font choice, window creation
+│   ├── platform/      OS integration; unix.rs owns the Unix single-instance socket
 │   ├── cli.rs         Argument parsing, help text, socket path and message format (GUI-free)
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
@@ -48,6 +49,9 @@ flowchart TD
     gpui[("crates/gpui<br/>GPUI (vendored)")]
     cmark[("pulldown-cmark")]
 
+    ipc["platform/unix.rs<br/>single-instance transport"]
+    main --> ipc
+    ipc --> cli
     main --> cli
     main --> viewer
     viewer --> tabs
@@ -246,7 +250,7 @@ for benchmarks and debugging.
 | `#anchor` | Scroll the current tab to the heading whose slug matches |
 | `http(s)://…`, `mailto:` | Open with the system handler (`cx.open_url`) |
 | Relative or absolute `*.md` (with an optional `#anchor`) | Open in a tab (or switch to it), then scroll to the anchor |
-| Any other local file | Open with the system handler (`file://…`) |
+| Any other local file | Open with the system handler (percent-encoded `file://…`) |
 
 Anchor slugs follow GitHub's rules (`markdown::slugify`) and are matched
 case-insensitively (`links::heading_index`). Only top-level headings can be

@@ -112,3 +112,7 @@ docs/            documentation for contributors (with diagrams)
 
 - Raw HTML blocks. They're skipped.
 - Text selection and copy.
+
+Platform integration is isolated under `src/platform/`; Markdown parsing and
+rendering stay shared. Native Windows and macOS support is being added on this
+foundation. Releases collect verified artifacts before publishing once.

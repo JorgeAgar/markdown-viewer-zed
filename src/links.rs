@@ -56,10 +56,11 @@ pub fn is_markdown(path: &Path) -> bool {
     })
 }
 
-/// The URL handed to the system to open a local file. The path is not
-/// percent-encoded.
+/// Percent-encoded URL for an absolute local file, including Windows drive/UNC paths.
 pub fn file_url(path: &Path) -> String {
-    format!("file://{}", path.display())
+    reqwest::Url::from_file_path(path)
+        .expect("local link paths are absolute")
+        .into()
 }
 
 /// Decodes `%XX` escapes. Invalid escapes are kept as they are, and bytes that
@@ -202,11 +203,15 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn file_urls() {
         assert_eq!(file_url(Path::new("/a/b.png")), "file:///a/b.png");
-        // Pinned: not percent-encoded.
-        assert_eq!(file_url(Path::new("/a b/c#d.png")), "file:///a b/c#d.png");
+        assert_eq!(
+            file_url(Path::new("/a b/c#d.png")),
+            "file:///a%20b/c%23d.png"
+        );
+        assert_eq!(file_url(Path::new("/a%20b?.png")), "file:///a%2520b%3F.png");
     }
 
     #[test]
@@ -229,6 +234,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn non_utf8_extension_is_not_markdown() {
         use std::{ffi::OsStr, os::unix::ffi::OsStrExt};

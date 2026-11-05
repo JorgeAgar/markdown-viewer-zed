@@ -84,7 +84,9 @@ pub fn decode_paths(msg: &str) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
+    use std::path::Path;
+    #[cfg(unix)]
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
     fn encode(paths: &[&Path]) -> String {
         encode_paths(&paths.iter().map(|p| p.to_path_buf()).collect::<Vec<_>>())
@@ -159,6 +161,7 @@ mod tests {
         assert_eq!(parse_args(args(&[" -n"])), run(false, &[" -n"]));
     }
 
+    #[cfg(unix)]
     #[test]
     fn non_utf8_paths_are_kept_byte_for_byte() {
         let raw = OsStr::from_bytes(b"caf\xe9.md").to_owned();
@@ -256,9 +259,12 @@ mod tests {
             [PathBuf::from("/a"), PathBuf::from("/b")]
         );
         // Non-UTF-8 bytes are replaced, so the server opens another path.
-        let raw = Path::new(OsStr::from_bytes(b"/caf\xe9.md"));
-        let msg = encode(&[raw]);
-        assert_eq!(msg, "/caf\u{FFFD}.md");
-        assert_ne!(decode_paths(&msg), [raw.to_path_buf()]);
+        #[cfg(unix)]
+        {
+            let raw = Path::new(OsStr::from_bytes(b"/caf\xe9.md"));
+            let msg = encode(&[raw]);
+            assert_eq!(msg, "/caf\u{FFFD}.md");
+            assert_ne!(decode_paths(&msg), [raw.to_path_buf()]);
+        }
     }
 }
