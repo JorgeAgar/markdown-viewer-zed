@@ -38,3 +38,5 @@ $$
 
 $x
 y$ across lines.
+
+*Already italic $x+y$ stays italic.*

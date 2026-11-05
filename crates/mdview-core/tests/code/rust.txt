@@ -36,3 +36,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     'outer: loop { break 'outer; }
     Ok(())
 }
+
+#[
+    cfg(test)
+]
+fn gated() {}
+#!
+let after_incomplete_attribute = true;
+
+let empty_bytes = b"";
+
+fn	identity<T>(value: T) -> T { value }

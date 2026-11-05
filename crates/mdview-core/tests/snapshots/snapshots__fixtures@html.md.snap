@@ -13,3 +13,7 @@ paragraph
   "Text with  in it."
 paragraph
   "Entities: & < © # 😀 ⟨U+00A0⟩end &bogus;"
+paragraph
+  "plain ⟦B|bold⟧"
+paragraph
+  "⟦B|kept after trimming a styled break⟧"

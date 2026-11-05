@@ -330,6 +330,13 @@ fn commands() {
         r"x^{abcdefghijklmnoprstuvwxyz} x^{q} x^{ABDEGHIJKLMNOPRTUVW} x^{C}",
         r"x^{\alpha\beta\gamma\delta\theta\varphi\chi} x^{*} x^{\ast} x^{\prime\prime} x^{\circ} x^{\epsilon}",
         r"x_{aehijklmnoprstuvx} x_{b} x_{\beta\gamma\rho\varphi\chi} x_{\alpha}",
+        // Nested groups inherit script spacing and upright font context.
+        r"x^{{a+b}} x_{{a=b}} \mathrm{{x}+{y}}",
+        // Raw text keeps escaped punctuation and drops unsupported commands.
+        r"\text{a\@b\unknown c}",
+        // One unmatched parenthesis does not make an expression fully wrapped.
+        r"\frac{(a+b}{c} \frac{a+b)}{c}",
+        r"x^{''}",
         // Alphabet fallbacks: digits and non-letters keep their form.
         r"\mathcal{A1!} \mathscr{z9} \mathfrak{x7?} \mathbb{0 9}",
         r"\alpha\beta\gamma\delta\epsilon\varepsilon\zeta\eta\theta\vartheta\iota\kappa\lambda\mu\nu\xi\omicron\pi\varpi\rho\varrho\sigma\varsigma\tau\upsilon\phi\varphi\chi\psi\omega",

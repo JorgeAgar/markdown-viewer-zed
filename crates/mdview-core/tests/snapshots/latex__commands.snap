@@ -6,6 +6,10 @@ x^{0123456789+-=()} x_{0123456789+-=()} x^{-} x_{\pm} ⇒ ⟦I|x⟧⁰¹²³⁴�
 x^{abcdefghijklmnoprstuvwxyz} x^{q} x^{ABDEGHIJKLMNOPRTUVW} x^{C} ⇒ ⟦I|x⟧ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ⟦I|x⟧^⟦I|qx⟧ᴬᴮᴰᴱᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾᴿᵀᵁⱽᵂ⟦I|x⟧^⟦I|C⟧
 x^{\alpha\beta\gamma\delta\theta\varphi\chi} x^{*} x^{\ast} x^{\prime\prime} x^{\circ} x^{\epsilon} ⇒ ⟦I|x⟧ᵅᵝᵞᵟᶿᵠᵡ⟦I|x⟧*⟦I|x⟧*⟦I|x⟧′′⟦I|x⟧°⟦I|x⟧^⟦I|ϵ⟧
 x_{aehijklmnoprstuvx} x_{b} x_{\beta\gamma\rho\varphi\chi} x_{\alpha} ⇒ ⟦I|x⟧ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ⟦I|x⟧_⟦I|bx⟧ᵦᵧᵨᵩᵪ⟦I|x⟧_⟦I|α⟧
+x^{{a+b}} x_{{a=b}} \mathrm{{x}+{y}} ⇒ ⟦I|x⟧ᵃ⁺ᵇ⟦I|x⟧_(⟦I|a⟧=⟦I|b⟧)x + y
+\text{a\@b\unknown c} ⇒ a@b c
+\frac{(a+b}{c} \frac{a+b)}{c} ⇒ ((⟦I|a⟧ + ⟦I|b⟧)/⟦I|c⟧(⟦I|a⟧ + ⟦I|b⟧))/⟦I|c⟧
+x^{''} ⇒ ⟦I|x⟧″
 \mathcal{A1!} \mathscr{z9} \mathfrak{x7?} \mathbb{0 9} ⇒ 𝒜1!𝓏9𝔵7?𝟘 𝟡
 \alpha\beta\gamma\delta\epsilon\varepsilon\zeta\eta\theta\vartheta\iota\kappa\lambda\mu\nu\xi\omicron\pi\varpi\rho\varrho\sigma\varsigma\tau\upsilon\phi\varphi\chi\psi\omega ⇒ ⟦I|αβγδϵεζηθϑικλμνξοπϖρϱσςτυϕφχψω⟧
 \Gamma\Delta\Theta\Lambda\Xi\Pi\Sigma\Upsilon\Phi\Psi\Omega ⇒ ΓΔΘΛΞΠΣΥΦΨΩ

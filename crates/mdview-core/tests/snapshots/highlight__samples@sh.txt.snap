@@ -18,3 +18,7 @@ input_file: crates/mdview-core/tests/code/sh.txt
 |⟦com|%⟧ ⟦fn|ls⟧ ⟦attr|-la⟧ ~/src
 |⟦fn|not#comment⟧ url#frag
 |
+|⟦fn|printf⟧ ⟦str|'%s\n'⟧ ⟦str|'single\'⟧ tail
+|⟦fn|printf⟧ ⟦str|"%s"⟧ ⟦str|"double\"quoted"⟧
+|⟦fn|=invalid⟧ echo
+|

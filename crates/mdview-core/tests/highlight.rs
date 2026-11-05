@@ -388,6 +388,20 @@ fn markup_details() {
             t("br", Tok::Tag),
         ]
     );
+    // Malformed empty entities still let the following tag be highlighted.
+    assert_eq!(
+        toks("html", "&;<br/>"),
+        [t("&;", Tok::Constant), t("br", Tok::Tag)]
+    );
+    // A value cut off at EOF still belongs to the attribute string.
+    assert_eq!(
+        toks("html", "<p title=\"unfinished"),
+        [
+            t("p", Tok::Tag),
+            t("title", Tok::Property),
+            t("\"unfinished", Tok::String)
+        ]
+    );
     // Multi-line attribute values, and `<` that doesn't start a tag.
     assert_eq!(
         toks("xml", "<p t=\"a\nb\">1 < 2 <3</p>"),
@@ -472,6 +486,16 @@ fn generic_details() {
             t("#define", Tok::Attr),
             t("MAX", Tok::Constant),
             t("1", Tok::Number),
+        ]
+    );
+    // Reserved PHP literals keep their class beside parentheses, even in
+    // incomplete code (they must not be mistaken for function names).
+    assert_eq!(
+        toks("php", "TRUE(FALSE) NULL()"),
+        [
+            t("TRUE", Tok::Constant),
+            t("FALSE", Tok::Constant),
+            t("NULL", Tok::Constant)
         ]
     );
     // Decorators, `$vars`, CSS properties and at-rules.

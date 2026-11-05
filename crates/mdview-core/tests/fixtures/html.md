@@ -20,3 +20,7 @@ Text with <!-- inline comment --> in it.
 <img src="x.png" alt="html image">
 
 Entities: &amp; &lt; &copy; &#35; &#x1F600; &nbsp;end &bogus;
+
+ plain **bold**
+
+*<br>* **kept after trimming a styled break**

@@ -27,3 +27,13 @@ input_file: crates/mdview-core/tests/code/yaml.txt
 |⟦prop|flag⟧=⟦const|yes⟧
 |⟦meta|...⟧
 |
+|  ⟦ty|[nested]⟧
+|  ⟦com|# indented comment⟧
+|⟦prop|'quoted key'⟧: ⟦str|'it\'⟧ ⟦const|true⟧
+|: ⟦const|true⟧
+|= ⟦const|false⟧
+|  orphan scalar
+|  ⟦meta|---⟧
+|- ⟦prop| nested⟧: ⟦const|true⟧
+|⟦prop|named⟧: ⟦var|&base-name⟧ [⟦const|true⟧, ⟦num|1⟧]
+|

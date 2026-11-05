@@ -12,3 +12,7 @@ local name=value; readonly X=1
 $ cargo test -p mdview-core
 % ls -la ~/src
 not#comment url#frag
+
+printf '%s\n' 'single\' tail
+printf "%s" "double\"quoted"
+=invalid echo

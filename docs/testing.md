@@ -137,6 +137,17 @@ Don't use `--in-place` in your working tree. If it is interrupted, the
 mutated source is left behind. CI runs the core crate weekly and uploads
 `mutants.out`.
 
+Equivalent core mutants are documented individually in the workspace-root
+[`.cargo/mutants.toml`](../.cargo/mutants.toml). Each exclusion names one
+reviewed mutation and explains why its public output cannot change; revisit
+that reasoning when changing the relevant code. cargo-mutants 27.1 reads
+this configuration from the workspace root, including with `-p mdview-core`.
+It has a struct-field discovery bug: those mutants bypass `-F` and
+`exclude_re`. For a focused rerun on that version, a source-line selection
+via `--in-diff` is applied after discovery and can constrain those fields.
+Do not count a configured equivalent field deletion as a new coverage gap
+just because that version still reports it.
+
 **Coverage:** `cargo llvm-cov -p mdview-core --html` (the report goes to
 `target/llvm-cov/html`).
 
