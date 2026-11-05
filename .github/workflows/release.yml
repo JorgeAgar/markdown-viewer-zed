@@ -72,9 +72,15 @@ jobs:
   windows:
     uses: ./.github/workflows/windows.yml
 
+  macos:
+    uses: ./.github/workflows/macos.yml
+    with:
+      require-signing: true
+    secrets: inherit
+
   publish:
     name: Publish all verified artifacts
-    needs: [linux, windows]
+    needs: [linux, windows, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

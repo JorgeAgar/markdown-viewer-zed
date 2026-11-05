@@ -227,7 +227,8 @@ fn human_forms_one(stroke: &str) -> Vec<String> {
             "ctrl" => "Ctrl",
             "shift" => "Shift",
             "alt" => "Alt",
-            "cmd" | "super" | "win" | "platform" => "Super",
+            "cmd" => "Cmd",
+            "super" | "win" | "platform" => "Super",
             "fn" => "Fn",
             other => panic!("unknown modifier `{other}` in key binding `{stroke}`"),
         })

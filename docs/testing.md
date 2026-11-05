@@ -164,8 +164,9 @@ target is under 10 minutes even with an empty cache, so CI builds with the
 job, and runs two jobs in parallel:
 
 - **test:** `scripts/check.sh --profile ci --no-clippy` (fmt, guards, every
-  headless test). Real window tests are local only, via
-  `scripts/check.sh --e2e`; CI does not install Xvfb or software Vulkan.
+  headless test). Linux real-window tests run locally via
+  `scripts/check.sh --e2e`. Native Windows/macOS jobs also attempt actual GPU
+  presentation and capture desktop evidence; no software Vulkan is installed.
 - **clippy:** `cargo clippy --workspace --all-targets -D warnings`.
 
 To reproduce a CI failure locally: `scripts/check.sh --profile ci`.
@@ -186,16 +187,44 @@ real named pipe; transport tests cover malformed frames and UTF-16 paths.
 Windows API crates are target-specific and already present in GPUI's tree;
 the Linux runtime dependency snapshot is unchanged.
 
-Native Windows CI caught a remaining Unix byte-path title assertion; it is
-Unix-only while shared title tests still run on every platform. Windows local
-file opening uses native shell paths to avoid URL conversion for non-Unicode
-filenames.
-
 Named-pipe clients wait for delivery acknowledgement, covering connections
 that arrive before the server begins accepting. Headless viewer fixtures use
 normalized paths like production startup. Modification-time tests respect
 Windows' 100 ns SystemTime precision while retaining 1 ns checks on Unix.
 
+macOS runs the full workspace tests, clippy and optimized builds on Apple
+Silicon, then assembles and mounts an arm64 DMG. Shared headless
+lifecycle tests cover reusing a window, recreating a closed window with files,
+and reopening an empty window. URL event tests cover escaped and Unicode
+Finder paths and reject non-file URLs. Native desktop testing remains required
+for Finder/Dock integration, menus, themes, GPU presentation and startup.
+
+The Unix transport has a GUI-free stale-socket replacement test on Linux and
+macOS. The binary test expecting startup to fail without DISPLAY is Linux-only:
+macOS has native windowing and does not use DISPLAY. IPC integration tests use
+subprocess and channel deadlines, avoiding macOS socket-timeout errors when an
+empty client has already disconnected.
+
 The documentation checker represents repository paths with `/` on every OS,
 so Rust filename/suffix checks match Markdown references on Windows too. Its
 regression test still distinguishes existing source paths from missing ones.
+
+## Native validation evidence
+
+`scripts/validation/native_gui.py BINARY` requires a Windows or macOS desktop.
+It launches the optimized app five times through the existing first-frame
+trace, checks real instance handoff, and captures light/dark desktop evidence.
+CI uploads logs, timings and screenshots as `native-gui-*` artifacts even when
+the GUI check fails. A runner without usable graphics or screen access fails
+validation; that is not treated as a successful or skipped desktop test.
+Screenshots need visual inspection before claiming rendering quality.
+
+Headless window-contract tests guard native chrome, window placement, desktop
+grouping, minimum usable dimensions and explicit opaque startup decorations.
+Event-registration hooks exercise the same Finder/Dock registration and
+delivery closures as production without requiring an OS event loop. These
+checks complement real native events; they do not claim to test LaunchServices
+or the GPU themselves.
+
+Native Windows capture also checks the window frame against the desktop work
+area, so an off-screen title bar cannot pass solely because rendering succeeds.

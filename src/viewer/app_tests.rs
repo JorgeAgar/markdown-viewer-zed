@@ -564,3 +564,45 @@ fn standalone_remote_image_is_requested_by_the_viewer() {
         ["http://example.com/a.svg", "https://example.com/a%20b.svg"]
     );
 }
+
+#[test]
+fn platform_open_events_reuse_and_recreate_the_viewer() {
+    let dir = TempDir::new("platform-open");
+    let a = dir.join("a.md");
+    let b = dir.join("b.md");
+    std::fs::write(&a, "# A").unwrap();
+    std::fs::write(&b, "# B").unwrap();
+    let cx = TestAppContext::single();
+    let mut handle = cx.update(|cx| crate::open_viewer(Vec::new(), cx));
+    cx.update(|cx| {
+        crate::deliver_paths(&mut handle, vec![a.clone()], cx);
+        crate::deliver_paths(&mut handle, vec![b.clone()], cx);
+        assert_eq!(cx.windows().len(), 1);
+        let view = handle.entity(cx).unwrap();
+        let names: Vec<_> = view
+            .read(cx)
+            .tabs
+            .iter()
+            .map(|t| t.title.to_string())
+            .collect();
+        assert_eq!(names, ["a.md", "b.md"]);
+        handle
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+    });
+    cx.update(|cx| {
+        assert!(cx.windows().is_empty());
+        crate::deliver_paths(&mut handle, vec![b], cx);
+        assert_eq!(cx.windows().len(), 1);
+        let view = handle.entity(cx).unwrap();
+        assert_eq!(view.read(cx).tabs.active().unwrap().title.as_ref(), "b.md");
+        handle
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+    });
+    cx.update(|cx| {
+        crate::deliver_paths(&mut handle, vec![], cx);
+        assert_eq!(cx.windows().len(), 1);
+        assert!(handle.entity(cx).unwrap().read(cx).tabs.is_empty());
+    });
+}

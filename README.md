@@ -9,11 +9,12 @@ in tabs.
 
 ## Usage
 
-Linux x86_64 binaries are available as tarballs on the
+Native release artifacts are published on the
 [Releases page](https://github.com/JorgeAgar/markdown-viewer-zed/releases).
 See [installation and releases](docs/releases.md) for system requirements
-and the tag-based release process. Windows x64 releases include a per-user
-installer; Markdown viewing features are shared with Linux.
+and the tag-based release process: Linux x86_64 tarball, Windows x64 installer,
+and an arm64 macOS DMG for Apple Silicon. All platforms share the
+Markdown viewing features.
 
 To build from source:
 
@@ -31,6 +32,9 @@ cargo build --release
 | `Ctrl+R` / `F5`                      | Reload                                    |
 | `Ctrl+Q`                             | Quit                                      |
 | `↑ ↓` `j k` `PgUp PgDn` `Space` `Shift+Space` `Home End` `g G` | Scroll        |
+| `Cmd+O` / `Cmd+W` (macOS)          | Open files / close tab                    |
+| `Cmd+R` / `Cmd+Q` (macOS)          | Reload / quit                             |
+| `Cmd+Shift+]` / `Cmd+Shift+[` (macOS) | Next / previous tab                     |
 | Middle click on a tab                | Close it                                  |
 
 Code blocks are syntax highlighted, and ```` ```mermaid ```` blocks are drawn
@@ -45,7 +49,8 @@ opens it in a new tab, and `#anchor` links scroll to the matching heading. Open
 files reload automatically when they change on disk.
 
 `-n` / `--new` starts a separate instance. `MDVIEW_FONT` and `MDVIEW_MONO_FONT`
-override the fonts.
+override the fonts. macOS prefers Helvetica Neue when Inter and IBM Plex Sans
+are unavailable, preserving bold and italic formatting.
 
 ## Why it starts fast
 
@@ -116,8 +121,11 @@ docs/            documentation for contributors (with diagrams)
 
 Platform integration is isolated under `src/platform/`; Markdown parsing and
 rendering stay shared. Windows uses DirectX and a per-user named pipe; Linux
-uses Vulkan and a Unix socket. Releases collect verified artifacts before
-publishing once.
+uses Vulkan and a Unix socket. macOS uses Metal, Unix IPC and native
+Finder/Dock events. Releases collect verified artifacts before publishing once.
+
+Native CI attempts actual Windows/macOS GPU presentation and records startup
+timings and light/dark screenshots; see [validation evidence](docs/testing.md#native-validation-evidence).
 
 On Windows, the initial window fits smaller desktops so its native title bar
 and controls remain on screen.

@@ -317,7 +317,11 @@ impl Viewer {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("mdview"),
             )
-            .child("Drop a Markdown file here, or press Ctrl+O")
+            .child(if cfg!(target_os = "macos") {
+                "Drop a Markdown file here, or press Cmd+O"
+            } else {
+                "Drop a Markdown file here, or press Ctrl+O"
+            })
     }
 }
 

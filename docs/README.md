@@ -33,7 +33,7 @@ the Zed editor. These docs are for people and AI agents who want to work on it.
 | [gpui-fork.md](gpui-fork.md) | Touch `crates/gpui`, or upgrade GPUI |
 | [contributing.md](contributing.md) | Build, test and send changes (people and agents) |
 | [testing.md](testing.md) | Run the tests, add new ones, or update expected outputs |
-| [releases.md](releases.md) | Install a Linux tarball or publish a tagged release |
+| [releases.md](releases.md) | Install native artifacts or publish a tagged release |
 | [roadmap.md](roadmap.md) | Find something to work on |
 
 AI agents should also read [`AGENTS.md`](../AGENTS.md) in the repo root.
@@ -42,9 +42,9 @@ AI agents should also read [`AGENTS.md`](../AGENTS.md) in the repo root.
 
 ```mermaid
 flowchart LR
-    CLI["mdview a.md b.md"] -->|instance already running?| SOCK{{"Unix socket"}}
+    CLI["mdview a.md b.md"] -->|instance already running?| SOCK{{"Native IPC"}}
     SOCK -->|yes: send paths, exit in ~4 ms| RUN["Running window"]
-    SOCK -->|no| BOOT["Cold start: GPUI + Vulkan + fonts"]
+    SOCK -->|no| BOOT["Cold start: GPUI + native GPU backend + fonts"]
     BOOT --> RUN
     RUN --> TABS["Tabs"]
     TABS --> DOC["Parsed document (block model)"]

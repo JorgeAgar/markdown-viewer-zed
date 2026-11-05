@@ -6,3 +6,6 @@ pub mod ipc;
 #[cfg(windows)]
 #[path = "windows.rs"]
 pub mod ipc;
+
+#[cfg(any(target_os = "macos", all(test, unix)))]
+pub mod mac;

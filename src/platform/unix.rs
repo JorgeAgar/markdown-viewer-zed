@@ -75,6 +75,31 @@ mod tests {
     }
 
     #[test]
+    fn stale_socket_replaced_without_initializing_gui() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = TempDir::new("ipc-stale");
+        let path = dir.join("mdview.sock");
+        drop(UnixListener::bind(&path).unwrap());
+        std::fs::hard_link(&path, dir.join("stale.sock")).unwrap();
+        let inode = std::fs::metadata(&path).unwrap().ino();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "platform::ipc::tests::stale_socket_child"])
+            .env("MDVIEW_TEST_STALE", "1")
+            .env("XDG_RUNTIME_DIR", dir.to_path_buf())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_ne!(std::fs::metadata(&path).unwrap().ino(), inode);
+    }
+
+    #[test]
+    fn stale_socket_child() {
+        if std::env::var_os("MDVIEW_TEST_STALE").is_some() {
+            assert!(matches!(start(false, &[]), Instance::Primary(Some(_))));
+        }
+    }
+
+    #[test]
     fn cleanup_child() {
         // Isolate environment changes in a child instead of racing parallel tests.
         if std::env::var_os("MDVIEW_TEST_CLEANUP").is_some() {
