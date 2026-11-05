@@ -672,7 +672,13 @@ fn read(rel_path: &str) -> String {
 }
 
 fn rel(p: &Path) -> String {
-    p.strip_prefix(root()).unwrap_or(p).display().to_string()
+    // Documentation paths use '/', independently of the host filesystem.
+    p.strip_prefix(root())
+        .unwrap_or(p)
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn walk(dir: &Path, f: &mut dyn FnMut(&Path)) {
@@ -834,6 +840,23 @@ fn report(title: &str, problems: Vec<String>) {
 }
 
 // Self-tests for the parsers above, so a broken checker doesn't pass silently.
+
+#[test]
+fn checker_repo_paths_use_documentation_separators() {
+    let path = root()
+        .join("crates")
+        .join("mdview-core")
+        .join("src")
+        .join("markdown.rs");
+    assert_eq!(rel(&path), "crates/mdview-core/src/markdown.rs");
+    let files = repo_files();
+    assert!(files.iter().any(|file| file.ends_with("/markdown.rs")));
+    assert!(
+        !files
+            .iter()
+            .any(|file| file.ends_with("/missing-mdview-file.rs"))
+    );
+}
 
 #[test]
 fn checker_human_forms() {

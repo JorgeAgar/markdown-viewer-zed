@@ -203,3 +203,7 @@ macOS. The binary test expecting startup to fail without DISPLAY is Linux-only:
 macOS has native windowing and does not use DISPLAY. IPC integration tests use
 subprocess and channel deadlines, avoiding macOS socket-timeout errors when an
 empty client has already disconnected.
+
+The documentation checker represents repository paths with `/` on every OS,
+so Rust filename/suffix checks match Markdown references on Windows too. Its
+regression test still distinguishes existing source paths from missing ones.
