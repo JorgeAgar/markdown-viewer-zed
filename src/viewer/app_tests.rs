@@ -26,6 +26,10 @@ fn parsed(src: &str) -> Result<(Document, Option<SystemTime>), String> {
 /// A window with a Viewer showing `loaded`.
 fn open(loaded: Vec<Loaded>) -> (Entity<Viewer>, &'static mut VisualTestContext) {
     let cx = Box::leak(Box::new(TestAppContext::single()));
+    let loaded = loaded
+        .into_iter()
+        .map(|(p, doc)| (normalize(&p), doc))
+        .collect();
     cx.add_window_view(|window, cx| Viewer::new(loaded, fonts(), window, cx))
 }
 

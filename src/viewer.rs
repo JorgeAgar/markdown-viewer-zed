@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn reload_detection() {
         let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
-        let t1 = t0 + Duration::from_nanos(1);
+        let t1 = t0 + Duration::from_nanos(if cfg!(windows) { 100 } else { 1 });
         assert!(!needs_reload(Some(t0), Some(t0)), "unchanged");
         assert!(needs_reload(Some(t0), Some(t1)), "modified");
         assert!(needs_reload(Some(t1), Some(t0)), "older (restored backup)");

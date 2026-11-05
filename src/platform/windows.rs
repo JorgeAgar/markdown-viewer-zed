@@ -19,7 +19,9 @@ use windows::{
             GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
             TOKEN_USER, TokenUser,
         },
-        Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND},
+        Storage::FileSystem::{
+            FILE_FLAG_FIRST_PIPE_INSTANCE, FlushFileBuffers, PIPE_ACCESS_DUPLEX,
+        },
         System::{
             Pipes::{
                 ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
@@ -81,7 +83,7 @@ fn create(name: &HSTRING, sid: &str) -> windows::core::Result<Server> {
         };
         let handle = CreateNamedPipeW(
             name,
-            PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             1,
             0,
@@ -100,6 +102,7 @@ fn create(name: &HSTRING, sid: &str) -> windows::core::Result<Server> {
 
 fn handoff(name: &HSTRING, message: &[u8]) -> io::Result<()> {
     let mut file = OpenOptions::new()
+        .read(true)
         .write(true)
         .open(PathBuf::from(OsString::from_wide(name.as_ref())))?;
     unsafe {
@@ -109,7 +112,15 @@ fn handoff(name: &HSTRING, message: &[u8]) -> io::Result<()> {
         }
     }
     file.write_all(&(message.len() as u32).to_le_bytes())?;
-    file.write_all(message)
+    file.write_all(message)?;
+    // Keep the client connected until the server has read the whole frame.
+    // Disconnecting before ConnectNamedPipe loses early-launch requests.
+    let mut ack = [0];
+    file.read_exact(&mut ack)?;
+    if ack != [1] {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    Ok(())
 }
 
 pub fn start(standalone: bool, paths: &[PathBuf]) -> Instance {
@@ -152,13 +163,22 @@ impl Server {
             if connected.is_err_and(|e| e.code() != ERROR_PIPE_CONNECTED.to_hresult()) {
                 break;
             }
-            let message = read_message(&mut self.0);
+            let keep_running = match read_message(&mut self.0) {
+                Ok(paths) => {
+                    let keep_running = send(paths);
+                    if self.0.write_all(&[1]).is_ok() {
+                        unsafe {
+                            let _ = FlushFileBuffers(handle);
+                        }
+                    }
+                    keep_running
+                }
+                Err(_) => true,
+            };
             unsafe {
                 let _ = DisconnectNamedPipe(handle);
             }
-            if let Ok(paths) = message
-                && !send(paths)
-            {
+            if !keep_running {
                 break;
             }
         }
@@ -270,12 +290,15 @@ mod tests {
         let server = create(&name, &sid).unwrap();
         assert!(create(&name, &sid).is_err());
         let paths = vec![PathBuf::from(r"C:\test.md")];
-        handoff(&name, &encode(&paths)).unwrap();
-        let mut got = None;
-        server.serve(|p| {
-            got = Some(p);
-            false
+        let thread = std::thread::spawn(move || {
+            let mut got = None;
+            server.serve(|p| {
+                got = Some(p);
+                false
+            });
+            got.unwrap()
         });
-        assert_eq!(got.unwrap(), paths);
+        handoff(&name, &encode(&paths)).unwrap();
+        assert_eq!(thread.join().unwrap(), paths);
     }
 }

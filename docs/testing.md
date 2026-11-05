@@ -190,3 +190,8 @@ Native Windows CI caught a remaining Unix byte-path title assertion; it is
 Unix-only while shared title tests still run on every platform. Windows local
 file opening uses native shell paths to avoid URL conversion for non-Unicode
 filenames.
+
+Named-pipe clients wait for delivery acknowledgement, covering connections
+that arrive before the server begins accepting. Headless viewer fixtures use
+normalized paths like production startup. Modification-time tests respect
+Windows' 100 ns SystemTime precision while retaining 1 ns checks on Unix.

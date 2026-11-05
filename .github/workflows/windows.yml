@@ -17,6 +17,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: windows-x86_64
+          cache-on-failure: true
       - name: Full headless workspace tests
         run: cargo test --locked --workspace --profile ci
       - name: Clippy

@@ -265,6 +265,8 @@ handoff uses a local named pipe scoped by the current token's SID, with an ACL
 allowing only that user and rejecting remote clients. The client grants the
 server permission to activate its window. Messages are length-prefixed UTF-16
 paths (bounded to 16 MiB), preserving Unicode and unpaired surrogate units.
+The client waits for a server acknowledgement before closing the pipe, so
+requests arriving during first-window startup cannot disconnect too early.
 `--new` skips IPC. Pipe handles are released by the OS at exit.
 
 Unix file URLs use the existing URL library to percent-encode names. Windows
