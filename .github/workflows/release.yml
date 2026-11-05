@@ -75,7 +75,7 @@ jobs:
   macos:
     uses: ./.github/workflows/macos.yml
     with:
-      require-signing: true
+      sign: true
     secrets: inherit
 
   publish:

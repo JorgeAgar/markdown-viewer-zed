@@ -11,8 +11,8 @@ Download the tarball from the repository's GitHub Releases page, extract it,
 and install the binary:
 
 ```sh
-tar -xzf mdview-v0.1.0-linux-x86_64.tar.gz
-install -Dm755 mdview-v0.1.0-linux-x86_64/mdview ~/.local/bin/mdview
+tar -xzf mdview-v0.1.1-linux-x86_64.tar.gz
+install -Dm755 mdview-v0.1.1-linux-x86_64/mdview ~/.local/bin/mdview
 mdview README.md
 ```
 
@@ -42,8 +42,8 @@ explicit maintainer action; ordinary pushes do not publish anything.
 ```sh
 git switch main
 git pull --ff-only
-git tag -a v0.1.0 -m 'mdview v0.1.0'
-git push origin v0.1.0
+git tag -a v0.1.1 -m 'mdview v0.1.1'
+git push origin v0.1.1
 ```
 
 Use the next version for subsequent releases. Never move a published tag.
@@ -62,7 +62,7 @@ flowchart LR
     version --> tests["Full headless tests and checks"]
     tests --> build["Build native Linux / Windows / macOS binaries"]
     build --> package["Package and smoke test tarball"]
-    mac["Build Apple Silicon app + signed/notarized DMG"] --> collect
+    mac["Build Apple Silicon app + DMG (notarized when secrets are set)"] --> collect
     package --> collect["Collect verified platform artifacts + checksums"]
     collect --> publish["Publish GitHub Release once"]
 ```
@@ -85,7 +85,7 @@ tested in native CI. This does not replace interactive GPU testing.
 Local packaging (PowerShell, after building):
 
 ```powershell
-& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" /DAppVersion=0.1.0 "/DSourceDir=$PWD/target/release" packaging/windows/mdview.iss
+& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" /DAppVersion=0.1.1 "/DSourceDir=$PWD/target/release" packaging/windows/mdview.iss
 ```
 
 ## macOS
@@ -103,15 +103,26 @@ The CLI remains available inside the bundle:
 /Applications/mdview.app/Contents/MacOS/mdview README.md
 ```
 
-Tagged macOS releases require Developer ID signing and Apple notarization.
-Configure these repository Actions secrets before publishing a version tag:
+Tagged macOS releases are Developer ID signed and notarized when these
+repository Actions secrets are configured:
 `MACOS_CERTIFICATE_BASE64` (Developer ID Application P12),
 `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGN_IDENTITY`, `APPLE_ID`,
 `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD` (an app-specific password).
 Credentials are imported into a temporary keychain that is removed afterward.
-Missing signing credentials fail the macOS release job and prevent publication
-of the entire release. PR CI builds an ad-hoc-signed DMG for packaging tests;
-those artifacts are for development and are not notarized public releases.
+If the certificate secret is set but any other credential is missing, the
+macOS job fails and nothing is published. If no signing secrets are
+configured, the release ships an ad-hoc-signed, unnotarized DMG and the
+workflow emits a warning. PR CI always builds an ad-hoc-signed DMG for
+packaging tests.
+
+Unnotarized DMGs are blocked by Gatekeeper on first launch. After copying
+mdview to Applications, either right-click it and choose Open (on macOS 15,
+allow it under System Settings → Privacy & Security), or remove the
+quarantine attribute:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/mdview.app
+```
 
 `packaging/macos/package.sh VERSION` packages the optimized arm64 target build,
 creates the app icon and bundle, verifies the arm64 architecture, builds and mounts

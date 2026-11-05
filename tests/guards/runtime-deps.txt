@@ -257,8 +257,8 @@ manatee v0.9.3
 markup5ever v0.40.0
 maybe-rayon v0.1.1
 md-5 v0.10.6
-mdview v0.1.0
-mdview-core v0.1.0
+mdview v0.1.1
+mdview-core v0.1.1
 memchr v2.8.3
 memmap2 v0.9.12
 merman v0.9.3
