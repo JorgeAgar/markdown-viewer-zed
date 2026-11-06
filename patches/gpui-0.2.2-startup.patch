@@ -378,7 +378,31 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
          let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection)
              .context("Failed to create resource database")?;
-@@ -1604,7 +1610,19 @@
+@@ -457,8 +463,21 @@
+                 move |event, _, client| match event {
+                     XDPEvent::WindowAppearance(appearance) => {
+                         client.with_common(|common| common.appearance = appearance);
+-                        for window in client.0.borrow_mut().windows.values_mut() {
+-                            window.window.set_appearance(appearance);
++                        // mdview: release the client borrow before calling into
++                        // the app. `set_appearance` runs the window's appearance
++                        // callback, and app code reached from there may call back
++                        // into the platform (with GPUI's `test-support` feature,
++                        // `flush_effects` draws, and drawing a hovered window
++                        // calls `set_cursor_style`): "RefCell already borrowed".
++                        let windows: Vec<_> = client
++                            .0
++                            .borrow()
++                            .windows
++                            .values()
++                            .map(|window| window.window.clone())
++                            .collect();
++                        for mut window in windows {
++                            window.set_appearance(appearance);
+                         }
+                     }
+                     XDPEvent::CursorTheme(_) | XDPEvent::CursorSize(_) => {
+@@ -1604,7 +1623,19 @@
              return;
          };
  

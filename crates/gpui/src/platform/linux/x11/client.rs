@@ -463,8 +463,21 @@ impl X11Client {
                 move |event, _, client| match event {
                     XDPEvent::WindowAppearance(appearance) => {
                         client.with_common(|common| common.appearance = appearance);
-                        for window in client.0.borrow_mut().windows.values_mut() {
-                            window.window.set_appearance(appearance);
+                        // mdview: release the client borrow before calling into
+                        // the app. `set_appearance` runs the window's appearance
+                        // callback, and app code reached from there may call back
+                        // into the platform (with GPUI's `test-support` feature,
+                        // `flush_effects` draws, and drawing a hovered window
+                        // calls `set_cursor_style`): "RefCell already borrowed".
+                        let windows: Vec<_> = client
+                            .0
+                            .borrow()
+                            .windows
+                            .values()
+                            .map(|window| window.window.clone())
+                            .collect();
+                        for mut window in windows {
+                            window.set_appearance(appearance);
                         }
                     }
                     XDPEvent::CursorTheme(_) | XDPEvent::CursorSize(_) => {

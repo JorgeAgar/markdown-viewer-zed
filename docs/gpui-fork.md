@@ -3,7 +3,7 @@
 mdview uses its own copy of [GPUI](https://crates.io/crates/gpui) 0.2.2. The
 copy lives in `crates/gpui` and replaces the crates.io version through
 `[patch.crates-io]` in the root `Cargo.toml`. It's identical to upstream
-except for three startup fixes, a build fix and an X11 event-loop fix.
+except for three startup fixes, a build fix and two X11 event-loop fixes.
 
 - Every change is marked in the code with a `// mdview:` comment.
 - `patches/gpui-0.2.2-startup.patch` holds the full diff against upstream.
@@ -55,6 +55,10 @@ backends when `WAYLAND_DISPLAY` and `DISPLAY` are both set (see
   first frame, the window never presented and mdview hung
   ([#12](https://github.com/JorgeAgar/markdown-viewer-zed/issues/12)).
   `X11Client::run` now processes queued events right before the loop blocks.
+- **X11: release the client borrow before appearance callbacks**
+  (`platform/linux/x11/client.rs`): the portal appearance handler held the
+  client's `RefCell` while running app callbacks, so a callback that reached
+  the platform again (for example `set_cursor_style` from a draw) panicked.
 
 ## Changing the vendored crate
 

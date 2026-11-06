@@ -66,6 +66,19 @@ end-to-end test under XWayland
 callback, which runs after the sources and idle callbacks and right before
 the loop blocks again. When the queue is empty that's one non-blocking read.
 
+## 6. X11: don't hold the client borrow across appearance callbacks
+
+`platform/linux/x11/client.rs`
+
+The XDG portal appearance handler called `set_appearance` on every window
+while iterating `client.0.borrow_mut().windows`. `set_appearance` runs the
+window's appearance callback, so any app code reached from it that calls back
+into the platform panics with "RefCell already borrowed". With GPUI's
+`test-support` feature (which `cargo test` unifies into the binary that the
+end-to-end tests run), `flush_effects` draws synchronously, and drawing a
+hovered window calls `set_cursor_style`, which hit this. The handler now
+clones the window handles and releases the borrow first.
+
 ## Measurements
 
 Time from `main()` to the first frame submitted and presented. Medians;
