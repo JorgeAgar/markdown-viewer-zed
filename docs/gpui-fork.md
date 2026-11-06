@@ -3,7 +3,7 @@
 mdview uses its own copy of [GPUI](https://crates.io/crates/gpui) 0.2.2. The
 copy lives in `crates/gpui` and replaces the crates.io version through
 `[patch.crates-io]` in the root `Cargo.toml`. It's identical to upstream
-except for three startup fixes.
+except for three startup fixes, a build fix and two X11 event-loop fixes.
 
 - Every change is marked in the code with a `// mdview:` comment.
 - `patches/gpui-0.2.2-startup.patch` holds the full diff against upstream.
@@ -40,8 +40,25 @@ flowchart TB
 | 2 | `BladePipelines::new` compiles 8 pipelines one after another. | `std::thread::scope` with one thread per pipeline. Vulkan pipeline creation is thread-safe. | `platform/blade/blade_renderer.rs` |
 | 3 | Vulkan init runs after font loading, on the same thread. | `BladeContext::new` runs on its own thread from the start of `WaylandClient::new` / `X11Client::new`, and is joined where the context used to be created. | `platform/linux/wayland/client.rs`, `platform/linux/x11/client.rs` |
 
-The X11 code compiles with fix 3, but it has only been tested on Wayland
-(niri).
+The X11 backend is tested through XWayland: the window tests run on both
+backends when `WAYLAND_DISPLAY` and `DISPLAY` are both set (see
+[testing.md](testing.md#window-tests)).
+
+## Other fixes
+
+- **Typed float literals** (`taffy.rs`): avoids a future-incompatibility
+  warning that will become an error. No behavior change.
+- **X11: drain queued events before sleeping** (`platform/linux/x11/client.rs`):
+  the X11 fd only wakes the event loop when the socket is readable, but any
+  reply wait (including Mesa's Vulkan WSI, which shares the connection) can
+  move events into libxcb's queue. When `MapNotify` ended up there during the
+  first frame, the window never presented and mdview hung
+  ([#12](https://github.com/JorgeAgar/markdown-viewer-zed/issues/12)).
+  `X11Client::run` now processes queued events right before the loop blocks.
+- **X11: release the client borrow before appearance callbacks**
+  (`platform/linux/x11/client.rs`): the portal appearance handler held the
+  client's `RefCell` while running app callbacks, so a callback that reached
+  the platform again (for example `set_cursor_style` from a draw) panicked.
 
 ## Changing the vendored crate
 
@@ -75,7 +92,7 @@ flowchart LR
     G --> H["Regenerate the patch, update MDVIEW.md, commit"]
 ```
 
-1. Check whether upstream already fixed any of the three problems. If so, drop
+1. Check whether upstream already fixed any of these problems. If so, drop
    that fix.
 2. Update the version in `Cargo.toml`. Keep `[patch.crates-io]` pointing at
    `crates/gpui`.
@@ -83,12 +100,3 @@ flowchart LR
    with `libc 0.2.191`, so `Cargo.lock` pins `libc` to 0.2.189. If
    `cargo update` breaks the build with `cannot find value ENOATTR`, run
    `cargo update -p libc --precise 0.2.189`.
-
-## Known issues
-
-- With Rust 1.99, `cargo clippy` / `cargo build` show a future-incompatibility
-  warning in GPUI's grid layout code (`length(0.0)`, `fr(1.0)`: "falling back
-  to `f32`"). It comes from upstream and is harmless today, but a future Rust
-  release will turn it into an error. If that happens before upgrading GPUI,
-  the fix is to write the literals as `0.0_f32` / `1.0_f32` (and mark the
-  change with `// mdview:`).

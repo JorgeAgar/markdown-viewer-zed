@@ -463,8 +463,21 @@ impl X11Client {
                 move |event, _, client| match event {
                     XDPEvent::WindowAppearance(appearance) => {
                         client.with_common(|common| common.appearance = appearance);
-                        for window in client.0.borrow_mut().windows.values_mut() {
-                            window.window.set_appearance(appearance);
+                        // mdview: release the client borrow before calling into
+                        // the app. `set_appearance` runs the window's appearance
+                        // callback, and app code reached from there may call back
+                        // into the platform (with GPUI's `test-support` feature,
+                        // `flush_effects` draws, and drawing a hovered window
+                        // calls `set_cursor_style`): "RefCell already borrowed".
+                        let windows: Vec<_> = client
+                            .0
+                            .borrow()
+                            .windows
+                            .values()
+                            .map(|window| window.window.clone())
+                            .collect();
+                        for mut window in windows {
+                            window.set_appearance(appearance);
                         }
                     }
                     XDPEvent::CursorTheme(_) | XDPEvent::CursorSize(_) => {
@@ -1610,7 +1623,19 @@ impl LinuxClient for X11Client {
             return;
         };
 
-        event_loop.run(None, &mut self.clone(), |_| {}).log_err();
+        // mdview: drain events that are already queued inside libxcb before
+        // the loop blocks again. The X11 fd source only fires when the socket
+        // is readable, but any reply wait on this connection (ours, or Mesa's
+        // Vulkan WSI, which shares it) moves pending events from the socket
+        // into libxcb's queue. If MapNotify lands there while the first frame
+        // is drawn, the socket stays empty, the refresh loop never starts and
+        // the window never presents: epoll_wait blocks forever.
+        let xcb_connection = self.0.borrow().xcb_connection.clone();
+        event_loop
+            .run(None, &mut self.clone(), |client| {
+                client.process_x11_events(&xcb_connection).log_err();
+            })
+            .log_err();
     }
 
     fn active_window(&self) -> Option<AnyWindowHandle> {

@@ -47,6 +47,38 @@ phased out and will become a hard error
 ([#154024](https://github.com/rust-lang/rust/issues/154024)), so the
 literals are now `0.0_f32` and `1.0_f32`. No behavior change.
 
+## 5. X11: don't sleep on events libxcb already queued
+
+`platform/linux/x11/client.rs`
+
+The X11 connection is a level-triggered fd source in the calloop event loop,
+so `process_x11_events` runs only when the socket is readable. But any reply
+wait on the connection (GPUI's own requests, or Mesa's Vulkan WSI, which
+shares the `xcb_connection_t`) reads pending events off the socket into
+libxcb's internal queue. When `MapNotify` landed there while the first frame
+was being drawn, the socket stayed empty, the refresh loop (started by
+`MapNotify`) never started, and the window never presented: `epoll_wait`
+blocked until some unrelated event arrived. That reliably hung the 8 MB
+end-to-end test under XWayland
+([#12](https://github.com/JorgeAgar/markdown-viewer-zed/issues/12)).
+
+`X11Client::run` now drains queued events in calloop's per-iteration
+callback, which runs after the sources and idle callbacks and right before
+the loop blocks again. When the queue is empty that's one non-blocking read.
+
+## 6. X11: don't hold the client borrow across appearance callbacks
+
+`platform/linux/x11/client.rs`
+
+The XDG portal appearance handler called `set_appearance` on every window
+while iterating `client.0.borrow_mut().windows`. `set_appearance` runs the
+window's appearance callback, so any app code reached from it that calls back
+into the platform panics with "RefCell already borrowed". With GPUI's
+`test-support` feature (which `cargo test` unifies into the binary that the
+end-to-end tests run), `flush_effects` draws synchronously, and drawing a
+hovered window calls `set_cursor_style`, which hit this. The handler now
+clones the window handles and releases the borrow first.
+
 ## Measurements
 
 Time from `main()` to the first frame submitted and presented. Medians;

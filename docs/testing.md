@@ -117,6 +117,12 @@ file), and checks a real single-instance handoff:
 MDVIEW_E2E=1 cargo test --test cli      # or: scripts/check.sh --e2e
 ```
 
+GPUI uses Wayland whenever `WAYLAND_DISPLAY` is set. When `DISPLAY` is set
+too (a Wayland desktop with XWayland), each window test runs once per
+backend, with `WAYLAND_DISPLAY` removed for the X11 run. The two backends
+have separate event loops, and an X11-only hang once went unnoticed this way
+([#12](https://github.com/JorgeAgar/markdown-viewer-zed/issues/12)).
+
 ## Deeper checks (not run on every commit)
 
 **Mutation testing** (local only, never in CI) changes the code (for example
