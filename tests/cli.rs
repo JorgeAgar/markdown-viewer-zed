@@ -7,7 +7,8 @@
 //! a regression can't pop up a window.
 //!
 //! The window tests (`window_*`) open real windows for a moment, so they only
-//! run with `MDVIEW_E2E=1` and a display (`WAYLAND_DISPLAY` or `DISPLAY`):
+//! run with `MDVIEW_E2E=1` and a display (`WAYLAND_DISPLAY` or `DISPLAY`).
+//! With both set (Wayland plus XWayland), each window opens once per backend:
 //!
 //! ```sh
 //! MDVIEW_E2E=1 cargo test --test cli
@@ -277,23 +278,50 @@ fn window_tests_enabled() -> bool {
 
 const WINDOW_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The display backends the window tests run on. GPUI picks Wayland whenever
+/// `WAYLAND_DISPLAY` is set, so on a Wayland desktop with XWayland the X11
+/// backend is only reached by removing it. Both get tested: they have
+/// separate event loops, and X11 once hung where Wayland didn't (issue #12).
+fn backends() -> Vec<&'static str> {
+    let set = |v| std::env::var_os(v).is_some_and(|v| !v.is_empty());
+    let mut backends = Vec::new();
+    if set("WAYLAND_DISPLAY") {
+        backends.push("Wayland");
+    }
+    if set("DISPLAY") {
+        backends.push("X11");
+    }
+    backends
+}
+
 /// `MDVIEW_TRACE_STARTUP=quit mdview -n FILES…` must render a first frame and
-/// exit 0. Returns the reported first-frame time.
+/// exit 0, on every backend in `backends()`. Returns the slowest reported
+/// first-frame time.
 fn first_frame(files: &[&Path]) -> Duration {
     let _guard = WINDOW.lock().unwrap_or_else(|e| e.into_inner());
-    let mut cmd = Command::new(BIN);
-    cmd.arg("-n")
-        .args(files)
-        .env("MDVIEW_TRACE_STARTUP", "quit");
-    let out = run(&mut cmd, WINDOW_TIMEOUT);
-    let what = format!("mdview -n {files:?}");
-    assert!(out.status.success(), "{what}: {}", describe(&out));
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    let line = stderr
-        .lines()
-        .find_map(|l| l.strip_prefix("first frame: "))
-        .unwrap_or_else(|| panic!("{what}: no 'first frame:' line: {}", describe(&out)));
-    parse_debug_duration(line).unwrap_or_else(|| panic!("{what}: bad duration {line:?}"))
+    let mut slowest = Duration::ZERO;
+    for backend in backends() {
+        let mut cmd = Command::new(BIN);
+        cmd.arg("-n")
+            .args(files)
+            .env("MDVIEW_TRACE_STARTUP", "quit");
+        if backend == "X11" {
+            cmd.env_remove("WAYLAND_DISPLAY");
+        }
+        let what = format!("{backend}: mdview -n {files:?}");
+        eprintln!("{what}"); // shown if `run` panics on a timeout
+        let out = run(&mut cmd, WINDOW_TIMEOUT);
+        assert!(out.status.success(), "{what}: {}", describe(&out));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let line = stderr
+            .lines()
+            .find_map(|l| l.strip_prefix("first frame: "))
+            .unwrap_or_else(|| panic!("{what}: no 'first frame:' line: {}", describe(&out)));
+        let t =
+            parse_debug_duration(line).unwrap_or_else(|| panic!("{what}: bad duration {line:?}"));
+        slowest = slowest.max(t);
+    }
+    slowest
 }
 
 #[test]

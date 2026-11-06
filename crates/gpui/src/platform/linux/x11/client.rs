@@ -1610,7 +1610,19 @@ impl LinuxClient for X11Client {
             return;
         };
 
-        event_loop.run(None, &mut self.clone(), |_| {}).log_err();
+        // mdview: drain events that are already queued inside libxcb before
+        // the loop blocks again. The X11 fd source only fires when the socket
+        // is readable, but any reply wait on this connection (ours, or Mesa's
+        // Vulkan WSI, which shares it) moves pending events from the socket
+        // into libxcb's queue. If MapNotify lands there while the first frame
+        // is drawn, the socket stays empty, the refresh loop never starts and
+        // the window never presents: epoll_wait blocks forever.
+        let xcb_connection = self.0.borrow().xcb_connection.clone();
+        event_loop
+            .run(None, &mut self.clone(), |client| {
+                client.process_x11_events(&xcb_connection).log_err();
+            })
+            .log_err();
     }
 
     fn active_window(&self) -> Option<AnyWindowHandle> {

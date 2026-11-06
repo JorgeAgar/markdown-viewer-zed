@@ -378,6 +378,27 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
          let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection)
              .context("Failed to create resource database")?;
+@@ -1604,7 +1610,19 @@
+             return;
+         };
+ 
+-        event_loop.run(None, &mut self.clone(), |_| {}).log_err();
++        // mdview: drain events that are already queued inside libxcb before
++        // the loop blocks again. The X11 fd source only fires when the socket
++        // is readable, but any reply wait on this connection (ours, or Mesa's
++        // Vulkan WSI, which shares it) moves pending events from the socket
++        // into libxcb's queue. If MapNotify lands there while the first frame
++        // is drawn, the socket stays empty, the refresh loop never starts and
++        // the window never presents: epoll_wait blocks forever.
++        let xcb_connection = self.0.borrow().xcb_connection.clone();
++        event_loop
++            .run(None, &mut self.clone(), |client| {
++                client.process_x11_events(&xcb_connection).log_err();
++            })
++            .log_err();
+     }
+ 
+     fn active_window(&self) -> Option<AnyWindowHandle> {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/window.rs gpui-0.2.2-mdview/src/platform/mac/window.rs
 --- gpui-0.2.2/src/platform/mac/window.rs
 +++ gpui-0.2.2-mdview/src/platform/mac/window.rs
