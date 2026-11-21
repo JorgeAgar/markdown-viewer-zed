@@ -914,6 +914,26 @@ fn file_open_dialog(
         dialog_options |= FOS_PICKFOLDERS;
     }
 
+    // mdview: honor the requested starting directory when opening the file picker.
+    if let Some(directory) = options.directory
+        && !directory.to_string_lossy().is_empty()
+        && let Some(full_path) = directory
+            .canonicalize()
+            .context("failed to canonicalize directory")
+            .log_err()
+    {
+        let full_path = SanitizedPath::new(&full_path);
+        let full_path_string = full_path.to_string();
+        let path_item: IShellItem =
+            unsafe { SHCreateItemFromParsingName(&HSTRING::from(full_path_string), None)? };
+        unsafe {
+            folder_dialog
+                .SetFolder(&path_item)
+                .context("failed to set dialog folder")
+                .log_err()
+        };
+    }
+
     unsafe {
         folder_dialog.SetOptions(dialog_options)?;
 

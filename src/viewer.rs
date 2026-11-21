@@ -119,11 +119,33 @@ pub struct Fonts {
     pub mono: SharedString,
 }
 
+/// Parent directory of `path`, skipping empty parents (e.g. a bare file name).
+fn parent_dir(path: &Path) -> Option<PathBuf> {
+    let dir = path.parent()?;
+    (!dir.as_os_str().is_empty()).then(|| dir.to_path_buf())
+}
+
+/// Pick the starting directory for the open-file dialog:
+/// active tab's parent → last opened directory in this session → process cwd.
+fn resolve_open_directory(
+    active_file: Option<&Path>,
+    last_open_dir: Option<&Path>,
+    cwd: Option<&Path>,
+) -> Option<PathBuf> {
+    let active_dir = active_file.and_then(parent_dir);
+    [active_dir.as_deref(), last_open_dir, cwd]
+        .into_iter()
+        .flatten()
+        .find(|dir| dir.is_dir())
+        .map(Path::to_path_buf)
+}
+
 pub struct Viewer {
     tabs: Tabs<Tab>,
     focus: FocusHandle,
     fonts: Fonts,
     window_title: SharedString,
+    last_open_dir: Option<PathBuf>,
     traced_startup: bool,
 }
 
@@ -163,14 +185,30 @@ impl Viewer {
             focus,
             fonts,
             window_title: SharedString::default(),
+            last_open_dir: None,
             traced_startup: false,
         };
         this.add_loaded(loaded);
         this
     }
 
+    fn record_dir(&mut self, path: &Path) {
+        if let Some(dir) = parent_dir(path).filter(|d| d.is_dir()) {
+            self.last_open_dir = Some(dir);
+        }
+    }
+
+    fn open_dialog_directory(&self) -> Option<PathBuf> {
+        resolve_open_directory(
+            self.tabs.active().map(|t| t.path.as_path()),
+            self.last_open_dir.as_deref(),
+            std::env::current_dir().ok().as_deref(),
+        )
+    }
+
     fn add_loaded(&mut self, loaded: Vec<Loaded>) {
         for (path, res) in loaded {
+            self.record_dir(&path);
             if !self.tabs.activate_first(|t| t.path == path) {
                 self.tabs.push(Tab::new(path, res));
             }
@@ -184,7 +222,9 @@ impl Viewer {
             if p.is_dir() {
                 continue;
             }
-            if !self.tabs.activate_first(|t| t.path == p) {
+            if self.tabs.activate_first(|t| t.path == p) {
+                self.record_dir(&p);
+            } else {
                 loaded.push(load(p));
             }
         }
@@ -386,12 +426,13 @@ impl Render for Viewer {
             .font_family(self.fonts.ui.clone())
             .text_size(px(render::BASE_SIZE))
             .line_height(gpui::relative(1.6))
-            .on_action(cx.listener(|_, _: &Open, _, cx| {
+            .on_action(cx.listener(|this, _: &Open, _, cx| {
                 let rx = cx.prompt_for_paths(PathPromptOptions {
                     files: true,
                     directories: false,
                     multiple: true,
                     prompt: Some("Open Markdown".into()),
+                    directory: this.open_dialog_directory(),
                 });
                 cx.spawn(async move |this, cx| {
                     if let Ok(Ok(Some(paths))) = rx.await {
@@ -713,5 +754,60 @@ mod tests {
         assert_eq!(heading(&tab.doc, 0), "Could not open file");
         assert!(all_text(&tab.doc).contains("gone"));
         assert_eq!(tab.title.as_ref(), "a.md", "the title doesn't change");
+    }
+
+    #[test]
+    fn parent_dir_skips_empty_and_root() {
+        assert_eq!(
+            parent_dir(Path::new("/a/b/readme.md")),
+            Some(PathBuf::from("/a/b"))
+        );
+        assert_eq!(
+            parent_dir(Path::new("/readme.md")),
+            Some(PathBuf::from("/"))
+        );
+        assert_eq!(parent_dir(Path::new("readme.md")), None);
+        assert_eq!(parent_dir(Path::new("/")), None);
+    }
+
+    #[test]
+    fn resolve_open_directory_falls_back_in_order() {
+        let dir = TempDir::new("resolve-open-dir");
+        let active_dir = dir.join("active");
+        let last_dir = dir.join("last");
+        let cwd_dir = dir.join("cwd");
+        let missing_dir = dir.join("missing");
+        std::fs::create_dir(&active_dir).unwrap();
+        std::fs::create_dir(&last_dir).unwrap();
+        std::fs::create_dir(&cwd_dir).unwrap();
+
+        let active_file = active_dir.join("a.md");
+        let missing_file = missing_dir.join("gone.md");
+
+        // Active tab's parent wins over last_open_dir and cwd.
+        assert_eq!(
+            resolve_open_directory(Some(&active_file), Some(&last_dir), Some(&cwd_dir)),
+            Some(active_dir.clone())
+        );
+        // Missing active parent falls back to last_open_dir.
+        assert_eq!(
+            resolve_open_directory(Some(&missing_file), Some(&last_dir), Some(&cwd_dir)),
+            Some(last_dir.clone())
+        );
+        // No active tab uses last_open_dir.
+        assert_eq!(
+            resolve_open_directory(None, Some(&last_dir), Some(&cwd_dir)),
+            Some(last_dir)
+        );
+        // Missing last_open_dir falls back to cwd.
+        assert_eq!(
+            resolve_open_directory(None, Some(&missing_dir), Some(&cwd_dir)),
+            Some(cwd_dir)
+        );
+        // Nothing exists: None.
+        assert_eq!(
+            resolve_open_directory(Some(&missing_file), Some(&missing_dir), Some(&missing_dir)),
+            None
+        );
     }
 }

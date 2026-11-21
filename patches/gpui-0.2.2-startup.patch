@@ -309,6 +309,39 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
      }
  
      fn destroy(&mut self, gpu: &gpu::Context) {
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/platform.rs gpui-0.2.2-mdview/src/platform/linux/platform.rs
+--- gpui-0.2.2/src/platform/linux/platform.rs
++++ gpui-0.2.2-mdview/src/platform/linux/platform.rs
+@@ -309,16 +309,25 @@
+                     "Open File"
+                 };
+ 
+-                let request = match ashpd::desktop::file_chooser::OpenFileRequest::default()
++                let mut request_builder = ashpd::desktop::file_chooser::OpenFileRequest::default()
+                     .identifier(identifier.await)
+                     .modal(true)
+                     .title(title)
+                     .accept_label(options.prompt.as_ref().map(crate::SharedString::as_str))
+                     .multiple(options.multiple)
+-                    .directory(options.directories)
+-                    .send()
+-                    .await
++                    .directory(options.directories);
++
++                // mdview: honor the requested starting directory when opening the file picker.
++                if let Some(directory) = options.directory
++                    && !directory.as_os_str().is_empty()
++                    && !directory.as_os_str().as_encoded_bytes().contains(&0)
+                 {
++                    request_builder = request_builder
++                        .current_folder(directory)
++                        .expect("pathbuf should not be nul terminated");
++                }
++
++                let request = match request_builder.send().await {
+                     Ok(request) => request,
+                     Err(err) => {
+                         let result = match err {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/client.rs gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
 --- gpui-0.2.2/src/platform/linux/wayland/client.rs
 +++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
@@ -378,6 +411,24 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
          let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection)
              .context("Failed to create resource database")?;
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/platform.rs gpui-0.2.2-mdview/src/platform/mac/platform.rs
+--- gpui-0.2.2/src/platform/mac/platform.rs
++++ gpui-0.2.2-mdview/src/platform/mac/platform.rs
+@@ -722,6 +722,14 @@
+ 
+                     panel.setCanCreateDirectories(true.to_objc());
+                     panel.setResolvesAliases_(false.to_objc());
++                    // mdview: honor the requested starting directory when opening the file picker.
++                    if let Some(directory) = options.directory
++                        && !directory.as_os_str().is_empty()
++                    {
++                        let path = ns_string(directory.to_string_lossy().as_ref());
++                        let url = NSURL::fileURLWithPath_isDirectory_(nil, path, true.to_objc());
++                        panel.setDirectoryURL(url);
++                    }
+                     let done_tx = Cell::new(Some(done_tx));
+                     let block = ConcreteBlock::new(move |response: NSModalResponse| {
+                         let result = if response == NSModalResponse::NSModalResponseOk {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/window.rs gpui-0.2.2-mdview/src/platform/mac/window.rs
 --- gpui-0.2.2/src/platform/mac/window.rs
 +++ gpui-0.2.2-mdview/src/platform/mac/window.rs
@@ -389,6 +440,36 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          }: WindowParams,
          executor: ForegroundExecutor,
          renderer_context: renderer::Context,
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/windows/platform.rs gpui-0.2.2-mdview/src/platform/windows/platform.rs
+--- gpui-0.2.2/src/platform/windows/platform.rs
++++ gpui-0.2.2-mdview/src/platform/windows/platform.rs
+@@ -914,6 +914,26 @@
+         dialog_options |= FOS_PICKFOLDERS;
+     }
+ 
++    // mdview: honor the requested starting directory when opening the file picker.
++    if let Some(directory) = options.directory
++        && !directory.to_string_lossy().is_empty()
++        && let Some(full_path) = directory
++            .canonicalize()
++            .context("failed to canonicalize directory")
++            .log_err()
++    {
++        let full_path = SanitizedPath::new(&full_path);
++        let full_path_string = full_path.to_string();
++        let path_item: IShellItem =
++            unsafe { SHCreateItemFromParsingName(&HSTRING::from(full_path_string), None)? };
++        unsafe {
++            folder_dialog
++                .SetFolder(&path_item)
++                .context("failed to set dialog folder")
++                .log_err()
++        };
++    }
++
+     unsafe {
+         folder_dialog.SetOptions(dialog_options)?;
+ 
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform.rs gpui-0.2.2-mdview/src/platform.rs
 --- gpui-0.2.2/src/platform.rs
 +++ gpui-0.2.2-mdview/src/platform.rs
@@ -408,6 +489,16 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  }
  
  /// Represents the status of how a window should be opened.
+@@ -1336,6 +1345,9 @@
+     pub multiple: bool,
+     /// The prompt to show to a user when selecting a path
+     pub prompt: Option<SharedString>,
++    // mdview: let callers pass an initial folder to the native file picker.
++    /// The initial directory to open the prompt in, if any
++    pub directory: Option<PathBuf>,
+ }
+ 
+ /// What kind of prompt styling to show
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/taffy.rs gpui-0.2.2-mdview/src/taffy.rs
 --- gpui-0.2.2/src/taffy.rs
 +++ gpui-0.2.2-mdview/src/taffy.rs

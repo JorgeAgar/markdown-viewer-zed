@@ -606,3 +606,66 @@ fn platform_open_events_reuse_and_recreate_the_viewer() {
         assert!(handle.entity(cx).unwrap().read(cx).tabs.is_empty());
     });
 }
+
+#[test]
+fn open_dialog_directory_prefers_active_tab_then_last_opened_then_cwd() {
+    let dir = TempDir::new("open-dialog-dir");
+    let d1 = dir.join("one");
+    let d2 = dir.join("two");
+    std::fs::create_dir(&d1).unwrap();
+    std::fs::create_dir(&d2).unwrap();
+    let f1 = d1.join("a.md");
+    let f2 = d2.join("b.md");
+    std::fs::write(&f1, "# One\n").unwrap();
+    std::fs::write(&f2, "# Two\n").unwrap();
+    let d1 = normalize(&d1);
+    let d2 = normalize(&d2);
+    let cwd = std::env::current_dir().unwrap();
+
+    let dialog_dir = |v: &Entity<Viewer>, cx: &mut VisualTestContext| {
+        cx.update(|_, cx| v.read(cx).open_dialog_directory())
+    };
+
+    // Empty window starts in the process working directory.
+    let (v, cx) = open(vec![]);
+    assert_eq!(dialog_dir(&v, cx), Some(cwd.clone()));
+
+    // Opening files uses the active tab's parent directory.
+    v.update(cx, |v, cx| v.open_paths(vec![f1.clone()], cx));
+    assert_eq!(dialog_dir(&v, cx), Some(d1.clone()));
+    v.update(cx, |v, cx| v.open_paths(vec![f2.clone()], cx));
+    assert_eq!(dialog_dir(&v, cx), Some(d2.clone()));
+
+    // Switching tabs changes the dialog directory to the active tab's parent.
+    cx.dispatch_action(PrevTab);
+    assert_eq!(dialog_dir(&v, cx), Some(d1.clone()));
+
+    // Closing all tabs falls back to the last opened directory (d2).
+    cx.dispatch_action(CloseTab);
+    cx.dispatch_action(CloseTab);
+    assert!(titles(&v, cx).is_empty());
+    assert_eq!(dialog_dir(&v, cx), Some(d2.clone()));
+
+    // Re-opening an already open tab updates last_open_dir too.
+    v.update(cx, |v, cx| v.open_paths(vec![f1.clone(), f2.clone()], cx));
+    v.update(cx, |v, cx| v.open_paths(vec![f1.clone()], cx));
+    // Opening a path in a non-existent directory does not clobber last_open_dir.
+    v.update(cx, |v, cx| {
+        v.open_paths(vec![dir.join("missing/nope.md")], cx)
+    });
+    cx.dispatch_action(CloseTab);
+    cx.dispatch_action(CloseTab);
+    cx.dispatch_action(CloseTab);
+    assert!(titles(&v, cx).is_empty());
+    assert_eq!(dialog_dir(&v, cx), Some(d1.clone()));
+
+    // Startup-loaded files also populate last_open_dir after their tab closes.
+    let (v2, cx2) = open(vec![load(normalize(&f2))]);
+    assert_eq!(dialog_dir(&v2, cx2), Some(d2.clone()));
+    cx2.dispatch_action(CloseTab);
+    assert_eq!(dialog_dir(&v2, cx2), Some(d2.clone()));
+
+    // If the recorded directory disappears, fall back to cwd.
+    std::fs::remove_dir_all(&d2).unwrap();
+    assert_eq!(dialog_dir(&v2, cx2), Some(cwd));
+}

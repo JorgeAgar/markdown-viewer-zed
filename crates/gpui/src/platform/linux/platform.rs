@@ -309,16 +309,25 @@ impl<P: LinuxClient + 'static> Platform for P {
                     "Open File"
                 };
 
-                let request = match ashpd::desktop::file_chooser::OpenFileRequest::default()
+                let mut request_builder = ashpd::desktop::file_chooser::OpenFileRequest::default()
                     .identifier(identifier.await)
                     .modal(true)
                     .title(title)
                     .accept_label(options.prompt.as_ref().map(crate::SharedString::as_str))
                     .multiple(options.multiple)
-                    .directory(options.directories)
-                    .send()
-                    .await
+                    .directory(options.directories);
+
+                // mdview: honor the requested starting directory when opening the file picker.
+                if let Some(directory) = options.directory
+                    && !directory.as_os_str().is_empty()
+                    && !directory.as_os_str().as_encoded_bytes().contains(&0)
                 {
+                    request_builder = request_builder
+                        .current_folder(directory)
+                        .expect("pathbuf should not be nul terminated");
+                }
+
+                let request = match request_builder.send().await {
                     Ok(request) => request,
                     Err(err) => {
                         let result = match err {

@@ -47,6 +47,18 @@ phased out and will become a hard error
 ([#154024](https://github.com/rust-lang/rust/issues/154024)), so the
 literals are now `0.0_f32` and `1.0_f32`. No behavior change.
 
+## 5. Initial directory for the open-file dialog
+
+`platform.rs`, `platform/linux/platform.rs`, `platform/mac/platform.rs`,
+`platform/windows/platform.rs`
+
+Upstream `PathPromptOptions` has no field for a starting directory, so
+`prompt_for_paths` leaves the OS file picker to choose its own default folder
+(often `/` or `~` on Linux portals). `PathPromptOptions` now carries
+`directory: Option<PathBuf>`, wired to `OpenFileRequest::current_folder` on
+Linux, `NSOpenPanel::setDirectoryURL` on macOS, and `IFileOpenDialog::SetFolder`
+on Windows (matching `prompt_for_new_path`).
+
 ## Measurements
 
 Time from `main()` to the first frame submitted and presented. Medians;
