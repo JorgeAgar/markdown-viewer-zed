@@ -502,17 +502,14 @@ impl Render for Viewer {
             }))
             .on_action(cx.listener(|this, _: &Bottom, _, cx| {
                 if let Some(l) = this.active_list() {
-                    let n = l.item_count();
-                    if n > 0 {
-                        // Scroll past the last row so GPUI fills the viewport
-                        // upward from the end even when middle rows are
-                        // unmeasured (height 0 in the SumTree).
-                        l.scroll_to(ListOffset {
-                            item_ix: n,
-                            offset_in_item: px(0.),
-                        });
-                        cx.notify();
-                    }
+                    // Scroll past the last row so GPUI fills the viewport
+                    // upward from the end even when middle rows are
+                    // unmeasured (height 0 in the SumTree).
+                    l.scroll_to(ListOffset {
+                        item_ix: l.item_count(),
+                        offset_in_item: px(0.),
+                    });
+                    cx.notify();
                 }
             }))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {

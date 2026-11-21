@@ -712,6 +712,12 @@ fn large_table_virtualizes_rows_and_jumps_to_bottom() {
     cx.dispatch_action(Top);
     cx.run_until_parked();
     assert_eq!(scroll_top(&v, cx), (0, 0.));
+
+    // Bottom on an empty document stays at (0, 0.).
+    let (empty_v, empty_cx) = open(vec![(PathBuf::from("/x/empty.md"), parsed(""))]);
+    empty_cx.dispatch_action(Bottom);
+    empty_cx.run_until_parked();
+    assert_eq!(scroll_top(&empty_v, empty_cx), (0, 0.));
 }
 
 #[test]
