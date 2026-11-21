@@ -20,8 +20,6 @@ open an issue (or ask the maintainer) so the scope gets agreed first.
       `<p align="center">`, which are common in READMEs.
 - [ ] **Typeset inline math.** Inline `$…$` is Unicode text today. Typesetting
       it needs inline images inside text, which GPUI's `StyledText` can't do.
-- [ ] Split very large blocks (huge tables or code) into several list rows, so
-      virtualization still helps.
 - [ ] Find in page (`Ctrl+F`).
 
 ## UX
@@ -62,3 +60,5 @@ See [startup.md](startup.md) for the current breakdown.
 - [x] Mermaid diagrams (merman), rendered in the background
 - [x] GPUI startup fixes: no double pipeline build, parallel pipelines,
       Vulkan init in parallel with fonts
+- [x] Virtualized splitting of large blocks (tables, lists, large code blocks
+      and multi-block quotes) into separate list rows for smooth scrolling

@@ -11,7 +11,8 @@
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
-│   ├── render.rs      Block model → GPUI elements; link handling
+│   ├── render.rs      Block model + rows → GPUI elements; link handling
+│   ├── rows.rs        `Rows`: splits large top-level blocks into virtualized list rows (GUI-free, unit-tested)
 │   ├── http.rs        Lazy HTTP(S) image transport on the blocking pool
 │   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (GUI-free)
 │   └── theme.rs       Light and dark palettes
@@ -43,7 +44,8 @@ flowchart TD
     ratex[("RaTeX<br/>(KaTeX port)")]
     merman[("merman<br/>(Mermaid)")]
     resvg[("resvg")]
-    render["render.rs<br/>top_block() → AnyElement"]
+    render["render.rs<br/>render_row() → AnyElement"]
+    rows["rows.rs<br/>Rows::from_document()"]
     links["links.rs<br/>classify_link() → LinkTarget"]
     theme["theme.rs<br/>Theme"]
     gpui[("crates/gpui<br/>GPUI (vendored)")]
@@ -59,9 +61,13 @@ flowchart TD
     viewer --> tabs
     main --> gpui
     viewer --> markdown
+    viewer --> rows
     viewer --> render
     viewer --> theme
+    rows --> markdown
+    rows --> highlight
     render --> markdown
+    render --> rows
     render --> theme
     render --> links
     viewer --> links
@@ -140,9 +146,11 @@ classDiagram
     RichText --> Span
 ```
 
-Each **top-level** block becomes one row of the virtualized list (see
-[rendering.md](rendering.md)). Blocks nested inside a quote or list are drawn
-as part of their parent's row.
+Top-level blocks are projected into display rows by `rows.rs` (see
+[rendering.md](rendering.md)): simple blocks become one row, while tables,
+lists, large code blocks and multi-block quotes are split into multiple rows
+so virtualization keeps scrolling smooth. Blocks nested inside a list item or
+quote child are drawn as part of their parent's row.
 
 ## Runtime state
 
@@ -157,8 +165,10 @@ classDiagram
     }
     class Tab {
         path: PathBuf  canonical
+        base_dir: Arc~Path~
         title: SharedString
         doc: Arc~Document~
+        rows: Arc~Rows~
         mtime: Option~SystemTime~
         list: ListState  scroll + measured heights
     }

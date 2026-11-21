@@ -460,19 +460,17 @@ fn draws_every_document_in_the_window() {
 }
 
 /// The rows of a document, as the Viewer's list renders them, with any theme.
-struct Rows {
+struct DocRows {
     doc: Arc<Document>,
+    rows: Arc<Rows>,
     rcx: RenderCx,
 }
 
-impl Render for Rows {
+impl Render for DocRows {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().w(px(920.)).children(
-            self.doc
-                .blocks
-                .iter()
-                .enumerate()
-                .map(|(ix, b)| render::top_block(b, ix, &self.rcx, window, cx)),
+            (0..self.rows.len())
+                .map(|ix| render::render_row(&self.doc, &self.rows[ix], ix, &self.rcx, window, cx)),
         )
     }
 }
@@ -485,6 +483,7 @@ fn draws_every_document_in_both_themes() {
     let weak = v.downgrade();
     for (path, src) in example_docs() {
         let doc = Arc::new(markdown::parse(&src));
+        let doc_rows = Arc::new(Rows::from_document(&doc));
         for theme in [Theme::light(), Theme::dark()] {
             let rcx = RenderCx {
                 theme,
@@ -493,8 +492,9 @@ fn draws_every_document_in_both_themes() {
                 base_dir: Arc::from(path.parent().unwrap()),
                 viewer: weak.clone(),
             };
-            let rows = cx.new(|_| Rows {
+            let rows = cx.new(|_| DocRows {
                 doc: doc.clone(),
+                rows: doc_rows.clone(),
                 rcx,
             });
             // Twice: placeholders first, then the finished images.
@@ -668,4 +668,129 @@ fn open_dialog_directory_prefers_active_tab_then_last_opened_then_cwd() {
     // If the recorded directory disappears, fall back to cwd.
     std::fs::remove_dir_all(&d2).unwrap();
     assert_eq!(dialog_dir(&v2, cx2), Some(cwd));
+}
+
+#[test]
+fn large_table_virtualizes_rows_and_jumps_to_bottom() {
+    let mut md = String::from("# Big table\n\n| ID | Desc |\n|---:|:---|\n");
+    for i in 1..=2_000 {
+        md.push_str(&format!("| {i:05} | Row **{i}** `v-{i}` |\n"));
+    }
+    let (v, cx) = open(vec![(PathBuf::from("/x/big.md"), parsed(&md))]);
+    cx.run_until_parked();
+    // 1 heading + 1 table header + 2000 body rows.
+    let count = cx.update(|_, cx| v.read(cx).active_list().unwrap().item_count());
+    assert_eq!(count, 2_002);
+
+    // Scrolling down advances smoothly into the table.
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    let after_page = scroll_top(&v, cx);
+    assert!(after_page.0 > 0 && after_page.0 < 200, "{after_page:?}");
+
+    // Bottom jumps all the way to the end of the 2000-row table even though
+    // middle rows were never measured.
+    cx.dispatch_action(Bottom);
+    cx.run_until_parked();
+    let bottom = scroll_top(&v, cx);
+    assert!(
+        bottom.0 > 1_900 && bottom.0 < count,
+        "expected scroll top near the end of the table, got {bottom:?}"
+    );
+
+    // PageUp from the bottom steps smoothly upward without teleporting over
+    // unmeasured rows.
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    let after_page_up = scroll_top(&v, cx);
+    assert!(
+        after_page_up.0 > 1_800 && after_page_up.0 < bottom.0,
+        "expected PageUp from bottom to move up one page, got {after_page_up:?} from {bottom:?}"
+    );
+
+    // Top returns cleanly to the start.
+    cx.dispatch_action(Top);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+}
+
+#[test]
+fn anchors_account_for_split_tables_lists_code_and_quotes() {
+    let mut md = String::new();
+    // Block 0: table (1 header + 3 body rows = 4 rows)
+    md.push_str("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n\n");
+    // Block 1: list (3 items = 3 rows)
+    md.push_str("- a\n- b\n- c\n\n");
+    // Block 2: large code block (70 lines -> 2 chunks = 2 rows)
+    md.push_str("```rust\n/* multi-line\n");
+    for i in 0..68 {
+        md.push_str(&format!("let x{i} = {i};\n"));
+    }
+    md.push_str("*/\n```\n\n");
+    // Block 3: multi-block callout quote (1 header + 2 blocks = 3 rows)
+    md.push_str("> [!NOTE]\n> First\n>\n> Second\n\n");
+    // Block 4: multi-block plain quote (2 blocks = 2 rows)
+    md.push_str("> Plain one\n>\n> Plain two\n\n");
+    // Block 5: header-only table (1 row)
+    md.push_str("| Only |\n|---|\n\n");
+    // Block 6: target heading -> row index 4 + 3 + 2 + 3 + 2 + 1 = 15
+    md.push_str("## Target Heading\n\nBody\n");
+
+    let (v, cx) = open(vec![(PathBuf::from("/x/mixed.md"), parsed(&md))]);
+    cx.run_until_parked();
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "target-heading", cx));
+    cx.run_until_parked();
+    // Anchor targets row 15 (clamped upward only if the tail is shorter than
+    // the viewport; here we assert the tab's row mapping directly too).
+    let mapped = cx.update(|_, cx| {
+        let tab = v.read(cx).tabs.active().unwrap();
+        let block_ix = links::heading_index(&tab.doc.blocks, "target-heading").unwrap();
+        tab.rows.row_for_block(block_ix)
+    });
+    assert_eq!(mapped, Some(15));
+}
+
+#[test]
+fn draws_split_large_code_quotes_and_header_only_table_in_both_themes() {
+    let mut md = String::from("| Header only |\n|---|\n\n");
+    md.push_str("> [!TIP]\n> First paragraph\n>\n> Second paragraph\n\n");
+    md.push_str("> Plain first\n>\n> Plain second\n\n");
+    md.push_str("```rust\n/* start comment\n");
+    for i in 0..130 {
+        md.push_str(&format!("// line {i}\n"));
+    }
+    md.push_str("end */\n\n```\n");
+
+    let (v, cx) = open(vec![]);
+    let weak = v.downgrade();
+    let doc = Arc::new(markdown::parse(&md));
+    let doc_rows = Arc::new(Rows::from_document(&doc));
+    assert!(
+        doc_rows.len() > 8,
+        "expected split rows, got {}",
+        doc_rows.len()
+    );
+    for theme in [Theme::light(), Theme::dark()] {
+        let rcx = RenderCx {
+            theme,
+            ui_font: fonts().ui,
+            mono_font: fonts().mono,
+            base_dir: Arc::from(Path::new("/x")),
+            viewer: weak.clone(),
+        };
+        let rows = cx.new(|_| DocRows {
+            doc: doc.clone(),
+            rows: doc_rows.clone(),
+            rcx,
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(920.)),
+                AvailableSpace::MinContent,
+            ),
+            |_, _| AnyView::from(rows.clone()),
+        );
+        cx.run_until_parked();
+    }
 }

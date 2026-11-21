@@ -352,7 +352,9 @@ impl<'a> P<'a> {
                                 && let Some(Event::TaskListMarker(c)) = self.ev.get(self.i + 1)
                             {
                                 checked = Some(*c);
-                                self.ev.remove(self.i + 1);
+                                // Overwrite in place instead of Vec::remove so
+                                // large loose task lists stay O(N).
+                                self.ev[self.i + 1] = Event::Text(CowStr::Borrowed(""));
                             }
                             let mut blocks = Vec::new();
                             self.blocks(&mut blocks);

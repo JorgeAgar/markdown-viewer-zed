@@ -14,6 +14,7 @@ mod http;
 mod links;
 mod platform;
 mod render;
+mod rows;
 mod tabs;
 #[cfg(test)]
 mod test_util;

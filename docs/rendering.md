@@ -8,8 +8,8 @@ How a `.md` file becomes pixels, and how to change or extend that.
 flowchart LR
     F["file bytes"] -->|"viewer::load<br/>(any thread)"| P["pulldown-cmark events"]
     P -->|"markdown::parse"| D["Document<br/>Vec of Block"]
-    D -->|"Arc, stored in Tab"| L["gpui::list<br/>(ListState)"]
-    L -->|"only visible rows:<br/>render::top_block(ix)"| E["GPUI elements<br/>div / StyledText / img"]
+    D -->|"rows::Rows"| L["gpui::list<br/>(ListState)"]
+    L -->|"only visible rows:<br/>render::render_row(ix)"| E["GPUI elements<br/>div / StyledText / img"]
     E -->|"HTTP(S) images, async + cached"| H["http.rs → GPUI image loader"]
     E -->|"layout + paint"| GPU["GPU frame"]
 ```
@@ -50,14 +50,22 @@ Enabled extensions: tables, strikethrough, task lists, footnotes, GFM alerts
 (`> [!NOTE]` and friends), metadata blocks, and math (`$…$` / `$$…$$`, with
 GitHub's rules, so `$5 and $10` stays text).
 
-## 2. Virtualization (`src/viewer.rs`)
+## 2. Virtualization (`src/rows.rs`, `src/viewer.rs`)
 
-Each `Tab` owns a `gpui::ListState`, created with
-`ListState::new(blocks.len(), ListAlignment::Top, px(800.))`:
+Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
+`gpui::ListState` created with `ListState::new(rows.len(), ListAlignment::Top, px(800.))`:
 
-- **One list row = one top-level `Block`.** A huge table or code block is
-  still a single row, so very large blocks are the one case that virtualization
-  doesn't help.
+- **Large top-level blocks are split across list rows** so virtualization stays
+  effective on huge files:
+  - `Block::Table` becomes one header row plus one row per body row.
+  - `Block::List` becomes one row per top-level list item.
+  - `Block::Code` with more than 64 lines is sliced into 64-line chunks, with
+    syntax highlights clamped and shifted to each chunk's byte range.
+  - `Block::Quote` with multiple child blocks becomes an optional callout title
+    row plus one row per child block, keeping a continuous left border.
+  - All other top-level blocks stay a single row.
+- `Rows` keeps a `block_start` index so `#anchor` jumps (`links::heading_index`)
+  still resolve to the heading's list row in O(1).
 - The list measures rows lazily and caches their heights. `800px` of overdraw
   keeps rows just outside the viewport ready, so scrolling stays smooth.
 - When a file is reloaded, `ListState::reset` is called and the old scroll
@@ -65,10 +73,10 @@ Each `Tab` owns a `gpui::ListState`, created with
 
 ## 3. Elements (`src/render.rs`)
 
-`top_block(block, ix, rcx)` wraps each row in a centered column, at most
-`CONTENT_MAX_WIDTH` (880 px) wide. `render_block` then handles the different
-block kinds. Everything it needs comes from `RenderCx`, which is cheap to
-clone:
+`render_row(doc, row, ix, rcx)` wraps each row in a centered column, at most
+`CONTENT_MAX_WIDTH` (880 px) wide, applying block or inter-item bottom spacing
+only where the row needs it. `render_block` handles whole blocks and nested
+children. Everything it needs comes from `RenderCx`, which is cheap to clone:
 
 | Field | Purpose |
 | --- | --- |

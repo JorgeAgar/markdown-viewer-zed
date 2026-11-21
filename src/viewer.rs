@@ -17,6 +17,7 @@ use crate::{
     links,
     markdown::{self, Document},
     render::{self, RenderCx},
+    rows::Rows,
     tabs::Tabs,
     theme::Theme,
 };
@@ -64,10 +65,15 @@ pub fn normalize(p: &Path) -> PathBuf {
     })
 }
 
+/// Pixels measured above and below the viewport by `gpui::ListState`.
+const LIST_OVERDRAW: f32 = 800.;
+
 struct Tab {
     path: PathBuf,
+    base_dir: Arc<Path>,
     title: SharedString,
     doc: Arc<Document>,
+    rows: Arc<Rows>,
     mtime: Option<SystemTime>,
     list: ListState,
 }
@@ -75,12 +81,19 @@ struct Tab {
 impl Tab {
     fn new(path: PathBuf, res: Result<(Document, Option<SystemTime>), String>) -> Self {
         let title = tab_title(&path).into();
+        let base_dir: Arc<Path> = path
+            .parent()
+            .map(Arc::from)
+            .unwrap_or_else(|| Arc::from(Path::new("/")));
         let (doc, mtime) = res.unwrap_or_else(|e| (error_doc(&path, &e), None));
-        let list = ListState::new(doc.blocks.len(), ListAlignment::Top, px(800.));
+        let rows = Arc::new(Rows::from_document(&doc));
+        let list = ListState::new(rows.len(), ListAlignment::Top, px(LIST_OVERDRAW));
         Self {
             path,
+            base_dir,
             title,
             doc: Arc::new(doc),
+            rows,
             mtime,
             list,
         }
@@ -88,13 +101,15 @@ impl Tab {
 
     fn replace(&mut self, res: Result<(Document, Option<SystemTime>), String>) {
         let (doc, mtime) = res.unwrap_or_else(|e| (error_doc(&self.path, &e), None));
+        let rows = Arc::new(Rows::from_document(&doc));
         let top = self.list.logical_scroll_top();
-        self.list.reset(doc.blocks.len());
+        self.list.reset(rows.len());
         self.list.scroll_to(ListOffset {
-            item_ix: top.item_ix.min(doc.blocks.len().saturating_sub(1)),
+            item_ix: top.item_ix.min(rows.len().saturating_sub(1)),
             offset_in_item: top.offset_in_item,
         });
         self.doc = Arc::new(doc);
+        self.rows = rows;
         self.mtime = mtime;
     }
 }
@@ -238,9 +253,11 @@ impl Viewer {
             None => self.tabs.active(),
         };
         let Some(tab) = tab else { return };
-        if let Some(ix) = links::heading_index(&tab.doc.blocks, anchor) {
+        if let Some(block_ix) = links::heading_index(&tab.doc.blocks, anchor)
+            && let Some(row_ix) = tab.rows.row_for_block(block_ix)
+        {
             tab.list.scroll_to(ListOffset {
-                item_ix: ix,
+                item_ix: row_ix,
                 offset_in_item: px(0.),
             });
             cx.notify();
@@ -397,16 +414,13 @@ impl Render for Viewer {
                     theme,
                     ui_font: self.fonts.ui.clone(),
                     mono_font: self.fonts.mono.clone(),
-                    base_dir: tab
-                        .path
-                        .parent()
-                        .map(Arc::from)
-                        .unwrap_or_else(|| Arc::from(Path::new("/"))),
+                    base_dir: tab.base_dir.clone(),
                     viewer: cx.weak_entity(),
                 };
                 let doc = tab.doc.clone();
+                let rows = tab.rows.clone();
                 list(tab.list.clone(), move |ix, window, cx| {
-                    render::top_block(&doc.blocks[ix], ix, &rcx, window, cx)
+                    render::render_row(&doc, &rows[ix], ix, &rcx, window, cx)
                 })
                 .size_full()
                 .into_any_element()
@@ -470,7 +484,10 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &ScrollUp, _, cx| this.scroll(-60., cx)))
             .on_action(cx.listener(|this, _: &ScrollDown, _, cx| this.scroll(60., cx)))
             .on_action(cx.listener(|this, _: &PageUp, window, cx| {
-                let p = this.page(window);
+                // Stay within the list's measured leading overdraw so paging up
+                // right after jumping to Bottom or an anchor can't skip past
+                // unmeasured (0-height) rows.
+                let p = this.page(window).min(LIST_OVERDRAW - 40.);
                 this.scroll(-p, cx)
             }))
             .on_action(cx.listener(|this, _: &PageDown, window, cx| {
@@ -487,7 +504,13 @@ impl Render for Viewer {
                 if let Some(l) = this.active_list() {
                     let n = l.item_count();
                     if n > 0 {
-                        l.scroll_to_reveal_item(n - 1);
+                        // Scroll past the last row so GPUI fills the viewport
+                        // upward from the end even when middle rows are
+                        // unmeasured (height 0 in the SumTree).
+                        l.scroll_to(ListOffset {
+                            item_ix: n,
+                            offset_in_item: px(0.),
+                        });
                         cx.notify();
                     }
                 }
