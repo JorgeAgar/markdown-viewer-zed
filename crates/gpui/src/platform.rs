@@ -1345,6 +1345,9 @@ pub struct PathPromptOptions {
     pub multiple: bool,
     /// The prompt to show to a user when selecting a path
     pub prompt: Option<SharedString>,
+    // mdview: let callers pass an initial folder to the native file picker.
+    /// The initial directory to open the prompt in, if any
+    pub directory: Option<PathBuf>,
 }
 
 /// What kind of prompt styling to show

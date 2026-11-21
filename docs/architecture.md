@@ -153,6 +153,7 @@ classDiagram
         focus: FocusHandle
         fonts: Fonts
         window_title: SharedString
+        last_open_dir: Option~PathBuf~
     }
     class Tab {
         path: PathBuf  canonical
@@ -176,6 +177,9 @@ classDiagram
   (`Tabs::close`). Next/previous tab wrap around.
 - `Tab::replace` swaps in a newly parsed document and keeps the scroll
   position. Live reload and `Ctrl+R` both use it.
+- The open-file dialog (`Ctrl+O` / `Cmd+O`) starts in the active tab's parent
+  directory, falling back to `last_open_dir` (in-memory only, updated as files
+  are opened) and then the process working directory.
 
 ## Threads
 
