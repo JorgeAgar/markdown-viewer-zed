@@ -169,6 +169,7 @@ classDiagram
         title: SharedString
         doc: Arc~Document~
         rows: Arc~Rows~
+        code_scroll: CodeScrollMap  shared horizontal scroll per split code block
         mtime: Option~SystemTime~
         list: ListState  scroll + measured heights
     }

@@ -1,12 +1,13 @@
 //! Block model -> GPUI elements.
 
-use std::{path::Path, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc, sync::Arc};
 
 use gpui::{
     AnyElement, App, ElementId, Font, FontFeatures, FontStyle, FontWeight, Hsla,
-    InteractiveElement, InteractiveText, IntoElement, ObjectFit, ParentElement, SharedString,
-    StatefulInteractiveElement, StrikethroughStyle, Styled, StyledImage, StyledText, TextRun,
-    UnderlineStyle, WeakEntity, Window, div, img, prelude::FluentBuilder, px, relative,
+    InteractiveElement, InteractiveText, IntoElement, ObjectFit, ParentElement, Pixels,
+    ScrollHandle, SharedString, StatefulInteractiveElement, StrikethroughStyle, Styled,
+    StyledImage, StyledText, TextRun, UnderlineStyle, WeakEntity, Window, div, img,
+    prelude::FluentBuilder, px, relative,
 };
 
 use crate::{
@@ -28,6 +29,19 @@ use crate::links::file_url;
 pub const CONTENT_MAX_WIDTH: f32 = 880.;
 pub const BASE_SIZE: f32 = 16.;
 
+/// Shared horizontal scroll state for one split `Block::Code`. All chunks of
+/// the same block track the same `ScrollHandle` and enforce `min_width` so
+/// shorter chunks never clamp away the scroll offset of wider chunks.
+#[derive(Clone)]
+pub struct CodeScroll {
+    pub handle: ScrollHandle,
+    pub min_width: Pixels,
+}
+
+/// Per-tab cache of shared horizontal scroll handles, keyed by top-level
+/// `Block::Code` index.
+pub type CodeScrollMap = Rc<RefCell<HashMap<usize, CodeScroll>>>;
+
 /// Everything a block needs to render itself. Cheap to clone.
 #[derive(Clone)]
 pub struct RenderCx {
@@ -36,6 +50,7 @@ pub struct RenderCx {
     pub mono_font: SharedString,
     pub base_dir: Arc<Path>,
     pub viewer: WeakEntity<Viewer>,
+    pub code_scroll: CodeScrollMap,
 }
 
 impl RenderCx {
@@ -161,6 +176,7 @@ pub fn render_row(
             else {
                 unreachable!("CodeChunk row points to a Code block");
             };
+            let scroll = code_scroll_for(*block, code, rcx, c.window);
             let sliced = rows::slice_highlights(highlights, *start..*end);
             let el = code_box(
                 lang,
@@ -168,6 +184,7 @@ pub fn render_row(
                 &sliced,
                 *first,
                 *last,
+                Some(&scroll),
                 rcx,
                 &mut c.ids,
             )
@@ -225,12 +242,50 @@ impl IdGen {
     }
 }
 
+fn code_scroll_for(block: usize, code: &str, rcx: &RenderCx, window: &Window) -> CodeScroll {
+    if let Some(existing) = rcx.code_scroll.borrow().get(&block) {
+        return existing.clone();
+    }
+    let [a, b] = rows::widest_line_candidates(code);
+    let mut min_width = measure_code_line(&code[a.clone()], rcx, window);
+    if b != a {
+        min_width = min_width.max(measure_code_line(&code[b], rcx, window));
+    }
+    let entry = CodeScroll {
+        handle: ScrollHandle::new(),
+        min_width,
+    };
+    rcx.code_scroll.borrow_mut().insert(block, entry.clone());
+    entry
+}
+
+fn measure_code_line(line: &str, rcx: &RenderCx, window: &Window) -> Pixels {
+    if line.is_empty() {
+        return px(0.);
+    }
+    let run = TextRun {
+        len: line.len(),
+        font: rcx.font(true, FontWeight::NORMAL, false),
+        color: rcx.theme.fg,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    window
+        .text_system()
+        .shape_line(SharedString::from(line.to_owned()), px(13.5), &[run], None)
+        .width
+        .ceil()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn code_box(
     lang: &str,
     code: &str,
     highlights: &[Highlight],
     first: bool,
     last: bool,
+    scroll: Option<&CodeScroll>,
     rcx: &RenderCx,
     ids: &mut IdGen,
 ) -> gpui::Div {
@@ -246,6 +301,7 @@ fn code_box(
                 .id(ids.next())
                 .w_full()
                 .overflow_x_scroll()
+                .when_some(scroll, |d, s| d.track_scroll(&s.handle))
                 .px_4()
                 .when(first, |d| d.pt_4())
                 .when(last, |d| d.pb_4())
@@ -256,6 +312,7 @@ fn code_box(
                     div()
                         .whitespace_nowrap()
                         .min_h(px(13.5 * 1.5))
+                        .when_some(scroll, |d, s| d.min_w(s.min_width))
                         .child(code_text(code, highlights, rcx)),
                 ),
         )
@@ -393,7 +450,7 @@ fn render_block(block: &Block, rcx: &RenderCx, c: &mut Cx, depth: usize) -> AnyE
             lang,
             code,
             highlights,
-        } => code_box(lang, code, highlights, true, true, rcx, &mut c.ids).into_any_element(),
+        } => code_box(lang, code, highlights, true, true, None, rcx, &mut c.ids).into_any_element(),
         Block::Quote { callout, blocks } => {
             let color = callout.map(|c| t.callout(c)).unwrap_or(t.border);
             div()

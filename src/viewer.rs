@@ -16,7 +16,7 @@ use gpui::{
 use crate::{
     links,
     markdown::{self, Document},
-    render::{self, RenderCx},
+    render::{self, CodeScrollMap, RenderCx},
     rows::Rows,
     tabs::Tabs,
     theme::Theme,
@@ -74,6 +74,7 @@ struct Tab {
     title: SharedString,
     doc: Arc<Document>,
     rows: Arc<Rows>,
+    code_scroll: CodeScrollMap,
     mtime: Option<SystemTime>,
     list: ListState,
 }
@@ -94,6 +95,7 @@ impl Tab {
             title,
             doc: Arc::new(doc),
             rows,
+            code_scroll: CodeScrollMap::default(),
             mtime,
             list,
         }
@@ -103,11 +105,13 @@ impl Tab {
         let (doc, mtime) = res.unwrap_or_else(|e| (error_doc(&self.path, &e), None));
         let rows = Arc::new(Rows::from_document(&doc));
         let top = self.list.logical_scroll_top();
+        let item_ix = rows.remap_row(&self.rows, top.item_ix);
         self.list.reset(rows.len());
         self.list.scroll_to(ListOffset {
-            item_ix: top.item_ix.min(rows.len().saturating_sub(1)),
+            item_ix,
             offset_in_item: top.offset_in_item,
         });
+        self.code_scroll.borrow_mut().clear();
         self.doc = Arc::new(doc);
         self.rows = rows;
         self.mtime = mtime;
@@ -416,6 +420,7 @@ impl Render for Viewer {
                     mono_font: self.fonts.mono.clone(),
                     base_dir: tab.base_dir.clone(),
                     viewer: cx.weak_entity(),
+                    code_scroll: tab.code_scroll.clone(),
                 };
                 let doc = tab.doc.clone();
                 let rows = tab.rows.clone();
@@ -763,6 +768,28 @@ mod tests {
         tab.replace(Ok((doc_with(0), None)));
         assert_eq!(tab.list.item_count(), 0);
         assert_eq!(tab.list.logical_scroll_top().item_ix, 0);
+    }
+
+    #[test]
+    fn replace_keeps_heading_when_preceding_table_grows() {
+        let make = |n: usize| {
+            let mut s = String::from("| ID |\n|---|\n");
+            for i in 0..n {
+                s.push_str(&format!("| {i} |\n"));
+            }
+            s.push_str("\n## Heading After Table\n\nBody\n");
+            markdown::parse(&s)
+        };
+        let mut tab = Tab::new(PathBuf::from("/x/a.md"), Ok((make(5), None)));
+        // Block 0 = table (rows 0..=5), block 1 = heading (row 6).
+        tab.list.scroll_to(ListOffset {
+            item_ix: 6,
+            offset_in_item: px(4.),
+        });
+        tab.replace(Ok((make(105), None)));
+        // Block 1 moved to row 106; scroll stays on the heading.
+        let top = tab.list.logical_scroll_top();
+        assert_eq!((top.item_ix, top.offset_in_item), (106, px(4.)));
     }
 
     #[test]

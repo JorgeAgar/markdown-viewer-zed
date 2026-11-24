@@ -491,6 +491,7 @@ fn draws_every_document_in_both_themes() {
                 mono_font: fonts().mono,
                 base_dir: Arc::from(path.parent().unwrap()),
                 viewer: weak.clone(),
+                code_scroll: Default::default(),
             };
             let rows = cx.new(|_| DocRows {
                 doc: doc.clone(),
@@ -783,6 +784,7 @@ fn draws_split_large_code_quotes_and_header_only_table_in_both_themes() {
             mono_font: fonts().mono,
             base_dir: Arc::from(Path::new("/x")),
             viewer: weak.clone(),
+            code_scroll: Default::default(),
         };
         let rows = cx.new(|_| DocRows {
             doc: doc.clone(),
@@ -799,4 +801,140 @@ fn draws_split_large_code_quotes_and_header_only_table_in_both_themes() {
         );
         cx.run_until_parked();
     }
+}
+
+#[test]
+fn reload_keeps_heading_position_when_preceding_table_grows_or_shrinks() {
+    let make = |rows: usize| {
+        let mut s = String::from("| ID | Desc |\n|---:|:---|\n");
+        for i in 1..=rows {
+            s.push_str(&format!("| {i} | row {i} |\n"));
+        }
+        s.push_str("\n## After Table\n\n");
+        for i in 0..40 {
+            s.push_str(&format!("Trailing paragraph {i}.\n\n"));
+        }
+        s
+    };
+    let dir = TempDir::new("reload-table-grow");
+    let path = normalize(&dir.join("table.md"));
+    std::fs::write(&path, make(5)).unwrap();
+
+    let (v, cx) = open(vec![load(path.clone())]);
+    cx.run_until_parked();
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "after-table", cx));
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx).0, 6);
+
+    // Table grows from 5 to 105 rows: reload keeps `## After Table` (now row 106).
+    std::fs::write(&path, make(105)).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx).0, 106);
+
+    // Table shrinks to 2 rows: reload keeps `## After Table` (now row 3).
+    std::fs::write(&path, make(2)).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx).0, 3);
+}
+
+#[test]
+fn split_code_block_synchronizes_horizontal_scroll_across_chunks() {
+    use gpui::{ScrollDelta, ScrollWheelEvent};
+
+    // 90 lines (> 64 -> 2 chunks): lines 1..=64 are very wide, lines 65..=90
+    // are short. Both chunks must stay horizontally synchronized and the
+    // shorter second chunk must not clamp away the horizontal scroll offset.
+    let mut md = String::from("```rust\n");
+    for i in 1..=64 {
+        md.push_str(&format!("let line_{i:03} = \"{}\";\n", "x".repeat(220)));
+    }
+    for i in 65..=90 {
+        md.push_str(&format!("let short_{i:03} = {i};\n"));
+    }
+    md.push_str("```\n");
+
+    let (v, cx) = open(vec![(PathBuf::from("/x/wide-code.md"), parsed(&md))]);
+    cx.run_until_parked();
+    let count = cx.update(|_, cx| v.read(cx).active_list().unwrap().item_count());
+    assert_eq!(count, 2, "90-line code block splits into 2 chunks");
+
+    // Scroll vertically so the boundary between line 64 (chunk 0) and line 65
+    // (chunk 1) is visible on screen at the same time.
+    cx.update(|_, cx| {
+        v.read(cx).active_list().unwrap().scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(1050.),
+        });
+    });
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+
+    let (b0, b1) = cx.update(|_, cx| {
+        let list = v.read(cx).active_list().unwrap();
+        (
+            list.bounds_for_item(0).unwrap(),
+            list.bounds_for_item(1).unwrap(),
+        )
+    });
+    let viewport = cx.update(|_, cx| v.read(cx).active_list().unwrap().viewport_bounds());
+    assert!(
+        b0.bottom() > viewport.top() && b0.bottom() < viewport.bottom(),
+        "chunk 0 visible"
+    );
+    assert!(
+        b1.top() >= viewport.top() && b1.top() < viewport.bottom(),
+        "chunk 1 visible"
+    );
+
+    // Horizontal scroll gesture over chunk 0 (line 64).
+    let pos_chunk0 = point(b0.center().x, b0.bottom() - px(10.));
+    cx.simulate_event(ScrollWheelEvent {
+        position: pos_chunk0,
+        delta: ScrollDelta::Pixels(point(px(-150.), px(0.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+
+    let offset_after_chunk0 = cx.update(|_, cx| {
+        v.read(cx)
+            .tabs
+            .active()
+            .unwrap()
+            .code_scroll
+            .borrow()
+            .get(&0)
+            .expect("shared code scroll handle created")
+            .handle
+            .offset()
+    });
+    assert_eq!(
+        offset_after_chunk0.x,
+        px(-150.),
+        "chunk 1 (shorter lines) must not clamp away chunk 0's horizontal scroll"
+    );
+
+    // Horizontal scroll gesture over chunk 1 (line 65) updates the same handle.
+    let pos_chunk1 = point(b1.center().x, b1.top() + px(10.));
+    cx.simulate_event(ScrollWheelEvent {
+        position: pos_chunk1,
+        delta: ScrollDelta::Pixels(point(px(-80.), px(0.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+
+    let offset_after_chunk1 = cx.update(|_, cx| {
+        v.read(cx)
+            .tabs
+            .active()
+            .unwrap()
+            .code_scroll
+            .borrow()
+            .get(&0)
+            .unwrap()
+            .handle
+            .offset()
+    });
+    assert_eq!(offset_after_chunk1.x, px(-230.));
 }
