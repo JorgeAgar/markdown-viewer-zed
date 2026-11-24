@@ -676,6 +676,19 @@ mod tests {
         // clamps to the table's last row without spilling into `## After Table`.
         assert_eq!(large.remap_row(&small, 3), 3);
         assert_eq!(small.remap_row(&large, 50), 5);
+        // Same clamping when the shrinking block is NOT at block 0 (start > 0).
+        let with_prefix = |n: usize| {
+            let mut s = String::from("# Intro\n\n| ID |\n|---|\n");
+            for i in 0..n {
+                s.push_str(&format!("| {i} |\n"));
+            }
+            s.push_str("\n## Tail\n");
+            Rows::from_document(&markdown::parse(&s))
+        };
+        let pref_large = with_prefix(20); // block 0: row 0, block 1: rows 1..=21, block 2: row 22
+        let pref_small = with_prefix(3); // block 0: row 0, block 1: rows 1..=4, block 2: row 5
+        assert_eq!(pref_small.remap_row(&pref_large, 15), 4);
+        assert_eq!(pref_small.remap_row(&pref_large, 22), 5);
         // Top of document stays at 0; out-of-range (e.g. Bottom) clamps to end.
         assert_eq!(large.remap_row(&small, 0), 0);
         assert_eq!(large.remap_row(&small, small.len()), large.len() - 1);
@@ -760,5 +773,11 @@ mod tests {
         let [by_chars, by_cols] = widest_line_candidates(tabbed);
         assert_eq!(&tabbed[by_chars], "12345678");
         assert_eq!(&tabbed[by_cols], "\t\t\t");
+
+        // Ties keep the first widest line.
+        let tied = "first\nsecnd";
+        let [by_chars, by_cols] = widest_line_candidates(tied);
+        assert_eq!(&tied[by_chars], "first");
+        assert_eq!(&tied[by_cols], "first");
     }
 }
