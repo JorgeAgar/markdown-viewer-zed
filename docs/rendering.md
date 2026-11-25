@@ -222,7 +222,7 @@ uses `panic = "unwind"`) and shown the same way.
 | --- | --- |
 | Base size / line height | 16 px / 1.6 |
 | H1 … H6 | 2.0, 1.5, 1.25, 1.0, 0.875, 0.85 em. H1–H2 are bold with a bottom border; H3–H6 are semibold. |
-| Code blocks | 13.5 px monospace, line height 1.5, scroll horizontally, no wrapping |
+| Code blocks | 13.5 px monospace, line height 1.5, no wrapping; scroll horizontally only with a horizontal wheel/swipe or `Shift`+wheel (`restrict_scroll_to_axis`), so a vertical wheel over them scrolls the page |
 | Content width | max 880 px, 32 px side padding |
 
 ### Fonts

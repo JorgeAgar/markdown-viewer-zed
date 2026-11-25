@@ -423,6 +423,15 @@ fn code_box(
                 .id(ids.next())
                 .w_full()
                 .overflow_x_scroll()
+                // Without this, GPUI turns a vertical wheel over a block that
+                // only scrolls sideways into a sideways scroll, so the code
+                // slides left/right while the page scrolls. Shift+wheel still
+                // scrolls sideways: the platform layer turns it into a
+                // horizontal delta.
+                .map(|mut d| {
+                    d.style().restrict_scroll_to_axis = Some(true);
+                    d
+                })
                 .when_some(scroll, |d, s| d.track_scroll(&s.handle))
                 .px_4()
                 .when(first, |d| d.pt_4())

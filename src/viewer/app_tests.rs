@@ -1265,3 +1265,60 @@ fn empty_last_code_chunk_is_one_line_tall() {
     };
     assert_eq!(height(""), height("x"));
 }
+
+#[test]
+fn vertical_wheel_over_code_scrolls_the_page_not_the_code() {
+    use gpui::{ScrollDelta, ScrollWheelEvent};
+
+    // Lines wide enough to overflow, in a block long enough to be split.
+    let mut md = String::from("```rust\n");
+    for i in 0..100 {
+        md.push_str(&format!("let line_{i} = \"{}\";\n", "x".repeat(200)));
+    }
+    md.push_str("```\n\nAfter\n");
+    let (v, cx) = open(vec![(PathBuf::from("/x/wide-code.md"), parsed(&md))]);
+    cx.run_until_parked();
+    let b0 = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .unwrap()
+    });
+    let code_x = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            v.read(cx)
+                .tabs
+                .active()
+                .unwrap()
+                .code_scroll
+                .borrow()
+                .get(&0)
+                .unwrap()
+                .handle
+                .offset()
+                .x
+        })
+    };
+
+    // Mouse wheel down over the code: the page scrolls, the code doesn't.
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(b0.center().x, b0.top() + px(100.)),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-120.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    assert_eq!(code_x(cx), px(0.));
+    assert_eq!(scroll_top(&v, cx), (0, 120.));
+
+    // A horizontal wheel (or Shift+wheel, which the platform turns into
+    // one) still scrolls the code sideways.
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(b0.center().x, b0.top() + px(100.)),
+        delta: ScrollDelta::Pixels(point(px(-80.), px(0.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    assert_eq!(code_x(cx), px(-80.));
+    assert_eq!(scroll_top(&v, cx), (0, 120.));
+}
