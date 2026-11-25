@@ -99,7 +99,9 @@ for run in "${runs[@]}"; do
     )
     s=$?
     # 2 = some mutants survived, 3 = some timed out (they count as caught).
+    # With both, cargo mutants exits 3, so also check the list of survivors.
     [[ $s == 0 || $s == 3 ]] || status=1
+    [[ ! -s $out/$n/mutants.out/missed.txt ]] || status=1
 done
 git -C "$wt" checkout --quiet --force HEAD
 

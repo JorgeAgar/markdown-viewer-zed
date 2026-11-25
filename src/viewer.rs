@@ -205,6 +205,12 @@ impl Tab {
         (above, all.estimate(avg), avg)
     }
 
+    /// True when the document has rows but none is measured yet.
+    fn unmeasured(&self) -> bool {
+        let all = measured(&self.list, usize::MAX);
+        all.count > 0 && all.measured == 0
+    }
+
     /// Called at the start of each frame: scrolls this frame's part of a
     /// wheel glide or fling. Returns true while it goes on.
     fn advance_motion(&mut self, now: Instant, viewport: f32) -> bool {
@@ -833,8 +839,7 @@ impl Render for Viewer {
             if tab.advance_motion(Instant::now(), viewport) {
                 window.request_animation_frame();
             }
-            let all = measured(&tab.list, usize::MAX);
-            if all.count > 0 && all.measured == 0 {
+            if tab.unmeasured() {
                 // Nothing laid out yet: draw once more so the scrollbar
                 // is sized from measured rows, not a blind guess.
                 window.request_animation_frame();
@@ -1412,5 +1417,90 @@ mod tests {
             resolve_open_directory(Some(&missing_file), Some(&missing_dir), Some(&missing_dir)),
             None
         );
+    }
+
+    /// A tab of `n` unmeasured rows (60 px each, by estimate) at `item_ix`.
+    fn tab_at(n: usize, item_ix: usize) -> Tab {
+        let mut tab = Tab::new(PathBuf::from("/x/a.md"), Ok((doc_with(n), None)));
+        tab.list.scroll_to(ListOffset {
+            item_ix,
+            offset_in_item: px(0.),
+        });
+        tab.leading_measured = item_ix == 0;
+        tab
+    }
+
+    fn frame(t0: Instant, ms: u64) -> Instant {
+        t0 + Duration::from_millis(ms)
+    }
+
+    #[test]
+    fn motion_stops_at_the_top() {
+        let t0 = Instant::now();
+        let mut tab = tab_at(100, 0);
+        tab.motion.wheel(-100., t0);
+        assert!(!tab.advance_motion(frame(t0, 16), 500.));
+        assert!(!tab.motion.is_active());
+        assert_eq!(tab.list.logical_scroll_top().item_ix, 0);
+        // Downward from the top goes on.
+        tab.motion.wheel(100., t0);
+        assert!(tab.advance_motion(frame(t0, 16), 500.));
+    }
+
+    #[test]
+    fn motion_stops_at_the_bottom() {
+        let t0 = Instant::now();
+        // Rows 95..100 (5 × 60 px) fill the 300 px viewport.
+        let mut tab = tab_at(100, 95);
+        assert_eq!(tab.extent(), (95. * 60., 100. * 60., 60.));
+        tab.motion.wheel(100., t0);
+        assert!(!tab.advance_motion(frame(t0, 16), 300.));
+        assert!(!tab.motion.is_active());
+        assert_eq!(tab.list.logical_scroll_top().item_ix, 95);
+        // One row more of viewport isn't at the bottom yet... nor is upward.
+        tab.motion.wheel(100., t0);
+        assert!(tab.advance_motion(frame(t0, 16), 240.));
+        let mut tab = tab_at(100, 95);
+        tab.motion.wheel(-100., t0);
+        assert!(tab.advance_motion(frame(t0, 16), 300.));
+    }
+
+    #[test]
+    fn motion_upward_over_unmeasured_rows_goes_in_measured_steps() {
+        let t0 = Instant::now();
+        let mut tab = tab_at(400, 300);
+        assert!(!tab.leading_measured());
+        tab.motion.wheel(-2000., t0);
+        // The glide is over, but only MEASURED_STEP went: the rest waits.
+        assert!(tab.advance_motion(frame(t0, 200), 500.));
+        // Downward isn't capped.
+        let mut tab = tab_at(400, 300);
+        tab.motion.wheel(2000., t0);
+        assert!(!tab.advance_motion(frame(t0, 200), 500.));
+        // Nor upward with the rows above measured.
+        let mut tab = tab_at(400, 300);
+        tab.leading_measured = true;
+        tab.motion.wheel(-2000., t0);
+        assert!(!tab.advance_motion(frame(t0, 200), 500.));
+    }
+
+    #[test]
+    fn scroll_to_estimate_tracks_leading_measured() {
+        let mut tab = tab_at(100, 50);
+        tab.scroll_to_estimate(0., 60.);
+        assert!(tab.leading_measured);
+        assert_eq!(tab.list.logical_scroll_top().item_ix, 0);
+        tab.scroll_to_estimate(30. * 60. + 7., 60.);
+        assert!(!tab.leading_measured);
+        let top = tab.list.logical_scroll_top();
+        assert_eq!((top.item_ix, top.offset_in_item), (30, px(7.)));
+    }
+
+    #[test]
+    fn unmeasured_only_with_rows() {
+        assert!(tab_at(3, 0).unmeasured());
+        let empty = Tab::new(PathBuf::from("/x/e.md"), Ok((markdown::parse(""), None)));
+        assert_eq!(empty.list.item_count(), 0);
+        assert!(!empty.unmeasured());
     }
 }

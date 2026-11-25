@@ -1438,49 +1438,80 @@ fn touchpad_follows_the_fingers_then_flings() {
     assert!(!motion_active(&v, cx));
 }
 
-#[test]
-fn dragging_the_scrollbar_thumb_scrolls_the_document() {
-    let (v, cx) = tall_doc();
-    // Let the second frame size the scrollbar from measured rows.
-    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
-    cx.run_until_parked();
+/// The window size and the scrollbar thumb now.
+fn thumb_now(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> (f32, f32, Thumb) {
     let (w, h) = cx.update(|window, _| {
         let s = window.viewport_size();
         (f32::from(s.width), f32::from(s.height))
     });
-    let x = px(w - 5.);
-    let grab = point(x, px(TAB_BAR_HEIGHT + 5.));
-    cx.simulate_mouse_down(grab, MouseButton::Left, Default::default());
-    assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_some()));
-    // Halfway down the track: around the middle of the document.
-    let mid = TAB_BAR_HEIGHT + (h - TAB_BAR_HEIGHT) / 2.;
-    cx.simulate_mouse_move(point(x, px(mid)), MouseButton::Left, Default::default());
-    let (ix, _) = scroll_top(&v, cx);
-    assert!((150..250).contains(&ix), "{ix} of 400 rows");
-    // All the way down: the end of the document.
-    cx.simulate_mouse_move(
-        point(x, px(h + 100.)),
-        MouseButton::Left,
-        Default::default(),
-    );
-    cx.run_until_parked();
-    let (ix, _) = scroll_top(&v, cx);
-    assert!(ix > 370, "{ix}");
-    cx.simulate_mouse_up(point(x, px(h)), MouseButton::Left, Default::default());
-    assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_none()));
-    // Back to the top.
     let thumb = cx.update(|_, cx| {
         let tab = v.read(cx).tabs.active().unwrap();
         let (top, content, _) = tab.extent();
         let track = h - TAB_BAR_HEIGHT;
         scroll::thumb(top, content, track, track).unwrap()
     });
+    (w, h, thumb)
+}
+
+fn dragged_thumb(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> Option<Thumb> {
+    cx.update(|_, cx| v.read(cx).thumb_drag.map(|d| d.thumb))
+}
+
+#[test]
+fn dragging_the_scrollbar_thumb_scrolls_the_document() {
+    let (v, cx) = tall_doc();
+    // Let the second frame size the scrollbar from measured rows.
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let (w, h, thumb) = thumb_now(&v, cx);
+    let track = h - TAB_BAR_HEIGHT;
+    assert_eq!(thumb.top, 0.);
+    let x = px(w - 5.);
+    let grab_y = TAB_BAR_HEIGHT + thumb.len / 2.;
+    cx.simulate_mouse_down(point(x, px(grab_y)), MouseButton::Left, Default::default());
+    assert_eq!(dragged_thumb(&v, cx), Some(thumb));
+    let content = cx.update(|_, cx| v.read(cx).thumb_drag.unwrap().content);
+    // The thumb follows the mouse 1:1, and the document follows the thumb.
+    cx.simulate_mouse_move(
+        point(x, px(grab_y + 100.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    let moved = dragged_thumb(&v, cx).unwrap();
+    assert!((moved.top - 100.).abs() < 1e-3, "{moved:?}");
+    let want = scroll::position_for_thumb(100., thumb.len, content, track, track);
+    // Rows measured after the jump refine the estimate a little.
+    let got = scrolled_px(&v, cx);
+    assert!((got - want).abs() < 0.01 * want, "{got} vs {want}");
+    // A right button release doesn't end the drag.
+    cx.simulate_mouse_up(point(x, px(grab_y)), MouseButton::Right, Default::default());
+    assert!(dragged_thumb(&v, cx).is_some());
+    // Past the bottom of the window: the thumb stops at the end of the track,
+    // and the document at its end.
+    cx.simulate_mouse_move(
+        point(x, px(h + 100.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    cx.run_until_parked();
+    assert_eq!(dragged_thumb(&v, cx).unwrap().top, track - thumb.len);
+    let (ix, _) = scroll_top(&v, cx);
+    assert!(ix > 370, "{ix}");
+    cx.simulate_mouse_up(point(x, px(h)), MouseButton::Left, Default::default());
+    assert!(dragged_thumb(&v, cx).is_none());
+    // Back to the top.
+    let (_, _, thumb) = thumb_now(&v, cx);
     let on_thumb = point(x, px(TAB_BAR_HEIGHT + thumb.top + thumb.len / 2.));
     cx.simulate_mouse_down(on_thumb, MouseButton::Left, Default::default());
     cx.simulate_mouse_move(point(x, px(-500.)), MouseButton::Left, Default::default());
+    assert_eq!(dragged_thumb(&v, cx).unwrap().top, 0.);
     cx.simulate_mouse_up(point(x, px(0.)), MouseButton::Left, Default::default());
     cx.run_until_parked();
     assert_eq!(scroll_top(&v, cx), (0, 0.));
+    // A move without the button (released where we didn't see it) ends a drag.
+    cx.simulate_mouse_down(on_thumb, MouseButton::Left, Default::default());
+    cx.simulate_mouse_move(point(x, px(300.)), None, Default::default());
+    assert!(dragged_thumb(&v, cx).is_none());
 }
 
 #[test]
@@ -1488,17 +1519,13 @@ fn clicking_the_scrollbar_track_glides_a_page() {
     let (v, cx) = tall_doc();
     cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
     cx.run_until_parked();
-    let (w, h) = cx.update(|window, _| {
-        let s = window.viewport_size();
-        (f32::from(s.width), f32::from(s.height))
-    });
+    let (w, h, thumb) = thumb_now(&v, cx);
+    let x = px(w - 5.);
     let page = h - 80.;
-    cx.simulate_mouse_down(
-        point(px(w - 5.), px(h - 5.)),
-        MouseButton::Left,
-        Default::default(),
-    );
-    assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_none()));
+    // Just below the thumb: a page down.
+    let below = TAB_BAR_HEIGHT + thumb.top + thumb.len + 2.;
+    cx.simulate_mouse_down(point(x, px(below)), MouseButton::Left, Default::default());
+    assert!(dragged_thumb(&v, cx).is_none());
     assert!(
         motion_active(&v, cx),
         "the click must not stop its own glide"
@@ -1509,6 +1536,13 @@ fn clicking_the_scrollbar_track_glides_a_page() {
         "{}",
         scrolled_px(&v, cx)
     );
+    // Just above the thumb: a page back up.
+    let (_, _, thumb) = thumb_now(&v, cx);
+    assert!(thumb.top > 4.);
+    let above = TAB_BAR_HEIGHT + thumb.top - 2.;
+    cx.simulate_mouse_down(point(x, px(above)), MouseButton::Left, Default::default());
+    settle(&v, cx);
+    assert!(scrolled_px(&v, cx) < 0.01, "{}", scrolled_px(&v, cx));
 }
 
 #[test]

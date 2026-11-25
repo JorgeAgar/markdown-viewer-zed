@@ -529,4 +529,61 @@ mod tests {
         assert_eq!(locate(-3., 4, before), (0, 0.));
         assert_eq!(locate(10., 0, |_| 0.), (0, 10.));
     }
+
+    #[test]
+    fn wheel_keeps_a_running_glide_and_its_carry() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.wheel(-2000., t0);
+        // Mid-glide and capped: both a glide rest and a carry are pending.
+        let a = m.tick(ms(t0, 50), 100.);
+        assert_eq!(a, -100.);
+        m.wheel(-10., ms(t0, 60));
+        assert!((a + run(&mut m, t0, 60) + 2010.).abs() < 1e-3);
+    }
+
+    #[test]
+    fn wheel_against_a_long_glide_drops_it() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.wheel(200., t0);
+        let a = m.tick(ms(t0, 16), f32::INFINITY);
+        m.wheel(-10., ms(t0, 20));
+        assert!((a + run(&mut m, t0, 20) - (a - 10.)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn samples_exactly_at_the_window_edge_count() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.touch(20., t0);
+        m.touch(20., t0 + VELOCITY_WINDOW);
+        assert_eq!(m.samples.len(), 2);
+    }
+
+    #[test]
+    fn samples_need_a_millisecond_between_them() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.touch(50., t0);
+        m.touch(50., t0);
+        m.touch_end(t0);
+        assert!(!m.is_active(), "no speed from samples at one instant");
+        let mut m = Motion::default();
+        m.touch(1., t0);
+        m.touch(1., ms(t0, 1)); // 1000 px/s
+        m.touch_end(ms(t0, 1));
+        assert!(m.is_active());
+    }
+
+    #[test]
+    fn a_fling_starts_at_the_release_speed() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        swipe(&mut m, t0, 20.);
+        m.touch_end(ms(t0, 92));
+        // 16 ms at just under 2000 px/s.
+        let first = m.tick(ms(t0, 108), f32::INFINITY);
+        assert!(first > 28. && first < 32., "{first}");
+    }
 }

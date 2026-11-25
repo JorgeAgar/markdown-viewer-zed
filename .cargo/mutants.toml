@@ -150,4 +150,29 @@ exclude_re = [
     # The list handler consumes both tight and loose TaskListMarker events before
     # parsing item inlines.
     '''^crates/mdview-core/src/markdown\.rs:542:17: delete match arm Event::TaskListMarker\(c\) in P<'a>::inlines$''',
+
+    # wheel() is never called with dy == 0 (Viewer::wheel returns first), so
+    # left / dy and left * dy have the same sign; and left * dy is only 0 when
+    # left is 0, which >= keeps as 0 just like the else branch.
+    '''^src/scroll\.rs:64:28: replace \* with / in Motion::wheel$''',
+    '''^src/scroll\.rs:64:33: replace > with >= in Motion::wheel$''',
+
+    # Exact float equality at the cutoffs: at |v| == FLING_STOP the next tick
+    # stops anyway; a step of exactly max_step leaves a carry of 0 either way.
+    '''^src/scroll\.rs:164:46: replace < with <= in Motion::tick$''',
+    '''^src/scroll\.rs:170:23: replace > with >= in Motion::tick$''',
+
+    # An active motion's direction is never 0 (glides and flings have a
+    # nonzero distance or speed), so < 0 / <= 0 and > 0 / >= 0 agree.
+    '''^src/viewer\.rs:225:17: replace < with <= in Tab::advance_motion$''',
+    '''^src/viewer\.rs:225:41: replace > with >= in Tab::advance_motion$''',
+
+    # Window listeners run once per phase; handling a move or release in the
+    # capture phase instead of the bubble phase does the same once.
+    '''^src/viewer\.rs:601:30: replace == with != in Viewer::track_thumb_drag$''',
+    '''^src/viewer\.rs:618:30: replace == with != in Viewer::track_thumb_drag$''',
+
+    # A click exactly on the thumb's top edge hits the thumb, which stops the
+    # event before the track sees it.
+    '''^src/viewer\.rs:667:44: replace < with <= in Viewer::render_scrollbar$''',
 ]
