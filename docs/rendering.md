@@ -103,6 +103,7 @@ children. Everything it needs comes from `RenderCx`, which is cheap to clone:
 | `ui_font`, `mono_font` | Font families picked at startup (`pick_fonts` in `main.rs`) |
 | `base_dir` | The document's folder, used to resolve relative links and images |
 | `viewer` | `WeakEntity<Viewer>`, so clicking a link can open tabs or scroll |
+| `code_scroll` | The tab's `CodeScrollMap`: one shared `ScrollHandle` and width per split code block |
 
 ### Text with inline styles
 
@@ -114,7 +115,8 @@ calls `StyledText::with_runs`. If the text contains links, it's wrapped in
 
 `InteractiveText` needs an `ElementId` that's unique within the row.
 `IdGen(ix * 100_000)` generates them: row `ix` gets ids starting at
-`ix * 100_000 + 1`. Code blocks also take ids from it, because horizontal
+`ix * 100_000 + 1` (a wrapping multiply, since split blocks can make a
+document have many rows). Code blocks also take ids from it, because horizontal
 scrolling needs one.
 
 ### Syntax highlighting
