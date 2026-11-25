@@ -24,7 +24,7 @@ open an issue (or ask the maintainer) so the scope gets agreed first.
 
 ## UX
 
-- [ ] Show a scrollbar, or at least a scroll position indicator.
+- [x] Show a scrollbar, with smooth wheel scrolling and touchpad flings.
 - [ ] Zoom (`Ctrl+=` / `Ctrl+-`) for the content font size.
 - [ ] `Alt+1…9` to jump to a tab; reorder tabs by dragging.
 - [ ] Remember open tabs between sessions (optional, and must not slow down

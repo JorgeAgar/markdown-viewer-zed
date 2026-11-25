@@ -1322,3 +1322,208 @@ fn vertical_wheel_over_code_scrolls_the_page_not_the_code() {
     assert_eq!(code_x(cx), px(-80.));
     assert_eq!(scroll_top(&v, cx), (0, 120.));
 }
+
+/// A document of 200 headed paragraphs, tall enough to scroll a long way.
+fn tall_doc() -> (Entity<Viewer>, &'static mut VisualTestContext) {
+    let mut md = String::new();
+    for i in 0..200 {
+        md.push_str(&format!(
+            "## Heading {i}\n\nParagraph {i} with some text.\n\n"
+        ));
+    }
+    let (v, cx) = open(vec![(PathBuf::from("/x/tall.md"), parsed(&md))]);
+    cx.run_until_parked();
+    (v, cx)
+}
+
+fn motion_active(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> bool {
+    cx.update(|_, cx| v.read(cx).tabs.active().unwrap().motion.is_active())
+}
+
+/// Draws frames in real time until the glide or fling ends.
+fn settle(v: &Entity<Viewer>, cx: &mut VisualTestContext) {
+    for _ in 0..300 {
+        if !motion_active(v, cx) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(8));
+        cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+        cx.run_until_parked();
+    }
+    panic!("scroll motion never stopped");
+}
+
+fn wheel_lines(cx: &mut VisualTestContext, lines: f32) {
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Lines(point(0., lines)),
+        ..Default::default()
+    });
+}
+
+fn touchpad(cx: &mut VisualTestContext, dy: f32, touch_phase: TouchPhase) {
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Pixels(point(px(0.), px(dy))),
+        touch_phase,
+        ..Default::default()
+    });
+}
+
+/// Scroll position in pixels from the top (all rows above are measured).
+fn scrolled_px(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> f32 {
+    cx.update(|_, cx| v.read(cx).tabs.active().unwrap().extent().0)
+}
+
+#[test]
+fn wheel_steps_glide_to_their_distance() {
+    let (v, cx) = tall_doc();
+    // One notch down: 3 lines of 20 px, not all at once.
+    wheel_lines(cx, -3.);
+    assert!(motion_active(&v, cx));
+    settle(&v, cx);
+    assert!((scrolled_px(&v, cx) - 60.).abs() < 0.01);
+    // Two quick notches add up.
+    wheel_lines(cx, -3.);
+    wheel_lines(cx, -3.);
+    settle(&v, cx);
+    assert!((scrolled_px(&v, cx) - 180.).abs() < 0.01);
+    // Back up past the top stops there.
+    wheel_lines(cx, 30.);
+    settle(&v, cx);
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+}
+
+#[test]
+fn touchpad_follows_the_fingers_then_flings() {
+    let (v, cx) = tall_doc();
+    for _ in 0..6 {
+        touchpad(cx, -30., TouchPhase::Moved);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let moved = scrolled_px(&v, cx);
+    assert!((moved - 180.).abs() < 0.01, "{moved}");
+    assert!(!motion_active(&v, cx));
+    touchpad(cx, 0., TouchPhase::Ended);
+    if cfg!(target_os = "macos") {
+        assert!(!motion_active(&v, cx), "macOS flings by itself");
+        return;
+    }
+    assert!(motion_active(&v, cx));
+    settle(&v, cx);
+    assert!(
+        scrolled_px(&v, cx) > moved + 200.,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+    // A click stops a fling.
+    for _ in 0..6 {
+        touchpad(cx, -30., TouchPhase::Moved);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    touchpad(cx, 0., TouchPhase::Ended);
+    cx.simulate_mouse_down(
+        point(px(300.), px(300.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    assert!(!motion_active(&v, cx));
+    // So does a key.
+    for _ in 0..6 {
+        touchpad(cx, -30., TouchPhase::Moved);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    touchpad(cx, 0., TouchPhase::Ended);
+    cx.dispatch_action(ScrollDown);
+    assert!(!motion_active(&v, cx));
+}
+
+#[test]
+fn dragging_the_scrollbar_thumb_scrolls_the_document() {
+    let (v, cx) = tall_doc();
+    // Let the second frame size the scrollbar from measured rows.
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let (w, h) = cx.update(|window, _| {
+        let s = window.viewport_size();
+        (f32::from(s.width), f32::from(s.height))
+    });
+    let x = px(w - 5.);
+    let grab = point(x, px(TAB_BAR_HEIGHT + 5.));
+    cx.simulate_mouse_down(grab, MouseButton::Left, Default::default());
+    assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_some()));
+    // Halfway down the track: around the middle of the document.
+    let mid = TAB_BAR_HEIGHT + (h - TAB_BAR_HEIGHT) / 2.;
+    cx.simulate_mouse_move(point(x, px(mid)), MouseButton::Left, Default::default());
+    let (ix, _) = scroll_top(&v, cx);
+    assert!((150..250).contains(&ix), "{ix} of 400 rows");
+    // All the way down: the end of the document.
+    cx.simulate_mouse_move(
+        point(x, px(h + 100.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    cx.run_until_parked();
+    let (ix, _) = scroll_top(&v, cx);
+    assert!(ix > 370, "{ix}");
+    cx.simulate_mouse_up(point(x, px(h)), MouseButton::Left, Default::default());
+    assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_none()));
+    // Back to the top.
+    let thumb = cx.update(|_, cx| {
+        let tab = v.read(cx).tabs.active().unwrap();
+        let (top, content, _) = tab.extent();
+        let track = h - TAB_BAR_HEIGHT;
+        scroll::thumb(top, content, track, track).unwrap()
+    });
+    let on_thumb = point(x, px(TAB_BAR_HEIGHT + thumb.top + thumb.len / 2.));
+    cx.simulate_mouse_down(on_thumb, MouseButton::Left, Default::default());
+    cx.simulate_mouse_move(point(x, px(-500.)), MouseButton::Left, Default::default());
+    cx.simulate_mouse_up(point(x, px(0.)), MouseButton::Left, Default::default());
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+}
+
+#[test]
+fn clicking_the_scrollbar_track_glides_a_page() {
+    let (v, cx) = tall_doc();
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let (w, h) = cx.update(|window, _| {
+        let s = window.viewport_size();
+        (f32::from(s.width), f32::from(s.height))
+    });
+    let page = h - 80.;
+    cx.simulate_mouse_down(
+        point(px(w - 5.), px(h - 5.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_none()));
+    assert!(
+        motion_active(&v, cx),
+        "the click must not stop its own glide"
+    );
+    settle(&v, cx);
+    assert!(
+        (scrolled_px(&v, cx) - page).abs() < 0.5,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+}
+
+#[test]
+fn short_documents_have_no_scrollbar() {
+    let (v, cx) = open_docs(&["a.md"]);
+    cx.run_until_parked();
+    let (w, _) = cx.update(|window, _| {
+        let s = window.viewport_size();
+        (f32::from(s.width), f32::from(s.height))
+    });
+    cx.simulate_mouse_down(
+        point(px(w - 5.), px(TAB_BAR_HEIGHT + 5.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_none()));
+    assert!(!motion_active(&v, cx));
+}

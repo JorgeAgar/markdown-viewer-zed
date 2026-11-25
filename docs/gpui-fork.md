@@ -3,7 +3,7 @@
 mdview uses its own copy of [GPUI](https://crates.io/crates/gpui) 0.2.2. The
 copy lives in `crates/gpui` and replaces the crates.io version through
 `[patch.crates-io]` in the root `Cargo.toml`. It's identical to upstream
-except for three startup fixes and two small follow-up patches.
+except for three startup fixes and three small follow-up patches.
 
 - Every change is marked in the code with a `// mdview:` comment.
 - `patches/gpui-0.2.2-startup.patch` holds the full diff against upstream.
@@ -41,6 +41,7 @@ flowchart TB
 | 3 | Vulkan init runs after font loading, on the same thread. | `BladeContext::new` runs on its own thread from the start of `WaylandClient::new` / `X11Client::new`, and is joined where the context used to be created. | `platform/linux/wayland/client.rs`, `platform/linux/x11/client.rs` |
 | 4 | Untyped `0.0` / `1.0` literals in `taffy.rs` trigger a future-incompat warning. | Explicit `0.0_f32` / `1.0_f32` suffixes. | `taffy.rs` |
 | 5 | `PathPromptOptions` has no initial directory, so `Ctrl+O` opens in the portal/OS default folder. | Add `directory: Option<PathBuf>` and pass it to the native open dialog on Linux, macOS and Windows. | `platform.rs`, `platform/linux/platform.rs`, `platform/mac/platform.rs`, `platform/windows/platform.rs` |
+| 6 | Wayland drops `wl_pointer.axis_stop`, so nothing tells an app when a touchpad scroll ends, and kinetic scrolling is the client's job on Wayland. GPUI's `List` always scrolls on wheel events itself, and doesn't say how many items it has measured. | `axis_stop` from a finger becomes a zero-delta `ScrollWheelEvent` with `TouchPhase::Ended`. `List::without_scroll_wheel()` lets the view scroll it, and `ListState::measured_before(n)` returns the measured count and height of the first `n` items. | `platform/linux/wayland/client.rs`, `elements/list.rs` |
 
 The X11 code compiles with fix 3, but it has only been tested on Wayland
 (niri).

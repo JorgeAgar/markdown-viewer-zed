@@ -224,6 +224,9 @@ pub(crate) struct WaylandClientState {
     vertical_modifier: f32,
     horizontal_modifier: f32,
     scroll_event_received: bool,
+    // mdview: a finger left the touchpad (`wl_pointer.axis_stop`) in this
+    // frame; sent as a `TouchPhase::Ended` scroll so apps can start a fling.
+    scroll_stopped: bool,
     enter_token: Option<()>,
     button_pressed: Option<MouseButton>,
     mouse_focused_window: Option<WaylandWindowStatePtr>,
@@ -603,6 +606,7 @@ impl WaylandClient {
             },
             capslock: Capslock { on: false },
             scroll_event_received: false,
+            scroll_stopped: false,
             axis_source: AxisSource::Wheel,
             mouse_location: None,
             continuous_scroll_delta: None,
@@ -1731,6 +1735,14 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                     _ => unreachable!(),
                 }
             }
+            // mdview: Wayland leaves kinetic scrolling to the client. Report
+            // the end of a touchpad scroll so the app can continue it.
+            wl_pointer::Event::AxisStop { .. } => {
+                if state.axis_source == AxisSource::Finger {
+                    state.scroll_event_received = true;
+                    state.scroll_stopped = true;
+                }
+            }
             wl_pointer::Event::AxisDiscrete {
                 axis: WEnum::Value(axis),
                 discrete,
@@ -1791,28 +1803,35 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                     state.scroll_event_received = false;
                     let continuous = state.continuous_scroll_delta.take();
                     let discrete = state.discrete_scroll_delta.take();
+                    // mdview: also send the end of a touchpad scroll.
+                    let stopped = std::mem::take(&mut state.scroll_stopped);
+                    let Some(window) = state.mouse_focused_window.clone() else {
+                        return;
+                    };
+                    let position = state.mouse_location.unwrap();
+                    let modifiers = state.modifiers;
+                    drop(state);
+                    let scroll = |delta, touch_phase| {
+                        PlatformInput::ScrollWheel(ScrollWheelEvent {
+                            position,
+                            delta,
+                            modifiers,
+                            touch_phase,
+                        })
+                    };
                     if let Some(continuous) = continuous {
-                        if let Some(window) = state.mouse_focused_window.clone() {
-                            let input = PlatformInput::ScrollWheel(ScrollWheelEvent {
-                                position: state.mouse_location.unwrap(),
-                                delta: ScrollDelta::Pixels(continuous),
-                                modifiers: state.modifiers,
-                                touch_phase: TouchPhase::Moved,
-                            });
-                            drop(state);
-                            window.handle_input(input);
-                        }
-                    } else if let Some(discrete) = discrete
-                        && let Some(window) = state.mouse_focused_window.clone()
-                    {
-                        let input = PlatformInput::ScrollWheel(ScrollWheelEvent {
-                            position: state.mouse_location.unwrap(),
-                            delta: ScrollDelta::Lines(discrete),
-                            modifiers: state.modifiers,
-                            touch_phase: TouchPhase::Moved,
-                        });
-                        drop(state);
-                        window.handle_input(input);
+                        window.handle_input(scroll(
+                            ScrollDelta::Pixels(continuous),
+                            TouchPhase::Moved,
+                        ));
+                    } else if let Some(discrete) = discrete {
+                        window.handle_input(scroll(ScrollDelta::Lines(discrete), TouchPhase::Moved));
+                    }
+                    if stopped {
+                        window.handle_input(scroll(
+                            ScrollDelta::Pixels(point(px(0.), px(0.))),
+                            TouchPhase::Ended,
+                        ));
                     }
                 }
             }

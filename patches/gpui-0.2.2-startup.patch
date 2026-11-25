@@ -1,6 +1,78 @@
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/elements/list.rs gpui-0.2.2-mdview/src/elements/list.rs
+--- gpui-0.2.2/src/elements/list.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/elements/list.rs	2026-11-25 15:49:46.462395929 -0500
+@@ -30,6 +30,7 @@
+         render_item: Box::new(render_item),
+         style: StyleRefinement::default(),
+         sizing_behavior: ListSizingBehavior::default(),
++        handle_scroll_wheel: true,
+     }
+ }
+ 
+@@ -39,9 +40,18 @@
+     render_item: Box<RenderItemFn>,
+     style: StyleRefinement,
+     sizing_behavior: ListSizingBehavior,
++    // mdview: false when the view scrolls the list itself (smooth/kinetic).
++    handle_scroll_wheel: bool,
+ }
+ 
+ impl List {
++    /// mdview: Don't scroll on wheel events. For views that animate the
++    /// scroll themselves through [`ListState::scroll_by`].
++    pub fn without_scroll_wheel(mut self) -> Self {
++        self.handle_scroll_wheel = false;
++        self
++    }
++
+     /// Set the sizing behavior for the list.
+     pub fn with_sizing_behavior(mut self, behavior: ListSizingBehavior) -> Self {
+         self.sizing_behavior = behavior;
+@@ -473,6 +483,30 @@
+     pub fn viewport_bounds(&self) -> Bounds<Pixels> {
+         self.0.borrow().last_layout_bounds.unwrap_or_default()
+     }
++
++    /// mdview: How many of the first `end` items have been measured, and
++    /// their total height. Lets a scrollbar estimate the unmeasured ones.
++    pub fn measured_before(&self, end: usize) -> ListMeasurement {
++        let state = self.0.borrow();
++        let mut cursor = state.items.cursor::<ListItemSummary>(());
++        let summary: ListItemSummary = cursor.summary(&Count(end), Bias::Right);
++        ListMeasurement {
++            count: summary.count,
++            measured_count: summary.rendered_count,
++            measured_height: summary.height,
++        }
++    }
++}
++
++/// mdview: Measured items in a prefix of a list. See [`ListState::measured_before`].
++#[derive(Clone, Copy, Debug, Default, PartialEq)]
++pub struct ListMeasurement {
++    /// Items in the prefix.
++    pub count: usize,
++    /// Items in the prefix whose height is known.
++    pub measured_count: usize,
++    /// Total height of the measured items.
++    pub measured_height: Pixels,
+ }
+ 
+ impl StateInner {
+@@ -1078,6 +1112,10 @@
+         let scroll_top = prepaint.layout.scroll_top;
+         let hitbox_id = prepaint.hitbox.id;
+         let mut accumulated_scroll_delta = ScrollDelta::default();
++        // mdview: the view may handle the wheel itself.
++        if !self.handle_scroll_wheel {
++            return;
++        }
+         window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
+             if phase == DispatchPhase::Bubble && hitbox_id.should_handle_scroll(window) {
+                 accumulated_scroll_delta = accumulated_scroll_delta.coalesce(event.delta);
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/blade/blade_renderer.rs gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs
---- gpui-0.2.2/src/platform/blade/blade_renderer.rs
-+++ gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs
+--- gpui-0.2.2/src/platform/blade/blade_renderer.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs	2026-11-25 15:46:05.133947582 -0500
 @@ -166,141 +166,172 @@
              write_mask: gpu::ColorWrites::default(),
          }];
@@ -310,8 +382,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
      fn destroy(&mut self, gpu: &gpu::Context) {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/platform.rs gpui-0.2.2-mdview/src/platform/linux/platform.rs
---- gpui-0.2.2/src/platform/linux/platform.rs
-+++ gpui-0.2.2-mdview/src/platform/linux/platform.rs
+--- gpui-0.2.2/src/platform/linux/platform.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/platform.rs	2026-11-25 15:46:05.116947582 -0500
 @@ -309,16 +309,25 @@
                      "Open File"
                  };
@@ -343,9 +415,19 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
                      Err(err) => {
                          let result = match err {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/client.rs gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
---- gpui-0.2.2/src/platform/linux/wayland/client.rs
-+++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
-@@ -446,6 +446,9 @@
+--- gpui-0.2.2/src/platform/linux/wayland/client.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs	2026-11-25 15:49:34.926449070 -0500
+@@ -224,6 +224,9 @@
+     vertical_modifier: f32,
+     horizontal_modifier: f32,
+     scroll_event_received: bool,
++    // mdview: a finger left the touchpad (`wl_pointer.axis_stop`) in this
++    // frame; sent as a `TouchPhase::Ended` scroll so apps can start a fling.
++    scroll_stopped: bool,
+     enter_token: Option<()>,
+     button_pressed: Option<MouseButton>,
+     mouse_focused_window: Option<WaylandWindowStatePtr>,
+@@ -446,6 +449,9 @@
  
  impl WaylandClient {
      pub(crate) fn new() -> Self {
@@ -355,7 +437,7 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          let conn = Connection::connect_to_env().unwrap();
  
          let (globals, mut event_queue) =
-@@ -498,7 +501,10 @@
+@@ -498,7 +504,10 @@
              })
              .unwrap();
  
@@ -367,9 +449,89 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
          let seat = seat.unwrap();
          let globals = Globals::new(
+@@ -597,6 +606,7 @@
+             },
+             capslock: Capslock { on: false },
+             scroll_event_received: false,
++            scroll_stopped: false,
+             axis_source: AxisSource::Wheel,
+             mouse_location: None,
+             continuous_scroll_delta: None,
+@@ -1725,6 +1735,14 @@
+                     _ => unreachable!(),
+                 }
+             }
++            // mdview: Wayland leaves kinetic scrolling to the client. Report
++            // the end of a touchpad scroll so the app can continue it.
++            wl_pointer::Event::AxisStop { .. } => {
++                if state.axis_source == AxisSource::Finger {
++                    state.scroll_event_received = true;
++                    state.scroll_stopped = true;
++                }
++            }
+             wl_pointer::Event::AxisDiscrete {
+                 axis: WEnum::Value(axis),
+                 discrete,
+@@ -1785,28 +1803,35 @@
+                     state.scroll_event_received = false;
+                     let continuous = state.continuous_scroll_delta.take();
+                     let discrete = state.discrete_scroll_delta.take();
++                    // mdview: also send the end of a touchpad scroll.
++                    let stopped = std::mem::take(&mut state.scroll_stopped);
++                    let Some(window) = state.mouse_focused_window.clone() else {
++                        return;
++                    };
++                    let position = state.mouse_location.unwrap();
++                    let modifiers = state.modifiers;
++                    drop(state);
++                    let scroll = |delta, touch_phase| {
++                        PlatformInput::ScrollWheel(ScrollWheelEvent {
++                            position,
++                            delta,
++                            modifiers,
++                            touch_phase,
++                        })
++                    };
+                     if let Some(continuous) = continuous {
+-                        if let Some(window) = state.mouse_focused_window.clone() {
+-                            let input = PlatformInput::ScrollWheel(ScrollWheelEvent {
+-                                position: state.mouse_location.unwrap(),
+-                                delta: ScrollDelta::Pixels(continuous),
+-                                modifiers: state.modifiers,
+-                                touch_phase: TouchPhase::Moved,
+-                            });
+-                            drop(state);
+-                            window.handle_input(input);
+-                        }
+-                    } else if let Some(discrete) = discrete
+-                        && let Some(window) = state.mouse_focused_window.clone()
+-                    {
+-                        let input = PlatformInput::ScrollWheel(ScrollWheelEvent {
+-                            position: state.mouse_location.unwrap(),
+-                            delta: ScrollDelta::Lines(discrete),
+-                            modifiers: state.modifiers,
+-                            touch_phase: TouchPhase::Moved,
+-                        });
+-                        drop(state);
+-                        window.handle_input(input);
++                        window.handle_input(scroll(
++                            ScrollDelta::Pixels(continuous),
++                            TouchPhase::Moved,
++                        ));
++                    } else if let Some(discrete) = discrete {
++                        window.handle_input(scroll(ScrollDelta::Lines(discrete), TouchPhase::Moved));
++                    }
++                    if stopped {
++                        window.handle_input(scroll(
++                            ScrollDelta::Pixels(point(px(0.), px(0.))),
++                            TouchPhase::Ended,
++                        ));
+                     }
+                 }
+             }
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/window.rs gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs
---- gpui-0.2.2/src/platform/linux/wayland/window.rs
-+++ gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs
+--- gpui-0.2.2/src/platform/linux/wayland/window.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs	2026-11-25 15:46:05.120947582 -0500
 @@ -152,7 +152,14 @@
                      height: options.bounds.size.height.0 as u32,
                      depth: 1,
@@ -387,8 +549,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
              BladeRenderer::new(gpu_context, &raw_window, config)?
          };
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/x11/client.rs gpui-0.2.2-mdview/src/platform/linux/x11/client.rs
---- gpui-0.2.2/src/platform/linux/x11/client.rs
-+++ gpui-0.2.2-mdview/src/platform/linux/x11/client.rs
+--- gpui-0.2.2/src/platform/linux/x11/client.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/x11/client.rs	2026-11-25 15:46:05.122947582 -0500
 @@ -302,6 +302,9 @@
  
  impl X11Client {
@@ -412,8 +574,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection)
              .context("Failed to create resource database")?;
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/platform.rs gpui-0.2.2-mdview/src/platform/mac/platform.rs
---- gpui-0.2.2/src/platform/mac/platform.rs
-+++ gpui-0.2.2-mdview/src/platform/mac/platform.rs
+--- gpui-0.2.2/src/platform/mac/platform.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/mac/platform.rs	2026-11-25 15:46:05.131947582 -0500
 @@ -722,6 +722,14 @@
  
                      panel.setCanCreateDirectories(true.to_objc());
@@ -430,8 +592,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
                      let block = ConcreteBlock::new(move |response: NSModalResponse| {
                          let result = if response == NSModalResponse::NSModalResponseOk {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/window.rs gpui-0.2.2-mdview/src/platform/mac/window.rs
---- gpui-0.2.2/src/platform/mac/window.rs
-+++ gpui-0.2.2-mdview/src/platform/mac/window.rs
+--- gpui-0.2.2/src/platform/mac/window.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/mac/window.rs	2026-11-25 15:46:05.116947582 -0500
 @@ -582,6 +582,7 @@
              display_id,
              window_min_size,
@@ -441,8 +603,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          executor: ForegroundExecutor,
          renderer_context: renderer::Context,
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/windows/platform.rs gpui-0.2.2-mdview/src/platform/windows/platform.rs
---- gpui-0.2.2/src/platform/windows/platform.rs
-+++ gpui-0.2.2-mdview/src/platform/windows/platform.rs
+--- gpui-0.2.2/src/platform/windows/platform.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform/windows/platform.rs	2026-11-25 15:46:05.126947582 -0500
 @@ -914,6 +914,26 @@
          dialog_options |= FOS_PICKFOLDERS;
      }
@@ -471,8 +633,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          folder_dialog.SetOptions(dialog_options)?;
  
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform.rs gpui-0.2.2-mdview/src/platform.rs
---- gpui-0.2.2/src/platform.rs
-+++ gpui-0.2.2-mdview/src/platform.rs
+--- gpui-0.2.2/src/platform.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/platform.rs	2026-11-25 15:46:05.130947582 -0500
 @@ -1181,6 +1181,15 @@
      pub window_min_size: Option<Size<Pixels>>,
      #[cfg(target_os = "macos")]
@@ -500,8 +662,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
  /// What kind of prompt styling to show
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/taffy.rs gpui-0.2.2-mdview/src/taffy.rs
---- gpui-0.2.2/src/taffy.rs
-+++ gpui-0.2.2-mdview/src/taffy.rs
+--- gpui-0.2.2/src/taffy.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/taffy.rs	2026-11-25 15:46:05.115947582 -0500
 @@ -309,7 +309,9 @@
              unit: &Option<u16>,
          ) -> Vec<taffy::GridTemplateComponent<T>> {
@@ -514,8 +676,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/taffy
          }
  
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/window.rs gpui-0.2.2-mdview/src/window.rs
---- gpui-0.2.2/src/window.rs
-+++ gpui-0.2.2-mdview/src/window.rs
+--- gpui-0.2.2/src/window.rs	2006-07-23 20:21:28.000000000 -0500
++++ gpui-0.2.2-mdview/src/window.rs	2026-11-25 15:46:05.121947582 -0500
 @@ -968,6 +968,8 @@
                  window_min_size,
                  #[cfg(target_os = "macos")]

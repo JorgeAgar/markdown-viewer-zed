@@ -59,6 +59,22 @@ Upstream `PathPromptOptions` has no field for a starting directory, so
 Linux, `NSOpenPanel::setDirectoryURL` on macOS, and `IFileOpenDialog::SetFolder`
 on Windows (matching `prompt_for_new_path`).
 
+## 6. Hooks for smooth and kinetic scrolling
+
+`platform/linux/wayland/client.rs`, `elements/list.rs`
+
+Wayland leaves kinetic (fling) scrolling to clients, but upstream ignores
+`wl_pointer.axis_stop`, so an app can't tell when the fingers left the
+touchpad. A finger `axis_stop` is now sent, after the frame's other scroll
+events, as a `ScrollWheelEvent` with a zero `Pixels` delta and
+`TouchPhase::Ended`.
+
+`List::without_scroll_wheel()` skips the list's own wheel listener, so a view
+can animate the scroll itself with `ListState::scroll_by`.
+`ListState::measured_before(n)` returns how many of the first `n` items are
+measured and their height, so a scrollbar can estimate the rest. No startup
+cost: nothing runs until a scroll event or a scrollbar is drawn.
+
 ## Measurements
 
 Time from `main()` to the first frame submitted and presented. Medians;

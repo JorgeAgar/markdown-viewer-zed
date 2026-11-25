@@ -3,14 +3,15 @@
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use gpui::{
-    App, Context, ExternalPaths, FocusHandle, Focusable, FontWeight, InteractiveElement,
-    IntoElement, ListAlignment, ListOffset, ListState, MouseButton, ParentElement,
-    PathPromptOptions, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    actions, div, list, prelude::FluentBuilder, px,
+    AnyElement, App, Context, DispatchPhase, ExternalPaths, FocusHandle, Focusable, FontWeight,
+    InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, PathPromptOptions, Pixels, Render,
+    ScrollDelta, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, TouchPhase,
+    Window, actions, canvas, div, list, prelude::FluentBuilder, px,
 };
 
 use crate::{
@@ -18,6 +19,7 @@ use crate::{
     markdown::{self, Document},
     render::{self, CodeScrollMap, RenderCx},
     rows::Rows,
+    scroll::{self, Measured, Motion, Thumb},
     tabs::Tabs,
     theme::Theme,
 };
@@ -72,6 +74,38 @@ const LIST_OVERDRAW: f32 = 800.;
 /// above the scroll top (`LIST_OVERDRAW`, minus a margin).
 const MEASURED_STEP: f32 = LIST_OVERDRAW - 40.;
 
+/// Height of the tab bar, above the document.
+const TAB_BAR_HEIGHT: f32 = 34.;
+
+/// Width of the scrollbar's hit area at the right edge of the document.
+const SCROLLBAR_WIDTH: f32 = 14.;
+
+/// The first `end` rows of `list`, as far as they're measured.
+fn measured(list: &ListState, end: usize) -> Measured {
+    let m = list.measured_before(end);
+    Measured {
+        count: m.count,
+        measured: m.measured_count,
+        height: f32::from(m.measured_height),
+    }
+}
+
+/// A scrollbar thumb being dragged.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ThumbDrag {
+    /// Window y of the track's top, and its length.
+    origin: f32,
+    track: f32,
+    /// Mouse y minus the thumb's top when the drag started.
+    grab: f32,
+    /// The thumb now, relative to the track.
+    thumb: Thumb,
+    /// Row height estimate and document height, frozen for the drag so the
+    /// thumb stays under the mouse while rows get measured.
+    avg: f32,
+    content: f32,
+}
+
 struct Tab {
     path: PathBuf,
     base_dir: Arc<Path>,
@@ -89,6 +123,8 @@ struct Tab {
     /// Rest of a PageUp that `Viewer::page_up` split into `MEASURED_STEP`s
     /// because rows above might be unmeasured.
     page_up_rest: Option<PageUpRest>,
+    /// Smooth wheel scrolling and touchpad flings.
+    motion: Motion,
 }
 
 /// The part of a PageUp still to scroll, one `MEASURED_STEP` per frame.
@@ -154,7 +190,58 @@ impl Tab {
             leading_measured: true,
             last_viewport_width: None,
             page_up_rest: None,
+            motion: Motion::default(),
         }
+    }
+
+    /// The estimated height above the viewport and of the whole document,
+    /// and the row height estimate behind them: unmeasured rows count as
+    /// the average measured one.
+    fn extent(&self) -> (f32, f32, f32) {
+        let all = measured(&self.list, usize::MAX);
+        let avg = all.average();
+        let top = self.list.logical_scroll_top();
+        let above = measured(&self.list, top.item_ix).estimate(avg) + f32::from(top.offset_in_item);
+        (above, all.estimate(avg), avg)
+    }
+
+    /// Called at the start of each frame: scrolls this frame's part of a
+    /// wheel glide or fling. Returns true while it goes on.
+    fn advance_motion(&mut self, now: Instant, viewport: f32) -> bool {
+        if !self.motion.is_active() {
+            return false;
+        }
+        let dir = self.motion.direction();
+        let top = self.list.logical_scroll_top();
+        let at_top = top.item_ix == 0 && top.offset_in_item <= px(0.);
+        let (above, content, _) = self.extent();
+        let at_bottom = above + viewport >= content - 0.5;
+        if (dir < 0. && at_top) || (dir > 0. && at_bottom) {
+            self.motion.stop();
+            return false;
+        }
+        // Like a split PageUp, only cross rows the last frame measured.
+        let max = if dir < 0. && !self.leading_measured() {
+            MEASURED_STEP
+        } else {
+            f32::INFINITY
+        };
+        let step = self.motion.tick(now, max);
+        self.list.scroll_by(px(step));
+        self.motion.is_active()
+    }
+
+    /// Scrolls to the row and offset at estimated position `pos`.
+    fn scroll_to_estimate(&mut self, pos: f32, avg: f32) {
+        let (item_ix, offset) = scroll::locate(pos, self.list.item_count(), |ix| {
+            measured(&self.list, ix).estimate(avg)
+        });
+        self.list.scroll_to(ListOffset {
+            item_ix,
+            offset_in_item: px(offset),
+        });
+        self.leading_measured = item_ix == 0;
+        self.page_up_rest = None;
     }
 
     fn leading_measured(&self) -> bool {
@@ -171,6 +258,7 @@ impl Tab {
             PageUpRest::start(self.page_up_rest, page)
         };
         self.page_up_rest = rest;
+        self.motion.stop();
         self.list.scroll_by(px(-step));
     }
 
@@ -270,6 +358,7 @@ pub struct Viewer {
     window_title: SharedString,
     last_open_dir: Option<PathBuf>,
     traced_startup: bool,
+    thumb_drag: Option<ThumbDrag>,
 }
 
 impl Focusable for Viewer {
@@ -310,6 +399,7 @@ impl Viewer {
             window_title: SharedString::default(),
             last_open_dir: None,
             traced_startup: false,
+            thumb_drag: None,
         };
         this.add_loaded(loaded);
         this
@@ -373,6 +463,7 @@ impl Viewer {
             });
             tab.leading_measured = row_ix == 0;
             tab.page_up_rest = None;
+            tab.motion.stop();
             cx.notify();
         }
     }
@@ -405,9 +496,198 @@ impl Viewer {
     fn scroll(&mut self, dy: f32, cx: &mut Context<Self>) {
         if let Some(tab) = self.tabs.active_mut() {
             tab.page_up_rest = None;
+            tab.motion.stop();
             tab.list.scroll_by(px(dy));
             cx.notify();
         }
+    }
+
+    /// Mouse wheel and touchpad: a wheel step glides there smoothly, a
+    /// touchpad follows the fingers and flings on when they let go.
+    fn wheel(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.active_mut() else {
+            return;
+        };
+        let now = Instant::now();
+        match event.delta {
+            ScrollDelta::Lines(lines) => {
+                if lines.y == 0. {
+                    return;
+                }
+                tab.motion.wheel(-lines.y * scroll::LINE_HEIGHT, now);
+            }
+            // macOS sends the momentum after the fingers lift itself.
+            ScrollDelta::Pixels(_)
+                if matches!(event.touch_phase, TouchPhase::Ended) && !cfg!(target_os = "macos") =>
+            {
+                tab.motion.touch_end(now);
+            }
+            ScrollDelta::Pixels(delta) => {
+                let dy = tab.motion.touch(-f32::from(delta.y), now);
+                tab.list.scroll_by(px(dy));
+            }
+        }
+        tab.page_up_rest = None;
+        cx.notify();
+    }
+
+    /// A click on the scrollbar track: a page toward it, like a browser.
+    fn page_toward(&mut self, up: bool, window: &Window, cx: &mut Context<Self>) {
+        let p = self.page(window);
+        if let Some(tab) = self.tabs.active_mut() {
+            tab.page_up_rest = None;
+            tab.motion.wheel(if up { -p } else { p }, Instant::now());
+            cx.notify();
+        }
+    }
+
+    fn start_thumb_drag(
+        &mut self,
+        y: f32,
+        origin: f32,
+        track: f32,
+        thumb: Thumb,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.tabs.active_mut() else {
+            return;
+        };
+        tab.motion.stop();
+        tab.page_up_rest = None;
+        let (_, content, avg) = tab.extent();
+        self.thumb_drag = Some(ThumbDrag {
+            origin,
+            track,
+            grab: y - origin - thumb.top,
+            thumb,
+            avg,
+            content,
+        });
+        cx.notify();
+    }
+
+    fn drag_thumb(&mut self, y: f32, cx: &mut Context<Self>) {
+        let (Some(drag), Some(tab)) = (&mut self.thumb_drag, self.tabs.active_mut()) else {
+            return;
+        };
+        drag.thumb.top =
+            (y - drag.origin - drag.grab).clamp(0., (drag.track - drag.thumb.len).max(0.));
+        let pos = scroll::position_for_thumb(
+            drag.thumb.top,
+            drag.thumb.len,
+            drag.content,
+            drag.track,
+            drag.track,
+        );
+        tab.scroll_to_estimate(pos, drag.avg);
+        cx.notify();
+    }
+
+    /// While the thumb is dragged, follows the mouse anywhere, even outside
+    /// the window (a div's listeners only see it over the div).
+    fn track_thumb_drag(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.weak_entity();
+        canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                let moved = this.clone();
+                window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture {
+                        return;
+                    }
+                    moved
+                        .update(cx, |this, cx| {
+                            if e.pressed_button == Some(MouseButton::Left) {
+                                this.drag_thumb(f32::from(e.position.y), cx);
+                            } else {
+                                // Released where we didn't see it.
+                                this.thumb_drag = None;
+                                cx.notify();
+                            }
+                        })
+                        .ok();
+                });
+                let released = this.clone();
+                window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
+                        released
+                            .update(cx, |this, cx| {
+                                this.thumb_drag = None;
+                                cx.notify();
+                            })
+                            .ok();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_0()
+    }
+
+    /// The scrollbar at the right edge of the document, when it overflows.
+    fn render_scrollbar(
+        &self,
+        track: f32,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let tab = self.tabs.active()?;
+        let thumb = match self.thumb_drag {
+            Some(drag) => drag.thumb,
+            None => {
+                let (top, content, _) = tab.extent();
+                scroll::thumb(top, content, track, track)?
+            }
+        };
+        let dragging = self.thumb_drag.is_some();
+        let origin = TAB_BAR_HEIGHT;
+        let idle = theme.muted.opacity(0.45);
+        let active = theme.muted.opacity(0.8);
+        Some(
+            div()
+                .id("scrollbar")
+                .group("scrollbar")
+                .absolute()
+                .top_0()
+                .right_0()
+                .h_full()
+                .w(px(SCROLLBAR_WIDTH))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                        // Not a click on the document, which would stop the glide.
+                        cx.stop_propagation();
+                        let y = f32::from(e.position.y) - origin;
+                        this.page_toward(y < thumb.top, window, cx);
+                    }),
+                )
+                .child(
+                    div()
+                        .id("scrollbar-thumb")
+                        .absolute()
+                        .top(px(thumb.top))
+                        .h(px(thumb.len))
+                        .right(px(3.))
+                        .w(px(if dragging { 8. } else { 6. }))
+                        .rounded_full()
+                        .bg(if dragging { active } else { idle })
+                        .group_hover("scrollbar", |s| s.w(px(8.)).bg(active))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.start_thumb_drag(
+                                    f32::from(e.position.y),
+                                    origin,
+                                    track,
+                                    thumb,
+                                    cx,
+                                );
+                            }),
+                        ),
+                )
+                .into_any_element(),
+        )
     }
 
     fn page(&self, window: &Window) -> f32 {
@@ -429,7 +709,7 @@ impl Viewer {
         div()
             .id("tab-bar")
             .flex_none()
-            .h(px(34.))
+            .h(px(TAB_BAR_HEIGHT))
             .w_full()
             .flex()
             .flex_row()
@@ -534,6 +814,15 @@ impl Render for Viewer {
             self.window_title = title;
         }
 
+        // The document's height: the window minus the tab bar.
+        let viewport = f32::from(window.viewport_size().height) - TAB_BAR_HEIGHT;
+        let active = self.tabs.active_index();
+        for (ix, tab) in self.tabs.iter_mut().enumerate() {
+            if ix != active {
+                // Background tabs don't keep gliding.
+                tab.motion.stop();
+            }
+        }
         if let Some(tab) = self.tabs.active_mut() {
             tab.note_viewport_width(window.viewport_size().width);
             if tab.continue_page_up() {
@@ -541,8 +830,18 @@ impl Render for Viewer {
                 // (`window.refresh()` is ignored while the window draws.)
                 window.defer(cx, |window, _| window.refresh());
             }
+            if tab.advance_motion(Instant::now(), viewport) {
+                window.request_animation_frame();
+            }
+            let all = measured(&tab.list, usize::MAX);
+            if all.count > 0 && all.measured == 0 {
+                // Nothing laid out yet: draw once more so the scrollbar
+                // is sized from measured rows, not a blind guess.
+                window.request_animation_frame();
+            }
         }
 
+        let scrollbar = self.render_scrollbar(viewport, &theme, cx);
         let content = match self.tabs.active() {
             Some(tab) => {
                 let rcx = RenderCx {
@@ -558,6 +857,7 @@ impl Render for Viewer {
                 list(tab.list.clone(), move |ix, window, cx| {
                     render::render_row(&doc, &rows[ix], ix, &rcx, window, cx)
                 })
+                .without_scroll_wheel()
                 .size_full()
                 .into_any_element()
             }
@@ -629,6 +929,7 @@ impl Render for Viewer {
                     tab.list.scroll_to(ListOffset::default());
                     tab.leading_measured = true;
                     tab.page_up_rest = None;
+                    tab.motion.stop();
                     cx.notify();
                 }
             }))
@@ -643,6 +944,7 @@ impl Render for Viewer {
                     });
                     tab.leading_measured = false;
                     tab.page_up_rest = None;
+                    tab.motion.stop();
                     cx.notify();
                 }
             }))
@@ -652,7 +954,30 @@ impl Render for Viewer {
             .when(!self.tabs.is_empty(), |d| {
                 d.child(self.render_tab_bar(&theme, cx))
             })
-            .child(div().flex_1().min_h_0().w_full().child(content))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .relative()
+                    .on_scroll_wheel(
+                        cx.listener(|this, e: &ScrollWheelEvent, _, cx| this.wheel(e, cx)),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| {
+                            // A click stops a glide or fling, like a tap in a browser.
+                            if let Some(tab) = this.tabs.active_mut() {
+                                tab.motion.stop();
+                            }
+                        }),
+                    )
+                    .child(content)
+                    .children(scrollbar)
+                    .when(self.thumb_drag.is_some(), |d| {
+                        d.child(self.track_thumb_drag(cx))
+                    }),
+            )
     }
 }
 

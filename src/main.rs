@@ -15,6 +15,7 @@ mod links;
 mod platform;
 mod render;
 mod rows;
+mod scroll;
 mod tabs;
 #[cfg(test)]
 mod test_util;

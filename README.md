@@ -37,6 +37,11 @@ cargo build --release
 | `Cmd+Shift+]` / `Cmd+Shift+[` (macOS) | Next / previous tab                     |
 | Middle click on a tab                | Close it                                  |
 
+Scrolling feels like a browser: a mouse wheel step glides smoothly, a touchpad
+swipe keeps going after you lift your fingers and slows down, and a click
+stops it. The scrollbar on the right can be dragged, and a click on its track
+moves a page.
+
 Code blocks are syntax highlighted, and ```` ```mermaid ```` blocks are drawn
 as diagrams. Math is supported: inline `$…$` becomes Unicode text (`x²`,
 `α ≤ β`), while `$$…$$` and ```` ```math ```` blocks are typeset like KaTeX.
