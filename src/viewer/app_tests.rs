@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use gpui::{
-    AnyView, AppContext, AvailableSpace, Entity, TestAppContext, VisualTestContext, point, size,
+    AnyView, AppContext, AvailableSpace, Entity, TestAppContext, VisualContext, VisualTestContext,
+    point, size,
 };
 
 use super::*;
@@ -1051,5 +1052,94 @@ fn reload_keeps_shrunk_code_block_visible_instead_of_hiding_above_viewport() {
     assert!(
         bounds.bottom() > viewport.top() && bounds.top() >= viewport.top(),
         "shrunk code block must stay visible in viewport: bounds={bounds:?}, viewport={viewport:?}"
+    );
+}
+
+#[test]
+fn tall_window_page_up_returns_to_top_and_protects_after_jump() {
+    // 1. Long paragraph document in a 1500px-tall window: PageDown (1420px)
+    // followed by PageUp must return all the way to the top (0, 0.).
+    let mut md = String::from("# Start\n\n");
+    for i in 0..200 {
+        md.push_str(&format!(
+            "## Heading {i}\n\nParagraph {i} with enough text for a tall document.\n\n"
+        ));
+    }
+    let (v, cx) = open(vec![(PathBuf::from("/x/tall.md"), parsed(&md))]);
+    let handle = cx.window_handle();
+    cx.simulate_window_resize(handle, size(px(920.), px(1500.)));
+    cx.run_until_parked();
+
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    let down = scroll_top(&v, cx);
+    assert!(
+        down.0 > 10,
+        "expected PageDown to advance well down: {down:?}"
+    );
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    assert_eq!(
+        scroll_top(&v, cx),
+        (0, 0.),
+        "PageUp after normal PageDown in a 1500px window must return to the top"
+    );
+
+    // 2. After jumping to Bottom or an anchor in the same 1500px window, PageUp
+    // stays within measured leading overdraw instead of teleporting over
+    // unmeasured rows back toward row 0.
+    cx.dispatch_action(Bottom);
+    cx.run_until_parked();
+    let bottom = scroll_top(&v, cx);
+    assert!(bottom.0 > 350, "{bottom:?}");
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    let after_bottom_page_up = scroll_top(&v, cx);
+    assert!(
+        after_bottom_page_up.0 > 300 && after_bottom_page_up.0 < bottom.0,
+        "PageUp after Bottom must not teleport over unmeasured rows: {after_bottom_page_up:?} from {bottom:?}"
+    );
+
+    // Anchor jump to a deep heading -> PageUp also stays local.
+    cx.dispatch_action(Top);
+    cx.run_until_parked();
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "heading-150", cx));
+    cx.run_until_parked();
+    let anchor = scroll_top(&v, cx);
+    assert_eq!(anchor.0, 301);
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    let after_anchor_page_up = scroll_top(&v, cx);
+    assert!(
+        after_anchor_page_up.0 > 250 && after_anchor_page_up.0 < anchor.0,
+        "PageUp after anchor jump must not teleport over unmeasured rows: {after_anchor_page_up:?}"
+    );
+
+    // Returning to Top restores full-page PageUp symmetry.
+    cx.dispatch_action(Top);
+    cx.run_until_parked();
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+
+    // 3. After a width resize while scrolled down, GPUI invalidates cached
+    // heights; PageUp must clamp so it doesn't teleport over invalidated rows.
+    for _ in 0..4 {
+        cx.dispatch_action(PageDown);
+        cx.run_until_parked();
+    }
+    let before_resize = scroll_top(&v, cx);
+    assert!(before_resize.0 > 50, "{before_resize:?}");
+    cx.simulate_window_resize(handle, size(px(800.), px(1500.)));
+    cx.run_until_parked();
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    let after_resize_page_up = scroll_top(&v, cx);
+    assert!(
+        after_resize_page_up.0 > 20 && after_resize_page_up.0 < before_resize.0,
+        "PageUp after width resize must not teleport to top: {after_resize_page_up:?} from {before_resize:?}"
     );
 }

@@ -9,8 +9,8 @@ use std::{
 use gpui::{
     App, Context, ExternalPaths, FocusHandle, Focusable, FontWeight, InteractiveElement,
     IntoElement, ListAlignment, ListOffset, ListState, MouseButton, ParentElement,
-    PathPromptOptions, Render, SharedString, StatefulInteractiveElement, Styled, Window, actions,
-    div, list, prelude::FluentBuilder, px,
+    PathPromptOptions, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Window,
+    actions, div, list, prelude::FluentBuilder, px,
 };
 
 use crate::{
@@ -77,6 +77,11 @@ struct Tab {
     code_scroll: CodeScrollMap,
     mtime: Option<SystemTime>,
     list: ListState,
+    /// True while every row before `list.logical_scroll_top().item_ix` is
+    /// guaranteed measured in `list` (no jump, reset, or width resize skipped
+    /// over unmeasured rows above).
+    leading_measured: bool,
+    last_viewport_width: Option<Pixels>,
 }
 
 impl Tab {
@@ -98,6 +103,24 @@ impl Tab {
             code_scroll: CodeScrollMap::default(),
             mtime,
             list,
+            leading_measured: true,
+            last_viewport_width: None,
+        }
+    }
+
+    fn leading_measured(&self) -> bool {
+        self.leading_measured || self.list.logical_scroll_top().item_ix == 0
+    }
+
+    fn note_viewport_width(&mut self, width: Pixels) {
+        if self
+            .last_viewport_width
+            .replace(width)
+            .is_some_and(|prev| prev != width)
+            && self.list.logical_scroll_top().item_ix > 0
+        {
+            // GPUI's List clears all cached item heights when width changes.
+            self.leading_measured = false;
         }
     }
 
@@ -115,6 +138,7 @@ impl Tab {
                 top.offset_in_item
             },
         });
+        self.leading_measured = mapped.item_ix == 0;
         self.code_scroll.borrow_mut().clear();
         self.doc = Arc::new(doc);
         self.rows = rows;
@@ -257,8 +281,11 @@ impl Viewer {
 
     pub fn scroll_to_anchor(&mut self, path: Option<&Path>, anchor: &str, cx: &mut Context<Self>) {
         let tab = match path {
-            Some(p) => self.tabs.iter().find(|t| t.path == normalize(p)),
-            None => self.tabs.active(),
+            Some(p) => {
+                let target = normalize(p);
+                self.tabs.iter_mut().find(|t| t.path == target)
+            }
+            None => self.tabs.active_mut(),
         };
         let Some(tab) = tab else { return };
         if let Some(block_ix) = links::heading_index(&tab.doc.blocks, anchor)
@@ -268,6 +295,7 @@ impl Viewer {
                 item_ix: row_ix,
                 offset_in_item: px(0.),
             });
+            tab.leading_measured = row_ix == 0;
             cx.notify();
         }
     }
@@ -305,6 +333,18 @@ impl Viewer {
 
     fn page(&self, window: &Window) -> f32 {
         (f32::from(window.viewport_size().height) - 80.).max(100.)
+    }
+
+    fn page_up_step(&self, window: &Window) -> f32 {
+        let p = self.page(window);
+        if self.tabs.active().is_some_and(Tab::leading_measured) {
+            p
+        } else {
+            // Stay within the list's measured leading overdraw so paging up
+            // after jumping past unmeasured rows (Bottom, anchor, reload, or
+            // width resize) can't skip over 0-height items.
+            p.min(LIST_OVERDRAW - 40.)
+        }
     }
 
     fn render_tab_bar(&self, theme: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -416,6 +456,10 @@ impl Render for Viewer {
             self.window_title = title;
         }
 
+        if let Some(tab) = self.tabs.active_mut() {
+            tab.note_viewport_width(window.viewport_size().width);
+        }
+
         let content = match self.tabs.active() {
             Some(tab) => {
                 let rcx = RenderCx {
@@ -493,10 +537,7 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &ScrollUp, _, cx| this.scroll(-60., cx)))
             .on_action(cx.listener(|this, _: &ScrollDown, _, cx| this.scroll(60., cx)))
             .on_action(cx.listener(|this, _: &PageUp, window, cx| {
-                // Stay within the list's measured leading overdraw so paging up
-                // right after jumping to Bottom or an anchor can't skip past
-                // unmeasured (0-height) rows.
-                let p = this.page(window).min(LIST_OVERDRAW - 40.);
+                let p = this.page_up_step(window);
                 this.scroll(-p, cx)
             }))
             .on_action(cx.listener(|this, _: &PageDown, window, cx| {
@@ -504,20 +545,22 @@ impl Render for Viewer {
                 this.scroll(p, cx)
             }))
             .on_action(cx.listener(|this, _: &Top, _, cx| {
-                if let Some(l) = this.active_list() {
-                    l.scroll_to(ListOffset::default());
+                if let Some(tab) = this.tabs.active_mut() {
+                    tab.list.scroll_to(ListOffset::default());
+                    tab.leading_measured = true;
                     cx.notify();
                 }
             }))
             .on_action(cx.listener(|this, _: &Bottom, _, cx| {
-                if let Some(l) = this.active_list() {
+                if let Some(tab) = this.tabs.active_mut() {
                     // Scroll past the last row so GPUI fills the viewport
                     // upward from the end even when middle rows are
                     // unmeasured (height 0 in the SumTree).
-                    l.scroll_to(ListOffset {
-                        item_ix: l.item_count(),
+                    tab.list.scroll_to(ListOffset {
+                        item_ix: tab.list.item_count(),
                         offset_in_item: px(0.),
                     });
+                    tab.leading_measured = false;
                     cx.notify();
                 }
             }))
