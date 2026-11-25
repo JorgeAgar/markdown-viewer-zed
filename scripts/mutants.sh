@@ -62,7 +62,7 @@ if [[ $all == 1 ]]; then
     info "Full run (about an hour). Core crate first, then the app's pure modules."
     runs=(
         "-p mdview-core --test-package mdview-core --timeout 30"
-        "-p mdview -f src/tabs.rs -f src/links.rs -f src/cli.rs --timeout 60"
+        "-p mdview -f src/tabs.rs -f src/links.rs -f src/cli.rs -f src/rows.rs --timeout 60"
     )
 else
     git rev-parse --verify --quiet "$base" >/dev/null || base=main

@@ -64,8 +64,9 @@ are unavailable, preserving bold and italic formatting.
 - **Each file is parsed once.** The parser turns a file into a compact list of
   blocks, and frames are drawn from that list. The raw Markdown isn't parsed
   again.
-- **Virtualized list.** As in Zed's Markdown preview, only the blocks on
-  screen get laid out.
+- **Virtualized list.** As in Zed's Markdown preview, only the rows on
+  screen get laid out; large tables, lists, code blocks and quotes are split
+  across rows so huge documents stay smooth to scroll.
 - **Patched GPUI.** GPUI is vendored in `crates/gpui` with three startup
   fixes: it no longer compiles the render pipelines twice, it compiles them in
   parallel, and it initializes Vulkan while the fonts load. Time to the first
@@ -99,6 +100,7 @@ src/cli.rs       argument parsing, help text, socket message format
 src/viewer.rs    window: tabs, actions, live reload, drag & drop
 src/tabs.rs      the tab list and active tab
 src/links.rs     link routing (anchors, other Markdown files, URLs)
+src/rows.rs      virtualized list rows (splits large tables, lists, code and quotes)
 src/graphics.rs  display math and Mermaid -> images, rendered in the background and cached
 src/render.rs    block model -> GPUI elements
 src/theme.rs     light/dark palettes (follows the system appearance)

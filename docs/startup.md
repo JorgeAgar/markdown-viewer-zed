@@ -70,7 +70,7 @@ pie showData
 | --- | --- | --- | --- |
 | Single instance over a Unix socket | `src/main.rs` | later launches take ~4 ms | same |
 | Parse files on a thread while GPUI starts | `src/main.rs` | parsing is off the critical path | same |
-| Virtualized list (`gpui::list`) | `src/viewer.rs` | first frame lays out only the visible blocks | same |
+| Virtualized list (`gpui::list`) | `src/viewer.rs` | first frame lays out only the visible rows (large tables, lists, code blocks and quotes are split into rows, see [rendering.md](rendering.md)) | same |
 | Don't build the pipelines twice | `crates/gpui` (fix 1) | −11 ms | −30 ms |
 | Compile the pipelines in parallel | `crates/gpui` (fix 2) | 12 → 7 ms | 34 → 19 ms |
 | Run Vulkan init alongside font loading | `crates/gpui` (fix 3) | 33 → 29 ms until the platform is ready | 51 → 40 ms |

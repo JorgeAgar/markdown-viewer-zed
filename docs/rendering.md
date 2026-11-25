@@ -8,8 +8,8 @@ How a `.md` file becomes pixels, and how to change or extend that.
 flowchart LR
     F["file bytes"] -->|"viewer::load<br/>(any thread)"| P["pulldown-cmark events"]
     P -->|"markdown::parse"| D["Document<br/>Vec of Block"]
-    D -->|"Arc, stored in Tab"| L["gpui::list<br/>(ListState)"]
-    L -->|"only visible rows:<br/>render::top_block(ix)"| E["GPUI elements<br/>div / StyledText / img"]
+    D -->|"rows::Rows"| L["gpui::list<br/>(ListState)"]
+    L -->|"only visible rows:<br/>render::render_row(ix)"| E["GPUI elements<br/>div / StyledText / img"]
     E -->|"HTTP(S) images, async + cached"| H["http.rs → GPUI image loader"]
     E -->|"layout + paint"| GPU["GPU frame"]
 ```
@@ -50,25 +50,52 @@ Enabled extensions: tables, strikethrough, task lists, footnotes, GFM alerts
 (`> [!NOTE]` and friends), metadata blocks, and math (`$…$` / `$$…$$`, with
 GitHub's rules, so `$5 and $10` stays text).
 
-## 2. Virtualization (`src/viewer.rs`)
+## 2. Virtualization (`src/rows.rs`, `src/viewer.rs`)
 
-Each `Tab` owns a `gpui::ListState`, created with
-`ListState::new(blocks.len(), ListAlignment::Top, px(800.))`:
+Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
+`gpui::ListState` created with `ListState::new(rows.len(), ListAlignment::Top, px(800.))`:
 
-- **One list row = one top-level `Block`.** A huge table or code block is
-  still a single row, so very large blocks are the one case that virtualization
-  doesn't help.
+- **Large top-level blocks are split across list rows** so virtualization stays
+  effective on huge files:
+  - `Block::Table` becomes one header row plus one row per body row.
+  - `Block::List` becomes one row per top-level list item.
+  - `Block::Code` with more than 64 lines is sliced into 64-line chunks, with
+    syntax highlights clamped and shifted to each chunk's byte range. All chunks
+    of the same code block share a horizontal `ScrollHandle` and a monotonic
+    maximum width (seeded from candidate widest lines and grown from each
+    chunk's actual shaped width) so horizontal scrolling stays in sync across
+    chunk boundaries. A chunk laid out before a wider one appears keeps the
+    older width for that frame; the next frame uses the grown width. Only a
+    horizontal scroll made in that same frame stops short.
+  - `Block::Quote` with multiple child blocks becomes an optional callout title
+    row plus one row per child block, keeping a continuous left border.
+  - All other top-level blocks stay a single row.
+- `Rows` keeps a `block_start` index so `#anchor` jumps (`links::heading_index`)
+  still resolve to the heading's list row in O(1).
 - The list measures rows lazily and caches their heights. `800px` of overdraw
   keeps rows just outside the viewport ready, so scrolling stays smooth.
-- When a file is reloaded, `ListState::reset` is called and the old scroll
-  position is put back (`Tab::replace`).
+- Unmeasured rows count as 0 px, so a pixel scroll that crosses them skips
+  them. `Bottom` (`G`/`End`) therefore scrolls past the last row and lets
+  GPUI fill the viewport upward, instead of `scroll_to_reveal_item`.
+- `Tab::leading_measured` records whether every row above the scroll top is
+  measured. It turns false after `Bottom`, an anchor jump, a reload or a width
+  change while scrolled down (GPUI drops cached heights on a width change), and
+  true again at row 0 or after `Top`. While it's false, PageUp still moves a
+  full page, but in steps of at most `LIST_OVERDRAW - 40` px, one per frame
+  (`PageUpRest`): each frame measures the overdraw above the new scroll top
+  before the next step crosses it. Any other scroll, jump or reload drops the
+  rest of the page.
+- When a file is reloaded, `Tab::replace` remaps the top visible row through
+  `(block_ix, offset_within_block)` before calling `ListState::reset` (resetting
+  `offset_in_item` to 0 when the target row was clamped or shrank), so growing
+  or shrinking an earlier or current block keeps the reader on a visible block.
 
 ## 3. Elements (`src/render.rs`)
 
-`top_block(block, ix, rcx)` wraps each row in a centered column, at most
-`CONTENT_MAX_WIDTH` (880 px) wide. `render_block` then handles the different
-block kinds. Everything it needs comes from `RenderCx`, which is cheap to
-clone:
+`render_row(doc, row, ix, rcx)` wraps each row in a centered column, at most
+`CONTENT_MAX_WIDTH` (880 px) wide, applying block or inter-item bottom spacing
+only where the row needs it. `render_block` handles whole blocks and nested
+children. Everything it needs comes from `RenderCx`, which is cheap to clone:
 
 | Field | Purpose |
 | --- | --- |
@@ -76,6 +103,7 @@ clone:
 | `ui_font`, `mono_font` | Font families picked at startup (`pick_fonts` in `main.rs`) |
 | `base_dir` | The document's folder, used to resolve relative links and images |
 | `viewer` | `WeakEntity<Viewer>`, so clicking a link can open tabs or scroll |
+| `code_scroll` | The tab's `CodeScrollMap`: one shared `ScrollHandle` and width per split code block |
 
 ### Text with inline styles
 
@@ -87,7 +115,8 @@ calls `StyledText::with_runs`. If the text contains links, it's wrapped in
 
 `InteractiveText` needs an `ElementId` that's unique within the row.
 `IdGen(ix * 100_000)` generates them: row `ix` gets ids starting at
-`ix * 100_000 + 1`. Code blocks also take ids from it, because horizontal
+`ix * 100_000 + 1` (a wrapping multiply, since split blocks can make a
+document have many rows). Code blocks also take ids from it, because horizontal
 scrolling needs one.
 
 ### Syntax highlighting
@@ -195,7 +224,7 @@ uses `panic = "unwind"`) and shown the same way.
 | --- | --- |
 | Base size / line height | 16 px / 1.6 |
 | H1 … H6 | 2.0, 1.5, 1.25, 1.0, 0.875, 0.85 em. H1–H2 are bold with a bottom border; H3–H6 are semibold. |
-| Code blocks | 13.5 px monospace, line height 1.5, scroll horizontally, no wrapping |
+| Code blocks | 13.5 px monospace, line height 1.5, no wrapping; scroll horizontally only with a horizontal wheel/swipe or `Shift`+wheel (`restrict_scroll_to_axis`), so a vertical wheel over them scrolls the page |
 | Content width | max 880 px, 32 px side padding |
 
 ### Fonts

@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use gpui::{
-    AnyView, AppContext, AvailableSpace, Entity, TestAppContext, VisualTestContext, point, size,
+    AnyView, AppContext, AvailableSpace, Entity, TestAppContext, VisualContext, VisualTestContext,
+    point, size,
 };
 
 use super::*;
@@ -460,19 +461,17 @@ fn draws_every_document_in_the_window() {
 }
 
 /// The rows of a document, as the Viewer's list renders them, with any theme.
-struct Rows {
+struct DocRows {
     doc: Arc<Document>,
+    rows: Arc<Rows>,
     rcx: RenderCx,
 }
 
-impl Render for Rows {
+impl Render for DocRows {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().w(px(920.)).children(
-            self.doc
-                .blocks
-                .iter()
-                .enumerate()
-                .map(|(ix, b)| render::top_block(b, ix, &self.rcx, window, cx)),
+            (0..self.rows.len())
+                .map(|ix| render::render_row(&self.doc, &self.rows[ix], ix, &self.rcx, window, cx)),
         )
     }
 }
@@ -485,6 +484,7 @@ fn draws_every_document_in_both_themes() {
     let weak = v.downgrade();
     for (path, src) in example_docs() {
         let doc = Arc::new(markdown::parse(&src));
+        let doc_rows = Arc::new(Rows::from_document(&doc));
         for theme in [Theme::light(), Theme::dark()] {
             let rcx = RenderCx {
                 theme,
@@ -492,9 +492,11 @@ fn draws_every_document_in_both_themes() {
                 mono_font: fonts().mono,
                 base_dir: Arc::from(path.parent().unwrap()),
                 viewer: weak.clone(),
+                code_scroll: Default::default(),
             };
-            let rows = cx.new(|_| Rows {
+            let rows = cx.new(|_| DocRows {
                 doc: doc.clone(),
+                rows: doc_rows.clone(),
                 rcx,
             });
             // Twice: placeholders first, then the finished images.
@@ -668,4 +670,655 @@ fn open_dialog_directory_prefers_active_tab_then_last_opened_then_cwd() {
     // If the recorded directory disappears, fall back to cwd.
     std::fs::remove_dir_all(&d2).unwrap();
     assert_eq!(dialog_dir(&v2, cx2), Some(cwd));
+}
+
+#[test]
+fn large_table_virtualizes_rows_and_jumps_to_bottom() {
+    let mut md = String::from("# Big table\n\n| ID | Desc |\n|---:|:---|\n");
+    for i in 1..=2_000 {
+        md.push_str(&format!("| {i:05} | Row **{i}** `v-{i}` |\n"));
+    }
+    let (v, cx) = open(vec![(PathBuf::from("/x/big.md"), parsed(&md))]);
+    cx.run_until_parked();
+    // 1 heading + 1 table header + 2000 body rows.
+    let count = cx.update(|_, cx| v.read(cx).active_list().unwrap().item_count());
+    assert_eq!(count, 2_002);
+
+    // Scrolling down advances smoothly into the table.
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    let after_page = scroll_top(&v, cx);
+    assert!(after_page.0 > 0 && after_page.0 < 200, "{after_page:?}");
+
+    // Bottom jumps all the way to the end of the 2000-row table even though
+    // middle rows were never measured.
+    cx.dispatch_action(Bottom);
+    cx.run_until_parked();
+    let bottom = scroll_top(&v, cx);
+    assert!(
+        bottom.0 > 1_900 && bottom.0 < count,
+        "expected scroll top near the end of the table, got {bottom:?}"
+    );
+
+    // PageUp from the bottom steps smoothly upward without teleporting over
+    // unmeasured rows.
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    let after_page_up = scroll_top(&v, cx);
+    assert!(
+        after_page_up.0 > 1_800 && after_page_up.0 < bottom.0,
+        "expected PageUp from bottom to move up one page, got {after_page_up:?} from {bottom:?}"
+    );
+
+    // Top returns cleanly to the start.
+    cx.dispatch_action(Top);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+
+    // Bottom on an empty document stays at (0, 0.).
+    let (empty_v, empty_cx) = open(vec![(PathBuf::from("/x/empty.md"), parsed(""))]);
+    empty_cx.dispatch_action(Bottom);
+    empty_cx.run_until_parked();
+    assert_eq!(scroll_top(&empty_v, empty_cx), (0, 0.));
+}
+
+#[test]
+fn anchors_account_for_split_tables_lists_code_and_quotes() {
+    let mut md = String::new();
+    // Block 0: table (1 header + 3 body rows = 4 rows)
+    md.push_str("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n\n");
+    // Block 1: list (3 items = 3 rows)
+    md.push_str("- a\n- b\n- c\n\n");
+    // Block 2: large code block (70 lines -> 2 chunks = 2 rows)
+    md.push_str("```rust\n/* multi-line\n");
+    for i in 0..68 {
+        md.push_str(&format!("let x{i} = {i};\n"));
+    }
+    md.push_str("*/\n```\n\n");
+    // Block 3: multi-block callout quote (1 header + 2 blocks = 3 rows)
+    md.push_str("> [!NOTE]\n> First\n>\n> Second\n\n");
+    // Block 4: multi-block plain quote (2 blocks = 2 rows)
+    md.push_str("> Plain one\n>\n> Plain two\n\n");
+    // Block 5: header-only table (1 row)
+    md.push_str("| Only |\n|---|\n\n");
+    // Block 6: target heading -> row index 4 + 3 + 2 + 3 + 2 + 1 = 15
+    md.push_str("## Target Heading\n\nBody\n");
+
+    let (v, cx) = open(vec![(PathBuf::from("/x/mixed.md"), parsed(&md))]);
+    cx.run_until_parked();
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "target-heading", cx));
+    cx.run_until_parked();
+    // Anchor targets row 15 (clamped upward only if the tail is shorter than
+    // the viewport; here we assert the tab's row mapping directly too).
+    let mapped = cx.update(|_, cx| {
+        let tab = v.read(cx).tabs.active().unwrap();
+        let block_ix = links::heading_index(&tab.doc.blocks, "target-heading").unwrap();
+        tab.rows.row_for_block(block_ix)
+    });
+    assert_eq!(mapped, Some(15));
+}
+
+#[test]
+fn draws_split_large_code_quotes_and_header_only_table_in_both_themes() {
+    let mut md = String::from("| Header only |\n|---|\n\n");
+    md.push_str("> [!TIP]\n> First paragraph\n>\n> Second paragraph\n\n");
+    md.push_str("> Plain first\n>\n> Plain second\n\n");
+    md.push_str("```rust\n/* start comment\n");
+    for i in 0..130 {
+        md.push_str(&format!("// line {i}\n"));
+    }
+    md.push_str("end */\n\n```\n");
+
+    let (v, cx) = open(vec![]);
+    let weak = v.downgrade();
+    let doc = Arc::new(markdown::parse(&md));
+    let doc_rows = Arc::new(Rows::from_document(&doc));
+    assert!(
+        doc_rows.len() > 8,
+        "expected split rows, got {}",
+        doc_rows.len()
+    );
+    for theme in [Theme::light(), Theme::dark()] {
+        let rcx = RenderCx {
+            theme,
+            ui_font: fonts().ui,
+            mono_font: fonts().mono,
+            base_dir: Arc::from(Path::new("/x")),
+            viewer: weak.clone(),
+            code_scroll: Default::default(),
+        };
+        let rows = cx.new(|_| DocRows {
+            doc: doc.clone(),
+            rows: doc_rows.clone(),
+            rcx,
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(920.)),
+                AvailableSpace::MinContent,
+            ),
+            |_, _| AnyView::from(rows.clone()),
+        );
+        cx.run_until_parked();
+    }
+}
+
+#[test]
+fn reload_keeps_heading_position_when_preceding_table_grows_or_shrinks() {
+    let make = |rows: usize| {
+        let mut s = String::from("| ID | Desc |\n|---:|:---|\n");
+        for i in 1..=rows {
+            s.push_str(&format!("| {i} | row {i} |\n"));
+        }
+        s.push_str("\n## After Table\n\n");
+        for i in 0..40 {
+            s.push_str(&format!("Trailing paragraph {i}.\n\n"));
+        }
+        s
+    };
+    let dir = TempDir::new("reload-table-grow");
+    let path = normalize(&dir.join("table.md"));
+    std::fs::write(&path, make(5)).unwrap();
+
+    let (v, cx) = open(vec![load(path.clone())]);
+    cx.run_until_parked();
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "after-table", cx));
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx).0, 6);
+
+    // Table grows from 5 to 105 rows: reload keeps `## After Table` (now row 106).
+    std::fs::write(&path, make(105)).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx).0, 106);
+
+    // Table shrinks to 2 rows: reload keeps `## After Table` (now row 3).
+    std::fs::write(&path, make(2)).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx).0, 3);
+}
+
+#[test]
+fn split_code_block_synchronizes_horizontal_scroll_across_chunks() {
+    use gpui::{ScrollDelta, ScrollWheelEvent};
+
+    // 90 lines (> 64 -> 2 chunks): lines 1..=64 are very wide, lines 65..=90
+    // are short. Both chunks must stay horizontally synchronized and the
+    // shorter second chunk must not clamp away the horizontal scroll offset.
+    let mut md = String::from("```rust\n");
+    for i in 1..=64 {
+        md.push_str(&format!("let line_{i:03} = \"{}\";\n", "x".repeat(220)));
+    }
+    for i in 65..=90 {
+        md.push_str(&format!("let short_{i:03} = {i};\n"));
+    }
+    md.push_str("```\n");
+
+    let (v, cx) = open(vec![(PathBuf::from("/x/wide-code.md"), parsed(&md))]);
+    cx.run_until_parked();
+    let count = cx.update(|_, cx| v.read(cx).active_list().unwrap().item_count());
+    assert_eq!(count, 2, "90-line code block splits into 2 chunks");
+
+    // Scroll vertically so the boundary between line 64 (chunk 0) and line 65
+    // (chunk 1) is visible on screen at the same time.
+    cx.update(|_, cx| {
+        v.read(cx).active_list().unwrap().scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(1050.),
+        });
+    });
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+
+    let (b0, b1) = cx.update(|_, cx| {
+        let list = v.read(cx).active_list().unwrap();
+        (
+            list.bounds_for_item(0).unwrap(),
+            list.bounds_for_item(1).unwrap(),
+        )
+    });
+    let viewport = cx.update(|_, cx| v.read(cx).active_list().unwrap().viewport_bounds());
+    assert!(
+        b0.bottom() > viewport.top() && b0.bottom() < viewport.bottom(),
+        "chunk 0 visible"
+    );
+    assert!(
+        b1.top() >= viewport.top() && b1.top() < viewport.bottom(),
+        "chunk 1 visible"
+    );
+
+    // Horizontal scroll gesture over chunk 0 (line 64).
+    let pos_chunk0 = point(b0.center().x, b0.bottom() - px(10.));
+    cx.simulate_event(ScrollWheelEvent {
+        position: pos_chunk0,
+        delta: ScrollDelta::Pixels(point(px(-150.), px(0.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+
+    let offset_after_chunk0 = cx.update(|_, cx| {
+        v.read(cx)
+            .tabs
+            .active()
+            .unwrap()
+            .code_scroll
+            .borrow()
+            .get(&0)
+            .expect("shared code scroll handle created")
+            .handle
+            .offset()
+    });
+    assert_eq!(
+        offset_after_chunk0.x,
+        px(-150.),
+        "chunk 1 (shorter lines) must not clamp away chunk 0's horizontal scroll"
+    );
+
+    // Horizontal scroll gesture over chunk 1 (line 65) updates the same handle.
+    let pos_chunk1 = point(b1.center().x, b1.top() + px(10.));
+    cx.simulate_event(ScrollWheelEvent {
+        position: pos_chunk1,
+        delta: ScrollDelta::Pixels(point(px(-80.), px(0.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+
+    let offset_after_chunk1 = cx.update(|_, cx| {
+        v.read(cx)
+            .tabs
+            .active()
+            .unwrap()
+            .code_scroll
+            .borrow()
+            .get(&0)
+            .unwrap()
+            .handle
+            .offset()
+    });
+    assert_eq!(offset_after_chunk1.x, px(-230.));
+}
+
+#[test]
+fn split_code_block_with_wide_emoji_does_not_clamp_on_second_chunk() {
+    use gpui::{ScrollDelta, ScrollWheelEvent};
+
+    // Exact PR #16 regression + adversarial zero-width Unicode lines: first 64
+    // lines have 100 emoji each; second chunk has 110 ASCII `x`, 60 tabs, and
+    // 150 zero-width joiners (beating every static char/byte/non-ASCII/tab
+    // heuristic). `SharedWidth` must still adopt chunk 0's actual shaped width
+    // so scrolling -150px horizontally on chunk 0 is never clamped.
+    let mut md = String::from("```text\n");
+    let emoji_line = "😀".repeat(100);
+    for _ in 1..=64 {
+        md.push_str(&emoji_line);
+        md.push('\n');
+    }
+    md.push_str(&"x".repeat(110));
+    md.push('\n');
+    md.push_str(&"\t".repeat(60));
+    md.push('\n');
+    md.push_str(&"\u{200d}".repeat(150));
+    md.push('\n');
+    for i in 68..=90 {
+        md.push_str(&format!("line {i}\n"));
+    }
+    md.push_str("```\n");
+
+    let (v, cx) = open(vec![(PathBuf::from("/x/emoji-code.md"), parsed(&md))]);
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        v.read(cx).active_list().unwrap().scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(1050.),
+        });
+    });
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+
+    let b0 = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .unwrap()
+    });
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(b0.center().x, b0.bottom() - px(10.)),
+        delta: ScrollDelta::Pixels(point(px(-150.), px(0.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+
+    let offset = cx.update(|_, cx| {
+        v.read(cx)
+            .tabs
+            .active()
+            .unwrap()
+            .code_scroll
+            .borrow()
+            .get(&0)
+            .unwrap()
+            .handle
+            .offset()
+    });
+    assert_eq!(offset.x, px(-150.));
+}
+
+#[test]
+fn split_code_chunk_widens_when_a_later_chunk_grows_the_shared_width() {
+    use gpui::{ScrollDelta, ScrollWheelEvent};
+
+    // Chunk 0's widest line is the zero-width-joiner line that every static
+    // candidate picks, so the seed width is chunk 0's own width. Chunk 1's
+    // emoji lines are wider and grow the shared width in the frame where
+    // both chunks first appear, after chunk 0 was already laid out at the
+    // seed. A horizontal scroll on chunk 0 must still reach chunk 1's width
+    // on the first try: GPUI clamps the offset at the next prepaint, when
+    // chunk 0 is laid out again with the grown shared width.
+    const CODE: usize = 80;
+    let mut md = String::new();
+    for i in 0..CODE {
+        md.push_str(&format!("Paragraph {i}\n\n"));
+    }
+    md.push_str("```text\n");
+    md.push_str(&"\u{200d}".repeat(150));
+    md.push('\n');
+    for i in 1..64 {
+        md.push_str(&format!("line {i}\n"));
+    }
+    for _ in 0..4 {
+        md.push_str(&"😀".repeat(100));
+        md.push('\n');
+    }
+    md.push_str("```\n");
+
+    let (v, cx) = open(vec![(PathBuf::from("/x/grow-code.md"), parsed(&md))]);
+    // The paragraphs keep the code block outside the viewport plus overdraw
+    // until the jump below; the short window keeps chunk 1 out of it until
+    // chunk 0 is scrolled near its end.
+    let handle = cx.window_handle();
+    cx.simulate_window_resize(handle, size(px(1200.), px(300.)));
+    cx.run_until_parked();
+    // Bring the chunk boundary on screen so both chunks are first laid out
+    // in the same frame, chunk 0 first.
+    cx.update(|_, cx| {
+        v.read(cx).active_list().unwrap().scroll_to(ListOffset {
+            item_ix: CODE,
+            offset_in_item: px(1200.),
+        });
+    });
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let b0 = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(CODE)
+            .unwrap()
+    });
+    let offset_x = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            v.read(cx)
+                .tabs
+                .active()
+                .unwrap()
+                .code_scroll
+                .borrow()
+                .get(&CODE)
+                .unwrap()
+                .handle
+                .offset()
+                .x
+        })
+    };
+    let wheel = |cx: &mut VisualTestContext| {
+        cx.simulate_event(ScrollWheelEvent {
+            position: point(b0.center().x, b0.bottom() - px(10.)),
+            delta: ScrollDelta::Pixels(point(px(-100_000.), px(0.))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        offset_x(cx)
+    };
+    let first = wheel(cx);
+    let second = wheel(cx);
+    assert!(first < px(0.), "{first:?}");
+    assert_eq!(first, second, "first scroll was clamped to a stale width");
+}
+
+#[test]
+fn reload_keeps_shrunk_code_block_visible_instead_of_hiding_above_viewport() {
+    let make = |lines: usize| {
+        let mut s = String::from("```rust\n");
+        for i in 0..lines {
+            s.push_str(&format!("let line_{i} = {i};\n"));
+        }
+        s.push_str("```\n\n");
+        for i in 0..40 {
+            s.push_str(&format!("Paragraph {i} after the code block.\n\n"));
+        }
+        s
+    };
+
+    let dir = TempDir::new("reload-shrunk-code");
+    let path = normalize(&dir.join("code.md"));
+    std::fs::write(&path, make(150)).unwrap();
+
+    let (v, cx) = open(vec![load(path.clone())]);
+    cx.run_until_parked();
+
+    // Scroll 500px inside the second chunk (item_ix = 1) of the 150-line block.
+    cx.update(|_, cx| {
+        v.read(cx).active_list().unwrap().scroll_to(ListOffset {
+            item_ix: 1,
+            offset_in_item: px(500.),
+        });
+    });
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (1, 500.));
+
+    // Shrink the code block to 1 line and reload: offset_in_item must reset so
+    // the shrunk block stays visible at the top of the viewport.
+    std::fs::write(&path, make(1)).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+    let (bounds, viewport) = cx.update(|_, cx| {
+        let list = v.read(cx).active_list().unwrap();
+        (list.bounds_for_item(0).unwrap(), list.viewport_bounds())
+    });
+    assert!(
+        bounds.bottom() > viewport.top() && bounds.top() >= viewport.top(),
+        "shrunk code block must stay visible in viewport: bounds={bounds:?}, viewport={viewport:?}"
+    );
+}
+
+#[test]
+fn tall_window_page_up_returns_to_top_and_protects_after_jump() {
+    // 1. Long paragraph document in a 1500px-tall window: PageDown (1420px)
+    // followed by PageUp must return all the way to the top (0, 0.).
+    let mut md = String::from("# Start\n\n");
+    for i in 0..200 {
+        md.push_str(&format!(
+            "## Heading {i}\n\nParagraph {i} with enough text for a tall document.\n\n"
+        ));
+    }
+    let (v, cx) = open(vec![(PathBuf::from("/x/tall.md"), parsed(&md))]);
+    let handle = cx.window_handle();
+    cx.simulate_window_resize(handle, size(px(920.), px(1500.)));
+    cx.run_until_parked();
+
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    let down = scroll_top(&v, cx);
+    assert!(
+        down.0 > 10,
+        "expected PageDown to advance well down: {down:?}"
+    );
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    assert_eq!(
+        scroll_top(&v, cx),
+        (0, 0.),
+        "PageUp after normal PageDown in a 1500px window must return to the top"
+    );
+
+    // 2. After jumping to Bottom or an anchor in the same 1500px window, PageUp
+    // moves in steps no larger than the measured leading overdraw instead of
+    // teleporting over unmeasured rows back toward row 0.
+    cx.dispatch_action(Bottom);
+    cx.run_until_parked();
+    let bottom = scroll_top(&v, cx);
+    assert!(bottom.0 > 350, "{bottom:?}");
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    let after_bottom_page_up = scroll_top(&v, cx);
+    assert!(
+        after_bottom_page_up.0 > 300 && after_bottom_page_up.0 < bottom.0,
+        "PageUp after Bottom must not teleport over unmeasured rows: {after_bottom_page_up:?} from {bottom:?}"
+    );
+
+    // Anchor jump to a deep heading -> PageUp also stays local.
+    cx.dispatch_action(Top);
+    cx.run_until_parked();
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "heading-150", cx));
+    cx.run_until_parked();
+    let anchor = scroll_top(&v, cx);
+    assert_eq!(anchor.0, 301);
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    let after_anchor_page_up = scroll_top(&v, cx);
+    assert!(
+        after_anchor_page_up.0 > 250 && after_anchor_page_up.0 < anchor.0,
+        "PageUp after anchor jump must not teleport over unmeasured rows: {after_anchor_page_up:?}"
+    );
+    // The steps still add up to a full page: PageDown lands back on the anchor.
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    assert_eq!(
+        scroll_top(&v, cx),
+        anchor,
+        "PageUp after an anchor jump must still move a full page"
+    );
+    // A second round trip keeps the symmetry (no leftover steps).
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), after_anchor_page_up);
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), anchor);
+
+    // Returning to Top restores full-page PageUp symmetry.
+    cx.dispatch_action(Top);
+    cx.run_until_parked();
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+
+    // 3. After a width resize while scrolled down, GPUI invalidates cached
+    // heights; PageUp must clamp so it doesn't teleport over invalidated rows.
+    for _ in 0..4 {
+        cx.dispatch_action(PageDown);
+        cx.run_until_parked();
+    }
+    let before_resize = scroll_top(&v, cx);
+    assert!(before_resize.0 > 50, "{before_resize:?}");
+    cx.simulate_window_resize(handle, size(px(800.), px(1500.)));
+    cx.run_until_parked();
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    let after_resize_page_up = scroll_top(&v, cx);
+    assert!(
+        after_resize_page_up.0 > 20 && after_resize_page_up.0 < before_resize.0,
+        "PageUp after width resize must not teleport to top: {after_resize_page_up:?} from {before_resize:?}"
+    );
+}
+
+#[test]
+fn empty_last_code_chunk_is_one_line_tall() {
+    // A trailing blank line in a 65-line block becomes an empty last chunk.
+    // It must keep one line's height, like a chunk with one short line.
+    let height = |last_line: &str| {
+        let mut md = String::from("```text\n");
+        for i in 0..64 {
+            md.push_str(&format!("line {i}\n"));
+        }
+        md.push_str(last_line);
+        md.push_str("\n```\n\nAfter\n");
+        let (v, cx) = open(vec![(PathBuf::from("/x/chunk.md"), parsed(&md))]);
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            let tab = v.read(cx).tabs.active().unwrap();
+            assert!(matches!(
+                tab.rows[1],
+                crate::rows::Row::CodeChunk { last: true, .. }
+            ));
+            tab.list.bounds_for_item(1).unwrap().size.height
+        })
+    };
+    assert_eq!(height(""), height("x"));
+}
+
+#[test]
+fn vertical_wheel_over_code_scrolls_the_page_not_the_code() {
+    use gpui::{ScrollDelta, ScrollWheelEvent};
+
+    // Lines wide enough to overflow, in a block long enough to be split.
+    let mut md = String::from("```rust\n");
+    for i in 0..100 {
+        md.push_str(&format!("let line_{i} = \"{}\";\n", "x".repeat(200)));
+    }
+    md.push_str("```\n\nAfter\n");
+    let (v, cx) = open(vec![(PathBuf::from("/x/wide-code.md"), parsed(&md))]);
+    cx.run_until_parked();
+    let b0 = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .unwrap()
+    });
+    let code_x = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            v.read(cx)
+                .tabs
+                .active()
+                .unwrap()
+                .code_scroll
+                .borrow()
+                .get(&0)
+                .unwrap()
+                .handle
+                .offset()
+                .x
+        })
+    };
+
+    // Mouse wheel down over the code: the page scrolls, the code doesn't.
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(b0.center().x, b0.top() + px(100.)),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-120.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    assert_eq!(code_x(cx), px(0.));
+    assert_eq!(scroll_top(&v, cx), (0, 120.));
+
+    // A horizontal wheel (or Shift+wheel, which the platform turns into
+    // one) still scrolls the code sideways.
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(b0.center().x, b0.top() + px(100.)),
+        delta: ScrollDelta::Pixels(point(px(-80.), px(0.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    assert_eq!(code_x(cx), px(-80.));
+    assert_eq!(scroll_top(&v, cx), (0, 120.));
 }
