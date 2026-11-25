@@ -1,13 +1,20 @@
 //! Block model -> GPUI elements.
 
-use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    path::Path,
+    rc::Rc,
+    sync::Arc,
+};
 
 use gpui::{
-    AnyElement, App, ElementId, Font, FontFeatures, FontStyle, FontWeight, Hsla,
-    InteractiveElement, InteractiveText, IntoElement, ObjectFit, ParentElement, Pixels,
-    ScrollHandle, SharedString, StatefulInteractiveElement, StrikethroughStyle, Styled,
-    StyledImage, StyledText, TextRun, UnderlineStyle, WeakEntity, Window, div, img,
-    prelude::FluentBuilder, px, relative,
+    AnyElement, App, AvailableSpace, Bounds, Element, ElementId, Font, FontFeatures, FontStyle,
+    FontWeight, GlobalElementId, Hsla, InspectorElementId, InteractiveElement, InteractiveText,
+    IntoElement, LayoutId, Length, ObjectFit, ParentElement, Pixels, ScrollHandle, SharedString,
+    StatefulInteractiveElement, StrikethroughStyle, Style, Styled, StyledImage, StyledText,
+    TextRun, UnderlineStyle, WeakEntity, Window, div, img, prelude::FluentBuilder, px, relative,
+    size,
 };
 
 use crate::{
@@ -30,12 +37,13 @@ pub const CONTENT_MAX_WIDTH: f32 = 880.;
 pub const BASE_SIZE: f32 = 16.;
 
 /// Shared horizontal scroll state for one split `Block::Code`. All chunks of
-/// the same block track the same `ScrollHandle` and enforce `min_width` so
-/// shorter chunks never clamp away the scroll offset of wider chunks.
+/// the same block track the same `ScrollHandle` and share a monotonic
+/// `max_width` so shorter chunks never clamp away the scroll offset of wider
+/// chunks.
 #[derive(Clone)]
 pub struct CodeScroll {
     pub handle: ScrollHandle,
-    pub min_width: Pixels,
+    pub max_width: Rc<Cell<Pixels>>,
 }
 
 /// Per-tab cache of shared horizontal scroll handles, keyed by top-level
@@ -167,6 +175,7 @@ pub fn render_row(
             end,
             first,
             last,
+            ..
         } => {
             let Block::Code {
                 lang,
@@ -246,14 +255,17 @@ fn code_scroll_for(block: usize, code: &str, rcx: &RenderCx, window: &Window) ->
     if let Some(existing) = rcx.code_scroll.borrow().get(&block) {
         return existing.clone();
     }
-    let [a, b] = rows::widest_line_candidates(code);
-    let mut min_width = measure_code_line(&code[a.clone()], rcx, window);
-    if b != a {
-        min_width = min_width.max(measure_code_line(&code[b], rcx, window));
+    let candidates = rows::widest_line_candidates(code);
+    let mut max_width = px(0.);
+    for (i, range) in candidates.iter().enumerate() {
+        if candidates[..i].contains(range) {
+            continue;
+        }
+        max_width = max_width.max(measure_code_line(&code[range.clone()], rcx, window));
     }
     let entry = CodeScroll {
         handle: ScrollHandle::new(),
-        min_width,
+        max_width: Rc::new(Cell::new(max_width)),
     };
     rcx.code_scroll.borrow_mut().insert(block, entry.clone());
     entry
@@ -278,6 +290,101 @@ fn measure_code_line(line: &str, rcx: &RenderCx, window: &Window) -> Pixels {
         .ceil()
 }
 
+/// Measures a code chunk's `StyledText` at its natural (unwrapped) width,
+/// updates the block's shared `max_width` monotonically, and reports `max_width`
+/// to Taffy so narrower chunks never clamp the shared horizontal `ScrollHandle`
+/// even when an earlier chunk contains wider fallback glyphs (emoji, CJK, etc.).
+struct SharedWidth {
+    child: Option<AnyElement>,
+    max_width: Rc<Cell<Pixels>>,
+}
+
+impl SharedWidth {
+    fn new(child: AnyElement, max_width: Rc<Cell<Pixels>>) -> Self {
+        Self {
+            child: Some(child),
+            max_width,
+        }
+    }
+}
+
+impl IntoElement for SharedWidth {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for SharedWidth {
+    type RequestLayoutState = (Option<AnyElement>, Pixels);
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let mut child = self.child.take().unwrap();
+        let child_size = child.layout_as_root(
+            size(AvailableSpace::MaxContent, AvailableSpace::MinContent),
+            window,
+            cx,
+        );
+        let width = self.max_width.get().max(child_size.width);
+        self.max_width.set(width);
+        let mut style = Style::default();
+        style.size.width = Length::Definite(width.into());
+        style.min_size.width = Length::Definite(width.into());
+        style.size.height = Length::Definite(child_size.height.into());
+        style.flex_shrink = 0.;
+        let layout_id = window.request_layout(style, None, cx);
+        (layout_id, (Some(child), width))
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        (child, used_width): &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if *used_width < self.max_width.get() {
+            window.refresh();
+        }
+        if let Some(child) = child.as_mut() {
+            child.prepaint_at(bounds.origin, window, cx);
+        }
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        (child, _): &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(child) = child.as_mut() {
+            child.paint(window, cx);
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn code_box(
     lang: &str,
@@ -290,6 +397,15 @@ fn code_box(
     ids: &mut IdGen,
 ) -> gpui::Div {
     let t = &rcx.theme;
+    let inner = div()
+        .whitespace_nowrap()
+        .min_h(px(13.5 * 1.5))
+        .child(code_text(code, highlights, rcx))
+        .into_any_element();
+    let inner = match scroll {
+        Some(s) => SharedWidth::new(inner, s.max_width.clone()).into_any_element(),
+        None => inner,
+    };
     div()
         .w_full()
         .bg(t.code_bg)
@@ -308,13 +424,7 @@ fn code_box(
                 .font_family(rcx.mono_font.clone())
                 .text_size(px(13.5))
                 .line_height(relative(1.5))
-                .child(
-                    div()
-                        .whitespace_nowrap()
-                        .min_h(px(13.5 * 1.5))
-                        .when_some(scroll, |d, s| d.min_w(s.min_width))
-                        .child(code_text(code, highlights, rcx)),
-                ),
+                .child(inner),
         )
         .when(first && !lang.is_empty(), |d| {
             d.child(

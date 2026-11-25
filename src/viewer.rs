@@ -105,11 +105,15 @@ impl Tab {
         let (doc, mtime) = res.unwrap_or_else(|e| (error_doc(&self.path, &e), None));
         let rows = Arc::new(Rows::from_document(&doc));
         let top = self.list.logical_scroll_top();
-        let item_ix = rows.remap_row(&self.rows, top.item_ix);
+        let mapped = rows.remap_row(&self.rows, top.item_ix);
         self.list.reset(rows.len());
         self.list.scroll_to(ListOffset {
-            item_ix,
-            offset_in_item: top.offset_in_item,
+            item_ix: mapped.item_ix,
+            offset_in_item: if mapped.reset_offset {
+                px(0.)
+            } else {
+                top.offset_in_item
+            },
         });
         self.code_scroll.borrow_mut().clear();
         self.doc = Arc::new(doc);

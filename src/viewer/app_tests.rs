@@ -938,3 +938,118 @@ fn split_code_block_synchronizes_horizontal_scroll_across_chunks() {
     });
     assert_eq!(offset_after_chunk1.x, px(-230.));
 }
+
+#[test]
+fn split_code_block_with_wide_emoji_does_not_clamp_on_second_chunk() {
+    use gpui::{ScrollDelta, ScrollWheelEvent};
+
+    // Exact PR #16 regression + adversarial zero-width Unicode lines: first 64
+    // lines have 100 emoji each; second chunk has 110 ASCII `x`, 60 tabs, and
+    // 150 zero-width joiners (beating every static char/byte/non-ASCII/tab
+    // heuristic). `SharedWidth` must still adopt chunk 0's actual shaped width
+    // so scrolling -150px horizontally on chunk 0 is never clamped.
+    let mut md = String::from("```text\n");
+    let emoji_line = "😀".repeat(100);
+    for _ in 1..=64 {
+        md.push_str(&emoji_line);
+        md.push('\n');
+    }
+    md.push_str(&"x".repeat(110));
+    md.push('\n');
+    md.push_str(&"\t".repeat(60));
+    md.push('\n');
+    md.push_str(&"\u{200d}".repeat(150));
+    md.push('\n');
+    for i in 68..=90 {
+        md.push_str(&format!("line {i}\n"));
+    }
+    md.push_str("```\n");
+
+    let (v, cx) = open(vec![(PathBuf::from("/x/emoji-code.md"), parsed(&md))]);
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        v.read(cx).active_list().unwrap().scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(1050.),
+        });
+    });
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+
+    let b0 = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .unwrap()
+    });
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(b0.center().x, b0.bottom() - px(10.)),
+        delta: ScrollDelta::Pixels(point(px(-150.), px(0.))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+
+    let offset = cx.update(|_, cx| {
+        v.read(cx)
+            .tabs
+            .active()
+            .unwrap()
+            .code_scroll
+            .borrow()
+            .get(&0)
+            .unwrap()
+            .handle
+            .offset()
+    });
+    assert_eq!(offset.x, px(-150.));
+}
+
+#[test]
+fn reload_keeps_shrunk_code_block_visible_instead_of_hiding_above_viewport() {
+    let make = |lines: usize| {
+        let mut s = String::from("```rust\n");
+        for i in 0..lines {
+            s.push_str(&format!("let line_{i} = {i};\n"));
+        }
+        s.push_str("```\n\n");
+        for i in 0..40 {
+            s.push_str(&format!("Paragraph {i} after the code block.\n\n"));
+        }
+        s
+    };
+
+    let dir = TempDir::new("reload-shrunk-code");
+    let path = normalize(&dir.join("code.md"));
+    std::fs::write(&path, make(150)).unwrap();
+
+    let (v, cx) = open(vec![load(path.clone())]);
+    cx.run_until_parked();
+
+    // Scroll 500px inside the second chunk (item_ix = 1) of the 150-line block.
+    cx.update(|_, cx| {
+        v.read(cx).active_list().unwrap().scroll_to(ListOffset {
+            item_ix: 1,
+            offset_in_item: px(500.),
+        });
+    });
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (1, 500.));
+
+    // Shrink the code block to 1 line and reload: offset_in_item must reset so
+    // the shrunk block stays visible at the top of the viewport.
+    std::fs::write(&path, make(1)).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+    let (bounds, viewport) = cx.update(|_, cx| {
+        let list = v.read(cx).active_list().unwrap();
+        (list.bounds_for_item(0).unwrap(), list.viewport_bounds())
+    });
+    assert!(
+        bounds.bottom() > viewport.top() && bounds.top() >= viewport.top(),
+        "shrunk code block must stay visible in viewport: bounds={bounds:?}, viewport={viewport:?}"
+    );
+}

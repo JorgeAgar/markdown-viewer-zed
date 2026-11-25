@@ -44,6 +44,8 @@ pub enum Row {
         block: usize,
         start: usize,
         end: usize,
+        /// Number of lines in this chunk (`1..=CODE_CHUNK_LINES`).
+        lines: u16,
         first: bool,
         last: bool,
     },
@@ -118,10 +120,14 @@ impl Rows {
                     if let Some(chunks) = code_chunks(code, CODE_CHUNK_LINES) {
                         let n = chunks.len();
                         for (i, range) in chunks.into_iter().enumerate() {
+                            let lines = code[range.clone()].bytes().filter(|&b| b == b'\n').count()
+                                as u16
+                                + 1;
                             rows.push(Row::CodeChunk {
                                 block: block_ix,
                                 start: range.start,
                                 end: range.end,
+                                lines,
                                 first: i == 0,
                                 last: i + 1 == n,
                             });
@@ -185,33 +191,71 @@ impl Rows {
         end - start
     }
 
-    /// Maps a saved `(block_ix, offset_within_block)` into this projection,
-    /// clamping within that block (so shrinking a block stays at its end
-    /// instead of spilling into the next block) and within the document.
-    pub fn row_for_block_offset(&self, block_ix: usize, offset: usize) -> usize {
+    /// Translates `old_row_ix` from `old` into `self` across a document reload,
+    /// preserving the top-level block and within-block row offset even when
+    /// earlier blocks grow or shrink. Sets `reset_offset` whenever the saved
+    /// pixel offset inside the row is no longer valid (clamped row or a row
+    /// that changed shape or shrank).
+    pub fn remap_row(&self, old: &Rows, old_row_ix: usize) -> RemappedRow {
         if self.rows.is_empty() {
-            return 0;
+            return RemappedRow {
+                item_ix: 0,
+                reset_offset: true,
+            };
         }
+        let Some((block_ix, offset)) = old.block_and_offset(old_row_ix) else {
+            return RemappedRow {
+                item_ix: if old_row_ix == 0 {
+                    0
+                } else {
+                    self.rows.len() - 1
+                },
+                reset_offset: true,
+            };
+        };
         if block_ix >= self.block_start.len() {
-            return self.rows.len() - 1;
+            return RemappedRow {
+                item_ix: self.rows.len() - 1,
+                reset_offset: true,
+            };
         }
         let start = self.block_start[block_ix];
         let count = self.block_row_count(block_ix);
-        start + offset.min(count.saturating_sub(1))
+        let clamped_offset = offset.min(count.saturating_sub(1));
+        let item_ix = start + clamped_offset;
+        let reset_offset = clamped_offset != offset
+            || row_shrank_or_changed(&old.rows[old_row_ix], &self.rows[item_ix]);
+        RemappedRow {
+            item_ix,
+            reset_offset,
+        }
     }
+}
 
-    /// Translates `old_row_ix` from `old` into `self` across a document reload,
-    /// preserving the top-level block and within-block row offset even when
-    /// earlier blocks grow or shrink.
-    pub fn remap_row(&self, old: &Rows, old_row_ix: usize) -> usize {
-        if self.rows.is_empty() || old_row_ix == 0 {
-            return 0;
-        }
-        match old.block_and_offset(old_row_ix) {
-            Some((block_ix, offset)) => self.row_for_block_offset(block_ix, offset),
-            None => self.rows.len() - 1,
-        }
+/// Result of remapping a scroll row across a document reload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RemappedRow {
+    pub item_ix: usize,
+    pub reset_offset: bool,
+}
+
+fn row_shrank_or_changed(old: &Row, new: &Row) -> bool {
+    if std::mem::discriminant(old) != std::mem::discriminant(new) {
+        return true;
     }
+    matches!(
+        (old, new),
+        (
+            Row::CodeChunk {
+                lines: old_lines,
+                ..
+            },
+            Row::CodeChunk {
+                lines: new_lines,
+                ..
+            },
+        ) if new_lines < old_lines
+    )
 }
 
 impl Index<usize> for Rows {
@@ -271,35 +315,49 @@ pub fn slice_highlights(highlights: &[Highlight], range: Range<usize>) -> Vec<Hi
     out
 }
 
-/// Byte ranges of the line(s) in `code` that maximize character count and
-/// estimated monospace display width (counting tabs as 4 columns and non-ASCII
-/// characters as 2). Measuring those lines once gives a shared `min_width` so
-/// every chunk of a split code block shares the same horizontal scroll range.
-pub fn widest_line_candidates(code: &str) -> [Range<usize>; 2] {
+/// Byte ranges of the line(s) in `code` most likely to be widest once shaped
+/// (max character count, max UTF-8 byte length, max non-ASCII count, and max
+/// tab-expanded columns). Measuring these seeds the shared horizontal scroll
+/// width before any chunk is laid out; `render.rs` also grows that width
+/// monotonically from actual shaped chunks.
+pub fn widest_line_candidates(code: &str) -> [Range<usize>; 4] {
     let mut max_chars = (0usize, 0..0);
-    let mut max_cols = (0usize, 0..0);
+    let mut max_bytes = (0usize, 0..0);
+    let mut max_non_ascii = (0usize, 0..0);
+    let mut max_tab_cols = (0usize, 0..0);
     let mut start = 0;
     for line in code.split('\n') {
-        let end = start + line.len();
+        let bytes = line.len();
+        let end = start + bytes;
         let mut chars = 0usize;
-        let mut cols = 0usize;
+        let mut non_ascii = 0usize;
+        let mut tab_cols = 0usize;
         for c in line.chars() {
             chars += 1;
-            cols += match c {
-                '\t' => 4,
-                c if c.is_ascii() => 1,
-                _ => 2,
-            };
+            if c == '\t' {
+                tab_cols += 4;
+            } else if c.is_ascii() {
+                tab_cols += 1;
+            } else {
+                non_ascii += 1;
+                tab_cols += 2;
+            }
         }
         if chars > max_chars.0 {
             max_chars = (chars, start..end);
         }
-        if cols > max_cols.0 {
-            max_cols = (cols, start..end);
+        if bytes > max_bytes.0 {
+            max_bytes = (bytes, start..end);
+        }
+        if non_ascii > max_non_ascii.0 {
+            max_non_ascii = (non_ascii, start..end);
+        }
+        if tab_cols > max_tab_cols.0 {
+            max_tab_cols = (tab_cols, start..end);
         }
         start = end + 1;
     }
-    [max_chars.1, max_cols.1]
+    [max_chars.1, max_bytes.1, max_non_ascii.1, max_tab_cols.1]
 }
 
 #[cfg(test)]
@@ -426,6 +484,7 @@ mod tests {
                     block: 0,
                     start: s0,
                     end: e0,
+                    lines: l0,
                     first: true,
                     last: false,
                 },
@@ -433,6 +492,7 @@ mod tests {
                     block: 0,
                     start: s1,
                     end: e1,
+                    lines: l1,
                     first: false,
                     last: true,
                 },
@@ -440,6 +500,8 @@ mod tests {
             ) => {
                 assert_eq!(*s0, 0);
                 assert_eq!(*e1, code.len());
+                assert_eq!(*l0, CODE_CHUNK_LINES as u16);
+                assert_eq!(*l1, 1);
                 assert_eq!(format!("{}\n{}", &code[*s0..*e0], &code[*s1..*e1]), *code);
                 assert_eq!(code[*s0..*e0].lines().count(), CODE_CHUNK_LINES);
                 assert_eq!(&code[*s1..*e1], format!("line {CODE_CHUNK_LINES}"));
@@ -667,15 +729,47 @@ mod tests {
         assert_eq!(small.block_and_offset(8), None);
 
         // Growing the preceding table from 5 to 105 rows keeps the scroll
-        // position on `## After Table` (block 1 -> row 106, not row 6).
-        assert_eq!(large.remap_row(&small, 6), 106);
-        assert_eq!(large.remap_row(&small, 7), 107);
-        // Shrinking the table back returns to row 6.
-        assert_eq!(small.remap_row(&large, 106), 6);
+        // position on `## After Table` (block 1 -> row 106, not row 6) and
+        // preserves the pixel offset inside that heading.
+        assert_eq!(
+            large.remap_row(&small, 6),
+            RemappedRow {
+                item_ix: 106,
+                reset_offset: false
+            }
+        );
+        assert_eq!(
+            large.remap_row(&small, 7),
+            RemappedRow {
+                item_ix: 107,
+                reset_offset: false
+            }
+        );
+        // Shrinking the table back returns to row 6 without resetting offset.
+        assert_eq!(
+            small.remap_row(&large, 106),
+            RemappedRow {
+                item_ix: 6,
+                reset_offset: false
+            }
+        );
         // Staying inside the table preserves the row offset, and shrinking
-        // clamps to the table's last row without spilling into `## After Table`.
-        assert_eq!(large.remap_row(&small, 3), 3);
-        assert_eq!(small.remap_row(&large, 50), 5);
+        // clamps to the table's last row (resetting pixel offset) without
+        // spilling into `## After Table`.
+        assert_eq!(
+            large.remap_row(&small, 3),
+            RemappedRow {
+                item_ix: 3,
+                reset_offset: false
+            }
+        );
+        assert_eq!(
+            small.remap_row(&large, 50),
+            RemappedRow {
+                item_ix: 5,
+                reset_offset: true
+            }
+        );
         // Same clamping when the shrinking block is NOT at block 0 (start > 0).
         let with_prefix = |n: usize| {
             let mut s = String::from("# Intro\n\n| ID |\n|---|\n");
@@ -687,17 +781,103 @@ mod tests {
         };
         let pref_large = with_prefix(20); // block 0: row 0, block 1: rows 1..=21, block 2: row 22
         let pref_small = with_prefix(3); // block 0: row 0, block 1: rows 1..=4, block 2: row 5
-        assert_eq!(pref_small.remap_row(&pref_large, 15), 4);
-        assert_eq!(pref_small.remap_row(&pref_large, 22), 5);
+        assert_eq!(
+            pref_small.remap_row(&pref_large, 15),
+            RemappedRow {
+                item_ix: 4,
+                reset_offset: true
+            }
+        );
+        assert_eq!(
+            pref_small.remap_row(&pref_large, 22),
+            RemappedRow {
+                item_ix: 5,
+                reset_offset: false
+            }
+        );
         // Top of document stays at 0; out-of-range (e.g. Bottom) clamps to end.
-        assert_eq!(large.remap_row(&small, 0), 0);
-        assert_eq!(large.remap_row(&small, small.len()), large.len() - 1);
+        assert_eq!(
+            large.remap_row(&small, 0),
+            RemappedRow {
+                item_ix: 0,
+                reset_offset: false
+            }
+        );
+        assert_eq!(
+            large.remap_row(&small, small.len()),
+            RemappedRow {
+                item_ix: large.len() - 1,
+                reset_offset: true
+            }
+        );
         // Reloading into an empty doc or shorter block list clamps safely.
         let empty = Rows::from_document(&markdown::parse(""));
-        assert_eq!(empty.remap_row(&small, 6), 0);
-        assert_eq!(small.remap_row(&empty, 0), 0);
+        assert_eq!(
+            empty.remap_row(&small, 6),
+            RemappedRow {
+                item_ix: 0,
+                reset_offset: true
+            }
+        );
+        assert_eq!(
+            small.remap_row(&empty, 0),
+            RemappedRow {
+                item_ix: 0,
+                reset_offset: true
+            }
+        );
         let one_para = Rows::from_document(&markdown::parse("Only one block\n"));
-        assert_eq!(one_para.remap_row(&small, 7), 0);
+        assert_eq!(
+            one_para.remap_row(&small, 7),
+            RemappedRow {
+                item_ix: 0,
+                reset_offset: true
+            }
+        );
+
+        // Shrinking a split code block resets pixel offset whether the user
+        // was on a removed chunk (chunk 1 -> row 0), chunk 0 (CodeChunk -> Block),
+        // or a chunk that lost lines (64 -> 6 lines).
+        let code_doc = |n: usize| {
+            let mut s = String::from("```rust\n");
+            for i in 0..n {
+                s.push_str(&format!("let x = {i};\n"));
+            }
+            s.push_str("```\n\nAfter\n");
+            Rows::from_document(&markdown::parse(&s))
+        };
+        let code_150 = code_doc(150);
+        let code_200 = code_doc(200);
+        let code_70 = code_doc(70);
+        let code_1 = code_doc(1);
+        assert_eq!(
+            code_1.remap_row(&code_150, 1),
+            RemappedRow {
+                item_ix: 0,
+                reset_offset: true
+            }
+        );
+        assert_eq!(
+            code_1.remap_row(&code_150, 0),
+            RemappedRow {
+                item_ix: 0,
+                reset_offset: true
+            }
+        );
+        assert_eq!(
+            code_70.remap_row(&code_150, 1),
+            RemappedRow {
+                item_ix: 1,
+                reset_offset: true
+            }
+        );
+        assert_eq!(
+            code_200.remap_row(&code_150, 1),
+            RemappedRow {
+                item_ix: 1,
+                reset_offset: false
+            }
+        );
     }
 
     #[test]
@@ -734,6 +914,7 @@ mod tests {
                 block: 4,
                 start: 0,
                 end: 1,
+                lines: 1,
                 first: true,
                 last: true
             }
@@ -754,30 +935,46 @@ mod tests {
     }
 
     #[test]
-    fn widest_line_candidates_handles_ascii_tabs_and_unicode() {
-        assert_eq!(widest_line_candidates(""), [0..0, 0..0]);
+    fn widest_line_candidates_handles_ascii_bytes_emoji_tabs_and_ties() {
+        assert_eq!(widest_line_candidates(""), [0..0, 0..0, 0..0, 0..0]);
 
         let ascii = "short\nlongest ascii line\nmid";
-        let [a, b] = widest_line_candidates(ascii);
-        assert_eq!(&ascii[a], "longest ascii line");
-        assert_eq!(&ascii[b], "longest ascii line");
+        let [by_chars, by_bytes, by_non_ascii, by_tabs] = widest_line_candidates(ascii);
+        assert_eq!(&ascii[by_chars], "longest ascii line");
+        assert_eq!(&ascii[by_bytes], "longest ascii line");
+        assert_eq!(by_non_ascii, 0..0);
+        assert_eq!(&ascii[by_tabs], "longest ascii line");
 
-        // 12 ASCII chars (12 chars, 12 cols) vs 8 CJK chars (8 chars, 16 cols).
-        let mixed = "123456789012\n漢字漢字漢字漢字\nshort";
-        let [by_chars, by_cols] = widest_line_candidates(mixed);
-        assert_eq!(&mixed[by_chars], "123456789012");
-        assert_eq!(&mixed[by_cols], "漢字漢字漢字漢字");
+        // Regression from PR #16: 100 emoji (400 bytes, 100 non-ASCII) alongside
+        // 110 ASCII `x` (wins chars) and 60 tabs (wins tab_cols). Both `by_bytes`
+        // and `by_non_ascii` capture the emoji line.
+        let emoji = "😀".repeat(100);
+        let wide_ascii = "x".repeat(110);
+        let tabs = "\t".repeat(60);
+        let mixed = format!("{emoji}\n{wide_ascii}\n{tabs}");
+        let [by_chars, by_bytes, by_non_ascii, by_tabs] = widest_line_candidates(&mixed);
+        assert_eq!(&mixed[by_chars], wide_ascii);
+        assert_eq!(&mixed[by_bytes], emoji);
+        assert_eq!(&mixed[by_non_ascii], emoji);
+        assert_eq!(&mixed[by_tabs], tabs);
 
-        // Tabs count as 4 columns: "\t\t\t" = 3 chars / 12 cols vs "12345678" = 8 chars / 8 cols.
-        let tabbed = "12345678\n\t\t\t\nx";
-        let [by_chars, by_cols] = widest_line_candidates(tabbed);
-        assert_eq!(&tabbed[by_chars], "12345678");
-        assert_eq!(&tabbed[by_cols], "\t\t\t");
+        // Distinct non-ASCII winner when a shorter 2-byte line has more non-ASCII
+        // chars than a longer ASCII line.
+        let accents = "é".repeat(12);
+        let ascii_long = "a".repeat(30);
+        let sample = format!("{accents}\n{ascii_long}");
+        let [by_chars, by_bytes, by_non_ascii, by_tabs] = widest_line_candidates(&sample);
+        assert_eq!(&sample[by_chars], ascii_long);
+        assert_eq!(&sample[by_bytes], ascii_long);
+        assert_eq!(&sample[by_non_ascii], accents);
+        assert_eq!(&sample[by_tabs], ascii_long);
 
-        // Ties keep the first widest line.
-        let tied = "first\nsecnd";
-        let [by_chars, by_cols] = widest_line_candidates(tied);
-        assert_eq!(&tied[by_chars], "first");
-        assert_eq!(&tied[by_cols], "first");
+        // Ties keep the first widest line for every metric.
+        let tied = "😀a\n😀b";
+        let [by_chars, by_bytes, by_non_ascii, by_tabs] = widest_line_candidates(tied);
+        assert_eq!(&tied[by_chars], "😀a");
+        assert_eq!(&tied[by_bytes], "😀a");
+        assert_eq!(&tied[by_non_ascii], "😀a");
+        assert_eq!(&tied[by_tabs], "😀a");
     }
 }

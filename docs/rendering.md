@@ -61,9 +61,10 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   - `Block::List` becomes one row per top-level list item.
   - `Block::Code` with more than 64 lines is sliced into 64-line chunks, with
     syntax highlights clamped and shifted to each chunk's byte range. All chunks
-    of the same code block share a horizontal `ScrollHandle` and minimum width
-    (measured from the block's widest line) so horizontal scrolling stays in
-    sync across chunk boundaries.
+    of the same code block share a horizontal `ScrollHandle` and a monotonic
+    maximum width (seeded from candidate widest lines and grown from each
+    chunk's actual shaped width) so horizontal scrolling stays in sync across
+    chunk boundaries.
   - `Block::Quote` with multiple child blocks becomes an optional callout title
     row plus one row per child block, keeping a continuous left border.
   - All other top-level blocks stay a single row.
@@ -72,9 +73,9 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
 - The list measures rows lazily and caches their heights. `800px` of overdraw
   keeps rows just outside the viewport ready, so scrolling stays smooth.
 - When a file is reloaded, `Tab::replace` remaps the top visible row through
-  `(block_ix, offset_within_block)` before calling `ListState::reset`, so
-  growing or shrinking an earlier table, list or code block keeps the reader on
-  the same block.
+  `(block_ix, offset_within_block)` before calling `ListState::reset` (resetting
+  `offset_in_item` to 0 when the target row was clamped or shrank), so growing
+  or shrinking an earlier or current block keeps the reader on a visible block.
 
 ## 3. Elements (`src/render.rs`)
 
