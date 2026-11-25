@@ -1503,6 +1503,13 @@ fn dragging_the_scrollbar_thumb_scrolls_the_document() {
     let (_, _, thumb) = thumb_now(&v, cx);
     let on_thumb = point(x, px(TAB_BAR_HEIGHT + thumb.top + thumb.len / 2.));
     cx.simulate_mouse_down(on_thumb, MouseButton::Left, Default::default());
+    // Grabbed at its middle, the thumb moves with the mouse, without a jump.
+    cx.simulate_mouse_move(
+        on_thumb - point(px(0.), px(50.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    assert!((dragged_thumb(&v, cx).unwrap().top - (thumb.top - 50.)).abs() < 1e-3);
     cx.simulate_mouse_move(point(x, px(-500.)), MouseButton::Left, Default::default());
     assert_eq!(dragged_thumb(&v, cx).unwrap().top, 0.);
     cx.simulate_mouse_up(point(x, px(0.)), MouseButton::Left, Default::default());
@@ -1536,13 +1543,24 @@ fn clicking_the_scrollbar_track_glides_a_page() {
         "{}",
         scrolled_px(&v, cx)
     );
-    // Just above the thumb: a page back up.
+    // Below a thumb that has moved down: another page down.
     let (_, _, thumb) = thumb_now(&v, cx);
     assert!(thumb.top > 4.);
+    let below = TAB_BAR_HEIGHT + thumb.top + thumb.len + 2.;
+    cx.simulate_mouse_down(point(x, px(below)), MouseButton::Left, Default::default());
+    settle(&v, cx);
+    let two = scrolled_px(&v, cx);
+    assert!((two - 2. * page).abs() < 0.5, "{two}");
+    // Just above the thumb: a page back up.
+    let (_, _, thumb) = thumb_now(&v, cx);
     let above = TAB_BAR_HEIGHT + thumb.top - 2.;
     cx.simulate_mouse_down(point(x, px(above)), MouseButton::Left, Default::default());
     settle(&v, cx);
-    assert!(scrolled_px(&v, cx) < 0.01, "{}", scrolled_px(&v, cx));
+    assert!(
+        (scrolled_px(&v, cx) - page).abs() < 0.5,
+        "{}",
+        scrolled_px(&v, cx)
+    );
 }
 
 #[test]

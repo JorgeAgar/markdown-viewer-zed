@@ -166,6 +166,7 @@ exclude_re = [
     # nonzero distance or speed), so < 0 / <= 0 and > 0 / >= 0 agree.
     '''^src/viewer\.rs:225:17: replace < with <= in Tab::advance_motion$''',
     '''^src/viewer\.rs:225:41: replace > with >= in Tab::advance_motion$''',
+    '''^src/viewer\.rs:230:26: replace < with <= in Tab::advance_motion$''',
 
     # Window listeners run once per phase; handling a move or release in the
     # capture phase instead of the bubble phase does the same once.
