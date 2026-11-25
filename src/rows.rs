@@ -969,6 +969,13 @@ mod tests {
         assert_eq!(&sample[by_non_ascii], accents);
         assert_eq!(&sample[by_tabs], ascii_long);
 
+        // Non-ASCII characters count as 2 columns in `tab_cols`: 4 CJK chars
+        // (8 cols) beat 6 ASCII chars (6 cols).
+        let cjk_vs_ascii = "abcdef\n漢字漢字";
+        let [by_chars, _, _, by_tabs] = widest_line_candidates(cjk_vs_ascii);
+        assert_eq!(&cjk_vs_ascii[by_chars], "abcdef");
+        assert_eq!(&cjk_vs_ascii[by_tabs], "漢字漢字");
+
         // Ties keep the first widest line for every metric.
         let tied = "😀a\n😀b";
         let [by_chars, by_bytes, by_non_ascii, by_tabs] = widest_line_candidates(tied);
