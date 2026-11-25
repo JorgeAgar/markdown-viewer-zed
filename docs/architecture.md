@@ -172,6 +172,9 @@ classDiagram
         code_scroll: CodeScrollMap  shared horizontal scroll per split code block
         mtime: Option~SystemTime~
         list: ListState  scroll + measured heights
+        leading_measured: bool  rows above the scroll top are measured
+        last_viewport_width: Option~Pixels~
+        page_up_rest: Option~PageUpRest~  rest of a PageUp split across frames
     }
     class Tabs~T~ {
         items: Vec~T~

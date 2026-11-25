@@ -64,7 +64,10 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
     of the same code block share a horizontal `ScrollHandle` and a monotonic
     maximum width (seeded from candidate widest lines and grown from each
     chunk's actual shaped width) so horizontal scrolling stays in sync across
-    chunk boundaries.
+    chunk boundaries. A chunk laid out before a wider one appears keeps the
+    older width for that frame; the next frame uses the grown width. Only a
+    horizontal scroll made in that same frame stops short. Only split chunks
+    get a one-line minimum height (a chunk can be one empty line).
   - `Block::Quote` with multiple child blocks becomes an optional callout title
     row plus one row per child block, keeping a continuous left border.
   - All other top-level blocks stay a single row.
@@ -72,6 +75,17 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   still resolve to the heading's list row in O(1).
 - The list measures rows lazily and caches their heights. `800px` of overdraw
   keeps rows just outside the viewport ready, so scrolling stays smooth.
+- Unmeasured rows count as 0 px, so a pixel scroll that crosses them skips
+  them. `Bottom` (`G`/`End`) therefore scrolls past the last row and lets
+  GPUI fill the viewport upward, instead of `scroll_to_reveal_item`.
+- `Tab::leading_measured` records whether every row above the scroll top is
+  measured. It turns false after `Bottom`, an anchor jump, a reload or a width
+  change while scrolled down (GPUI drops cached heights on a width change), and
+  true again at row 0 or after `Top`. While it's false, PageUp still moves a
+  full page, but in steps of at most `LIST_OVERDRAW - 40` px, one per frame
+  (`PageUpRest`): each frame measures the overdraw above the new scroll top
+  before the next step crosses it. Any other scroll, jump or reload drops the
+  rest of the page.
 - When a file is reloaded, `Tab::replace` remaps the top visible row through
   `(block_ix, offset_within_block)` before calling `ListState::reset` (resetting
   `offset_in_item` to 0 when the target row was clamped or shrank), so growing

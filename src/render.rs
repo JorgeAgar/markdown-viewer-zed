@@ -294,6 +294,16 @@ fn measure_code_line(line: &str, rcx: &RenderCx, window: &Window) -> Pixels {
 /// updates the block's shared `max_width` monotonically, and reports `max_width`
 /// to Taffy so narrower chunks never clamp the shared horizontal `ScrollHandle`
 /// even when an earlier chunk contains wider fallback glyphs (emoji, CJK, etc.).
+///
+/// A chunk laid out before a later chunk grows `max_width` in the same frame
+/// keeps the older width for that frame only, and the next frame (any scroll
+/// causes one) uses the grown width. GPUI clamps the shared offset at
+/// prepaint, and the offset was valid for the older width, so nothing is
+/// lost. The one exception is a horizontal scroll in the very frame a wider
+/// chunk first appears (a diagonal trackpad swipe): it stops at the older
+/// width, and scrolling again reaches the rest. Requesting another frame
+/// wouldn't help, since the clamp has already happened by then (and
+/// `window.refresh()` is ignored while the window draws).
 struct SharedWidth {
     child: Option<AnyElement>,
     max_width: Rc<Cell<Pixels>>,
@@ -317,7 +327,7 @@ impl IntoElement for SharedWidth {
 }
 
 impl Element for SharedWidth {
-    type RequestLayoutState = (Option<AnyElement>, Pixels);
+    type RequestLayoutState = Option<AnyElement>;
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
@@ -349,7 +359,7 @@ impl Element for SharedWidth {
         style.size.height = Length::Definite(child_size.height.into());
         style.flex_shrink = 0.;
         let layout_id = window.request_layout(style, None, cx);
-        (layout_id, (Some(child), width))
+        (layout_id, Some(child))
     }
 
     fn prepaint(
@@ -357,13 +367,10 @@ impl Element for SharedWidth {
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        (child, used_width): &mut Self::RequestLayoutState,
+        child: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
     ) {
-        if *used_width < self.max_width.get() {
-            window.refresh();
-        }
         if let Some(child) = child.as_mut() {
             child.prepaint_at(bounds.origin, window, cx);
         }
@@ -374,7 +381,7 @@ impl Element for SharedWidth {
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
-        (child, _): &mut Self::RequestLayoutState,
+        child: &mut Self::RequestLayoutState,
         _prepaint: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
@@ -397,9 +404,11 @@ fn code_box(
     ids: &mut IdGen,
 ) -> gpui::Div {
     let t = &rcx.theme;
+    // A split chunk can be a single empty line; keep it one line tall.
+    // Unsplit blocks keep their original layout.
     let inner = div()
         .whitespace_nowrap()
-        .min_h(px(13.5 * 1.5))
+        .when(scroll.is_some(), |d| d.min_h(px(13.5 * 1.5)))
         .child(code_text(code, highlights, rcx))
         .into_any_element();
     let inner = match scroll {

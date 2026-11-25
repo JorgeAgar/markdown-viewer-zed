@@ -1007,6 +1007,88 @@ fn split_code_block_with_wide_emoji_does_not_clamp_on_second_chunk() {
 }
 
 #[test]
+fn split_code_chunk_widens_when_a_later_chunk_grows_the_shared_width() {
+    use gpui::{ScrollDelta, ScrollWheelEvent};
+
+    // Chunk 0's widest line is the zero-width-joiner line that every static
+    // candidate picks, so the seed width is chunk 0's own width. Chunk 1's
+    // emoji lines are wider and grow the shared width in the frame where
+    // both chunks first appear, after chunk 0 was already laid out at the
+    // seed. A horizontal scroll on chunk 0 must still reach chunk 1's width
+    // on the first try: GPUI clamps the offset at the next prepaint, when
+    // chunk 0 is laid out again with the grown shared width.
+    const CODE: usize = 80;
+    let mut md = String::new();
+    for i in 0..CODE {
+        md.push_str(&format!("Paragraph {i}\n\n"));
+    }
+    md.push_str("```text\n");
+    md.push_str(&"\u{200d}".repeat(150));
+    md.push('\n');
+    for i in 1..64 {
+        md.push_str(&format!("line {i}\n"));
+    }
+    for _ in 0..4 {
+        md.push_str(&"😀".repeat(100));
+        md.push('\n');
+    }
+    md.push_str("```\n");
+
+    let (v, cx) = open(vec![(PathBuf::from("/x/grow-code.md"), parsed(&md))]);
+    // The paragraphs keep the code block outside the viewport plus overdraw
+    // until the jump below; the short window keeps chunk 1 out of it until
+    // chunk 0 is scrolled near its end.
+    let handle = cx.window_handle();
+    cx.simulate_window_resize(handle, size(px(1200.), px(300.)));
+    cx.run_until_parked();
+    // Bring the chunk boundary on screen so both chunks are first laid out
+    // in the same frame, chunk 0 first.
+    cx.update(|_, cx| {
+        v.read(cx).active_list().unwrap().scroll_to(ListOffset {
+            item_ix: CODE,
+            offset_in_item: px(1200.),
+        });
+    });
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let b0 = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(CODE)
+            .unwrap()
+    });
+    let offset_x = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            v.read(cx)
+                .tabs
+                .active()
+                .unwrap()
+                .code_scroll
+                .borrow()
+                .get(&CODE)
+                .unwrap()
+                .handle
+                .offset()
+                .x
+        })
+    };
+    let wheel = |cx: &mut VisualTestContext| {
+        cx.simulate_event(ScrollWheelEvent {
+            position: point(b0.center().x, b0.bottom() - px(10.)),
+            delta: ScrollDelta::Pixels(point(px(-100_000.), px(0.))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        offset_x(cx)
+    };
+    let first = wheel(cx);
+    let second = wheel(cx);
+    assert!(first < px(0.), "{first:?}");
+    assert_eq!(first, second, "first scroll was clamped to a stale width");
+}
+
+#[test]
 fn reload_keeps_shrunk_code_block_visible_instead_of_hiding_above_viewport() {
     let make = |lines: usize| {
         let mut s = String::from("```rust\n");
@@ -1087,8 +1169,8 @@ fn tall_window_page_up_returns_to_top_and_protects_after_jump() {
     );
 
     // 2. After jumping to Bottom or an anchor in the same 1500px window, PageUp
-    // stays within measured leading overdraw instead of teleporting over
-    // unmeasured rows back toward row 0.
+    // moves in steps no larger than the measured leading overdraw instead of
+    // teleporting over unmeasured rows back toward row 0.
     cx.dispatch_action(Bottom);
     cx.run_until_parked();
     let bottom = scroll_top(&v, cx);
@@ -1115,6 +1197,21 @@ fn tall_window_page_up_returns_to_top_and_protects_after_jump() {
         after_anchor_page_up.0 > 250 && after_anchor_page_up.0 < anchor.0,
         "PageUp after anchor jump must not teleport over unmeasured rows: {after_anchor_page_up:?}"
     );
+    // The steps still add up to a full page: PageDown lands back on the anchor.
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    assert_eq!(
+        scroll_top(&v, cx),
+        anchor,
+        "PageUp after an anchor jump must still move a full page"
+    );
+    // A second round trip keeps the symmetry (no leftover steps).
+    cx.dispatch_action(PageUp);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), after_anchor_page_up);
+    cx.dispatch_action(PageDown);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), anchor);
 
     // Returning to Top restores full-page PageUp symmetry.
     cx.dispatch_action(Top);

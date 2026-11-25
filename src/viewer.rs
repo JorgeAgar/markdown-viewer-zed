@@ -68,6 +68,10 @@ pub fn normalize(p: &Path) -> PathBuf {
 /// Pixels measured above and below the viewport by `gpui::ListState`.
 const LIST_OVERDRAW: f32 = 800.;
 
+/// Largest PageUp step that stays inside the rows the last frame measured
+/// above the scroll top (`LIST_OVERDRAW`, minus a margin).
+const MEASURED_STEP: f32 = LIST_OVERDRAW - 40.;
+
 struct Tab {
     path: PathBuf,
     base_dir: Arc<Path>,
@@ -82,6 +86,50 @@ struct Tab {
     /// over unmeasured rows above).
     leading_measured: bool,
     last_viewport_width: Option<Pixels>,
+    /// Rest of a PageUp that `Viewer::page_up` split into `MEASURED_STEP`s
+    /// because rows above might be unmeasured.
+    page_up_rest: Option<PageUpRest>,
+}
+
+/// The part of a PageUp still to scroll, one `MEASURED_STEP` per frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PageUpRest {
+    px: f32,
+    /// True once a frame has laid out the list since the last step, so the
+    /// rows within `LIST_OVERDRAW` above the scroll top are measured.
+    laid_out: bool,
+}
+
+impl PageUpRest {
+    /// A PageUp of `page` pixels when rows above may be unmeasured, on top of
+    /// any `pending` rest. Returns the pixels to scroll now and the rest.
+    fn start(pending: Option<PageUpRest>, page: f32) -> (f32, Option<PageUpRest>) {
+        let total = page + pending.map_or(0., |r| r.px);
+        let step = total.min(MEASURED_STEP);
+        let rest = (total > step).then_some(PageUpRest {
+            px: total - step,
+            laid_out: false,
+        });
+        (step, rest)
+    }
+
+    /// One frame of a split PageUp, before the list is laid out. Returns the
+    /// pixels to scroll now and the rest. Once the rows above are known to
+    /// be measured (`measured_above`), the whole rest goes in one step.
+    fn frame(self, measured_above: bool) -> (f32, Option<PageUpRest>) {
+        let step = match (self.laid_out, measured_above) {
+            (false, _) => 0.,
+            (true, true) => self.px,
+            (true, false) => self.px.min(MEASURED_STEP),
+        };
+        // This frame lays out the list after `step` (or after the step
+        // `start` returned), so the next one can go ahead.
+        let rest = (self.px > step).then_some(PageUpRest {
+            px: self.px - step,
+            laid_out: true,
+        });
+        (step, rest)
+    }
 }
 
 impl Tab {
@@ -105,11 +153,38 @@ impl Tab {
             list,
             leading_measured: true,
             last_viewport_width: None,
+            page_up_rest: None,
         }
     }
 
     fn leading_measured(&self) -> bool {
         self.leading_measured || self.list.logical_scroll_top().item_ix == 0
+    }
+
+    /// Scrolls up `page` pixels. When rows above may be unmeasured, scrolls
+    /// one `MEASURED_STEP` now and leaves the rest to `continue_page_up`, so
+    /// each step only crosses rows the previous frame measured.
+    fn page_up(&mut self, page: f32) {
+        let (step, rest) = if self.leading_measured() {
+            (page, None)
+        } else {
+            PageUpRest::start(self.page_up_rest, page)
+        };
+        self.page_up_rest = rest;
+        self.list.scroll_by(px(-step));
+    }
+
+    /// Called at the start of each frame. Scrolls the next step of a split
+    /// PageUp once the previous step has been laid out. Returns true while
+    /// steps remain, so the caller asks for another frame.
+    fn continue_page_up(&mut self) -> bool {
+        let Some(rest) = self.page_up_rest else {
+            return false;
+        };
+        let (step, rest) = rest.frame(self.leading_measured());
+        self.page_up_rest = rest;
+        self.list.scroll_by(px(-step));
+        rest.is_some()
     }
 
     fn note_viewport_width(&mut self, width: Pixels) {
@@ -139,6 +214,7 @@ impl Tab {
             },
         });
         self.leading_measured = mapped.item_ix == 0;
+        self.page_up_rest = None;
         self.code_scroll.borrow_mut().clear();
         self.doc = Arc::new(doc);
         self.rows = rows;
@@ -296,6 +372,7 @@ impl Viewer {
                 offset_in_item: px(0.),
             });
             tab.leading_measured = row_ix == 0;
+            tab.page_up_rest = None;
             cx.notify();
         }
     }
@@ -320,13 +397,15 @@ impl Viewer {
         }
     }
 
+    #[cfg(test)]
     fn active_list(&self) -> Option<&ListState> {
         self.tabs.active().map(|t| &t.list)
     }
 
     fn scroll(&mut self, dy: f32, cx: &mut Context<Self>) {
-        if let Some(l) = self.active_list() {
-            l.scroll_by(px(dy));
+        if let Some(tab) = self.tabs.active_mut() {
+            tab.page_up_rest = None;
+            tab.list.scroll_by(px(dy));
             cx.notify();
         }
     }
@@ -335,15 +414,14 @@ impl Viewer {
         (f32::from(window.viewport_size().height) - 80.).max(100.)
     }
 
-    fn page_up_step(&self, window: &Window) -> f32 {
+    fn page_up(&mut self, window: &Window, cx: &mut Context<Self>) {
         let p = self.page(window);
-        if self.tabs.active().is_some_and(Tab::leading_measured) {
-            p
-        } else {
-            // Stay within the list's measured leading overdraw so paging up
-            // after jumping past unmeasured rows (Bottom, anchor, reload, or
-            // width resize) can't skip over 0-height items.
-            p.min(LIST_OVERDRAW - 40.)
+        if let Some(tab) = self.tabs.active_mut() {
+            // After jumping past unmeasured rows (Bottom, anchor, reload or
+            // width resize), a full-page step could skip over 0-height rows,
+            // so `Tab::page_up` splits it across frames.
+            tab.page_up(p);
+            cx.notify();
         }
     }
 
@@ -458,6 +536,11 @@ impl Render for Viewer {
 
         if let Some(tab) = self.tabs.active_mut() {
             tab.note_viewport_width(window.viewport_size().width);
+            if tab.continue_page_up() {
+                // Draw again after this frame's layout to take the next step.
+                // (`window.refresh()` is ignored while the window draws.)
+                window.defer(cx, |window, _| window.refresh());
+            }
         }
 
         let content = match self.tabs.active() {
@@ -536,10 +619,7 @@ impl Render for Viewer {
             }))
             .on_action(cx.listener(|this, _: &ScrollUp, _, cx| this.scroll(-60., cx)))
             .on_action(cx.listener(|this, _: &ScrollDown, _, cx| this.scroll(60., cx)))
-            .on_action(cx.listener(|this, _: &PageUp, window, cx| {
-                let p = this.page_up_step(window);
-                this.scroll(-p, cx)
-            }))
+            .on_action(cx.listener(|this, _: &PageUp, window, cx| this.page_up(window, cx)))
             .on_action(cx.listener(|this, _: &PageDown, window, cx| {
                 let p = this.page(window);
                 this.scroll(p, cx)
@@ -548,6 +628,7 @@ impl Render for Viewer {
                 if let Some(tab) = this.tabs.active_mut() {
                     tab.list.scroll_to(ListOffset::default());
                     tab.leading_measured = true;
+                    tab.page_up_rest = None;
                     cx.notify();
                 }
             }))
@@ -561,6 +642,7 @@ impl Render for Viewer {
                         offset_in_item: px(0.),
                     });
                     tab.leading_measured = false;
+                    tab.page_up_rest = None;
                     cx.notify();
                 }
             }))
@@ -815,6 +897,108 @@ mod tests {
         tab.replace(Ok((doc_with(0), None)));
         assert_eq!(tab.list.item_count(), 0);
         assert_eq!(tab.list.logical_scroll_top().item_ix, 0);
+    }
+
+    #[test]
+    fn split_page_up_takes_one_measured_step_per_laid_out_frame() {
+        let (step, rest) = PageUpRest::start(None, 2000.);
+        assert_eq!(step, MEASURED_STEP);
+        let rest = rest.unwrap();
+        assert_eq!(
+            rest,
+            PageUpRest {
+                px: 2000. - MEASURED_STEP,
+                laid_out: false,
+            }
+        );
+        // The frame right after the action lays out the first step.
+        let (step, rest) = rest.frame(false);
+        assert_eq!(step, 0.);
+        let rest = rest.unwrap();
+        assert_eq!(rest.px, 2000. - MEASURED_STEP);
+        assert!(rest.laid_out);
+        let (step, rest) = rest.frame(false);
+        assert_eq!(step, MEASURED_STEP);
+        let rest = rest.unwrap();
+        assert_eq!(rest.px, 2000. - 2. * MEASURED_STEP);
+        // The remainder is smaller than a step and ends the PageUp.
+        let (step, rest) = rest.frame(false);
+        assert_eq!(step, 2000. - 2. * MEASURED_STEP);
+        assert_eq!(rest, None);
+    }
+
+    #[test]
+    fn split_page_up_fits_in_one_step_or_adds_to_a_pending_rest() {
+        assert_eq!(PageUpRest::start(None, 500.), (500., None));
+        assert_eq!(
+            PageUpRest::start(None, MEASURED_STEP),
+            (MEASURED_STEP, None)
+        );
+        let pending = PageUpRest {
+            px: 300.,
+            laid_out: true,
+        };
+        assert_eq!(
+            PageUpRest::start(Some(pending), 500.),
+            (
+                MEASURED_STEP,
+                Some(PageUpRest {
+                    px: 800. - MEASURED_STEP,
+                    laid_out: false,
+                })
+            )
+        );
+    }
+
+    #[test]
+    fn split_page_up_finishes_at_once_when_rows_above_are_measured() {
+        let rest = PageUpRest {
+            px: 3000.,
+            laid_out: true,
+        };
+        assert_eq!(rest.frame(true), (3000., None));
+        // Not before the previous step has been laid out.
+        let rest = PageUpRest {
+            px: 3000.,
+            laid_out: false,
+        };
+        assert_eq!(
+            rest.frame(true),
+            (
+                0.,
+                Some(PageUpRest {
+                    px: 3000.,
+                    laid_out: true,
+                })
+            )
+        );
+    }
+
+    #[test]
+    fn tab_page_up_splits_only_when_rows_above_may_be_unmeasured() {
+        let src: String = (0..20).map(|i| format!("p{i}\n\n")).collect();
+        let mut tab = Tab::new(PathBuf::from("/x/a.md"), Ok((markdown::parse(&src), None)));
+        tab.list.scroll_to(ListOffset {
+            item_ix: 10,
+            offset_in_item: px(0.),
+        });
+        tab.page_up(2000.);
+        assert_eq!(tab.page_up_rest, None);
+        assert!(!tab.continue_page_up());
+
+        tab.list.scroll_to(ListOffset {
+            item_ix: 10,
+            offset_in_item: px(0.),
+        });
+        tab.leading_measured = false;
+        tab.page_up(2000.);
+        assert_eq!(tab.page_up_rest, PageUpRest::start(None, 2000.).1);
+        assert!(tab.continue_page_up());
+        assert!(tab.page_up_rest.unwrap().laid_out);
+        // A reload drops the rest of the PageUp.
+        tab.replace(Ok((markdown::parse(&src), None)));
+        assert_eq!(tab.page_up_rest, None);
+        assert!(!tab.continue_page_up());
     }
 
     #[test]
