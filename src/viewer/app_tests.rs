@@ -1240,3 +1240,28 @@ fn tall_window_page_up_returns_to_top_and_protects_after_jump() {
         "PageUp after width resize must not teleport to top: {after_resize_page_up:?} from {before_resize:?}"
     );
 }
+
+#[test]
+fn empty_last_code_chunk_is_one_line_tall() {
+    // A trailing blank line in a 65-line block becomes an empty last chunk.
+    // It must keep one line's height, like a chunk with one short line.
+    let height = |last_line: &str| {
+        let mut md = String::from("```text\n");
+        for i in 0..64 {
+            md.push_str(&format!("line {i}\n"));
+        }
+        md.push_str(last_line);
+        md.push_str("\n```\n\nAfter\n");
+        let (v, cx) = open(vec![(PathBuf::from("/x/chunk.md"), parsed(&md))]);
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            let tab = v.read(cx).tabs.active().unwrap();
+            assert!(matches!(
+                tab.rows[1],
+                crate::rows::Row::CodeChunk { last: true, .. }
+            ));
+            tab.list.bounds_for_item(1).unwrap().size.height
+        })
+    };
+    assert_eq!(height(""), height("x"));
+}

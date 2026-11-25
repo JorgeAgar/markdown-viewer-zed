@@ -66,8 +66,7 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
     chunk's actual shaped width) so horizontal scrolling stays in sync across
     chunk boundaries. A chunk laid out before a wider one appears keeps the
     older width for that frame; the next frame uses the grown width. Only a
-    horizontal scroll made in that same frame stops short. Only split chunks
-    get a one-line minimum height (a chunk can be one empty line).
+    horizontal scroll made in that same frame stops short.
   - `Block::Quote` with multiple child blocks becomes an optional callout title
     row plus one row per child block, keeping a continuous left border.
   - All other top-level blocks stay a single row.

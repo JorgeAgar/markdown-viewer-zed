@@ -404,11 +404,8 @@ fn code_box(
     ids: &mut IdGen,
 ) -> gpui::Div {
     let t = &rcx.theme;
-    // A split chunk can be a single empty line; keep it one line tall.
-    // Unsplit blocks keep their original layout.
     let inner = div()
         .whitespace_nowrap()
-        .when(scroll.is_some(), |d| d.min_h(px(13.5 * 1.5)))
         .child(code_text(code, highlights, rcx))
         .into_any_element();
     let inner = match scroll {
