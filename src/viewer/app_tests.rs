@@ -1579,3 +1579,38 @@ fn short_documents_have_no_scrollbar() {
     assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_none()));
     assert!(!motion_active(&v, cx));
 }
+
+#[test]
+fn a_thumb_drag_ends_when_its_tab_is_switched() {
+    let mut md = String::new();
+    for i in 0..200 {
+        md.push_str(&format!(
+            "## Heading {i}\n\nParagraph {i} with some text.\n\n"
+        ));
+    }
+    let (v, cx) = open(vec![
+        (PathBuf::from("/x/a.md"), parsed(&md)),
+        (PathBuf::from("/x/b.md"), parsed(&md)),
+    ]);
+    cx.run_until_parked();
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let (w, _, thumb) = thumb_now(&v, cx);
+    let x = px(w - 5.);
+    let grab = point(x, px(TAB_BAR_HEIGHT + thumb.len / 2.));
+    cx.simulate_mouse_down(grab, MouseButton::Left, Default::default());
+    assert!(dragged_thumb(&v, cx).is_some());
+    cx.dispatch_action(PrevTab);
+    assert_eq!(active(&v, cx).as_deref(), Some("a.md"));
+    cx.simulate_mouse_move(point(x, px(400.)), MouseButton::Left, Default::default());
+    assert!(dragged_thumb(&v, cx).is_none());
+    assert_eq!(scroll_top(&v, cx), (0, 0.), "the other tab didn't move");
+}
+
+#[test]
+fn a_big_touchpad_delta_stays_within_measured_rows() {
+    let (v, cx) = tall_doc();
+    touchpad(cx, -100_000., TouchPhase::Moved);
+    let (ix, _) = scroll_top(&v, cx);
+    assert!(ix < 100, "jumped to row {ix} of 400");
+}

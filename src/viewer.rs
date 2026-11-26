@@ -93,6 +93,8 @@ fn measured(list: &ListState, end: usize) -> Measured {
 /// A scrollbar thumb being dragged.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ThumbDrag {
+    /// `Tab::id` of the tab being scrolled.
+    tab: u64,
     /// Window y of the track's top, and its length.
     origin: f32,
     track: f32,
@@ -106,7 +108,12 @@ struct ThumbDrag {
     content: f32,
 }
 
+/// Source of `Tab::id`.
+static NEXT_TAB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 struct Tab {
+    /// Unique among tabs, so a scrollbar drag knows if its tab is still active.
+    id: u64,
     path: PathBuf,
     base_dir: Arc<Path>,
     title: SharedString,
@@ -179,6 +186,7 @@ impl Tab {
         let rows = Arc::new(Rows::from_document(&doc));
         let list = ListState::new(rows.len(), ListAlignment::Top, px(LIST_OVERDRAW));
         Self {
+            id: NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             path,
             base_dir,
             title,
@@ -226,13 +234,10 @@ impl Tab {
             self.motion.stop();
             return false;
         }
-        // Like a split PageUp, only cross rows the last frame measured.
-        let max = if dir < 0. && !self.leading_measured() {
-            MEASURED_STEP
-        } else {
-            f32::INFINITY
-        };
-        let step = self.motion.tick(now, max);
+        // Only cross rows the last frame measured (its overdraw reaches
+        // `LIST_OVERDRAW` past both edges): unmeasured rows count as 0 px,
+        // so a longer step could skip them, like a split PageUp.
+        let step = self.motion.tick(now, MEASURED_STEP);
         self.list.scroll_by(px(step));
         self.motion.is_active()
     }
@@ -309,6 +314,8 @@ impl Tab {
         });
         self.leading_measured = mapped.item_ix == 0;
         self.page_up_rest = None;
+        // A glide would move before the new rows are laid out (all 0 px).
+        self.motion.stop();
         self.code_scroll.borrow_mut().clear();
         self.doc = Arc::new(doc);
         self.rows = rows;
@@ -530,7 +537,9 @@ impl Viewer {
             }
             ScrollDelta::Pixels(delta) => {
                 let dy = tab.motion.touch(-f32::from(delta.y), now);
-                tab.list.scroll_by(px(dy));
+                // Within the measured rows, as for motion steps.
+                tab.list
+                    .scroll_by(px(dy.clamp(-MEASURED_STEP, MEASURED_STEP)));
             }
         }
         tab.page_up_rest = None;
@@ -562,6 +571,7 @@ impl Viewer {
         tab.page_up_rest = None;
         let (_, content, avg) = tab.extent();
         self.thumb_drag = Some(ThumbDrag {
+            tab: tab.id,
             origin,
             track,
             grab: y - origin - thumb.top,
@@ -576,6 +586,12 @@ impl Viewer {
         let (Some(drag), Some(tab)) = (&mut self.thumb_drag, self.tabs.active_mut()) else {
             return;
         };
+        if drag.tab != tab.id {
+            // The tab was switched or closed during the drag.
+            self.thumb_drag = None;
+            cx.notify();
+            return;
+        }
         drag.thumb.top =
             (y - drag.origin - drag.grab).clamp(0., (drag.track - drag.thumb.len).max(0.));
         let pos = scroll::position_for_thumb(
@@ -638,14 +654,15 @@ impl Viewer {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let tab = self.tabs.active()?;
-        let thumb = match self.thumb_drag {
+        let drag = self.thumb_drag.filter(|d| d.tab == tab.id);
+        let thumb = match drag {
             Some(drag) => drag.thumb,
             None => {
                 let (top, content, _) = tab.extent();
                 scroll::thumb(top, content, track, track)?
             }
         };
-        let dragging = self.thumb_drag.is_some();
+        let dragging = drag.is_some();
         let origin = TAB_BAR_HEIGHT;
         let idle = theme.muted.opacity(0.45);
         let active = theme.muted.opacity(0.8);
@@ -1466,22 +1483,26 @@ mod tests {
     }
 
     #[test]
-    fn motion_upward_over_unmeasured_rows_goes_in_measured_steps() {
+    fn motion_moves_at_most_a_measured_step_per_frame() {
         let t0 = Instant::now();
-        let mut tab = tab_at(400, 300);
-        assert!(!tab.leading_measured());
-        tab.motion.wheel(-2000., t0);
-        // The glide is over, but only MEASURED_STEP went: the rest waits.
-        assert!(tab.advance_motion(frame(t0, 200), 500.));
-        // Downward isn't capped.
-        let mut tab = tab_at(400, 300);
-        tab.motion.wheel(2000., t0);
-        assert!(!tab.advance_motion(frame(t0, 200), 500.));
-        // Nor upward with the rows above measured.
-        let mut tab = tab_at(400, 300);
-        tab.leading_measured = true;
-        tab.motion.wheel(-2000., t0);
-        assert!(!tab.advance_motion(frame(t0, 200), 500.));
+        for (dir, leading_measured) in [(-1., false), (-1., true), (1., false), (1., true)] {
+            let mut tab = tab_at(400, 300);
+            tab.leading_measured = leading_measured;
+            tab.motion.wheel(2000. * dir, t0);
+            // The glide is over, but only MEASURED_STEP went: the rest waits
+            // for the next frame to measure the rows it will cross.
+            assert!(tab.advance_motion(frame(t0, 200), 500.));
+        }
+    }
+
+    #[test]
+    fn reload_stops_motion() {
+        let t0 = Instant::now();
+        let mut tab = tab_at(100, 50);
+        tab.motion.wheel(-300., t0);
+        tab.replace(Ok((doc_with(100), None)));
+        assert!(!tab.motion.is_active());
+        assert_eq!(tab.list.logical_scroll_top().item_ix, 50);
     }
 
     #[test]
