@@ -90,7 +90,10 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   - A wheel step (`ScrollDelta::Lines`, 20 px per line) glides there with a
     150 ms cubic ease-out. Steps in the same direction add up; a step the
     other way drops the rest.
-  - A touchpad (`ScrollDelta::Pixels`) scrolls 1:1. When the fingers lift
+  - A touchpad (`ScrollDelta::Pixels`) scrolls 1:1, within the measured
+    rows like GPUI's own handler (`Tab::scroll_measured`), and not at all
+    right after a reset, before any row has a height. A sideways delta (a
+    code block's) leaves a split PageUp going. When the fingers lift
     (`TouchPhase::Ended`, which the GPUI fork sends on Wayland's `axis_stop`),
     the speed of the last 100 ms flings on, slowing down exponentially
     (τ = 350 ms). macOS sends its own momentum events, so there's no fling
@@ -99,16 +102,17 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
     and asks for the next frame while motion goes on. It stops at the top or
     bottom, on a click in the document, on any key scroll or jump, on a
     reload, and when the tab isn't active. A frame moves at most
-    `LIST_OVERDRAW - 40` px either way (a touchpad delta too), like a split
-    PageUp: the last frame measured that far past both edges, and a longer
-    step could skip unmeasured (0 px) rows.
+    `LIST_OVERDRAW - 40` px either way, like a split PageUp: the last frame
+    measured that far past both edges, and a longer step could skip
+    unmeasured (0 px) rows. Right after a reset (resize, reload) the motion
+    waits a frame for the rows' heights.
 - The scrollbar (`Viewer::render_scrollbar`) is an overlay at the right edge,
   shown when the document doesn't fit. GPUI only knows the heights of
   measured rows, so `Tab::extent` counts each unmeasured row as the average
   measured one (`ListState::measured_before`, added in the fork). Dragging the
   thumb freezes that estimate for the drag and jumps to the row at the
   matching position (`scroll::locate`). A drag ends if its tab stops being
-  the active one. A click on the track glides one page toward it.
+  the active one, even if it comes back. A click on the track glides one page toward it.
 - When a file is reloaded, `Tab::replace` remaps the top visible row through
   `(block_ix, offset_within_block)` before calling `ListState::reset` (resetting
   `offset_in_item` to 0 when the target row was clamped or shrank), so growing

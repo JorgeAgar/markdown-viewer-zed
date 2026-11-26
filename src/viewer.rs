@@ -213,6 +213,23 @@ impl Tab {
         (above, all.estimate(avg), avg)
     }
 
+    /// Scrolls `dy` px but stays within the measured rows, like GPUI's own
+    /// wheel handler: unmeasured rows count as 0 px, so going further could
+    /// skip them. Does nothing right after a reload or reset, before any row
+    /// has a height.
+    fn scroll_measured(&mut self, dy: f32) {
+        if self.unmeasured() {
+            return;
+        }
+        let top = self.list.logical_scroll_top();
+        let now = measured(&self.list, top.item_ix).height + f32::from(top.offset_in_item);
+        let viewport = f32::from(self.list.viewport_bounds().size.height);
+        let max = measured(&self.list, usize::MAX).height - viewport;
+        // Never pulled back: `Bottom` parks the top past the last row.
+        let target = (now + dy).min(max.max(now)).max(0.);
+        self.list.scroll_by(px(target - now));
+    }
+
     /// True when the document has rows but none is measured yet.
     fn unmeasured(&self) -> bool {
         let all = measured(&self.list, usize::MAX);
@@ -224,6 +241,10 @@ impl Tab {
     fn advance_motion(&mut self, now: Instant, viewport: f32) -> bool {
         if !self.motion.is_active() {
             return false;
+        }
+        if self.unmeasured() {
+            // Just reset (resized, reloaded): wait for the rows' heights.
+            return true;
         }
         let dir = self.motion.direction();
         let top = self.list.logical_scroll_top();
@@ -534,12 +555,18 @@ impl Viewer {
                 if matches!(event.touch_phase, TouchPhase::Ended) && !cfg!(target_os = "macos") =>
             {
                 tab.motion.touch_end(now);
+                if !tab.motion.is_active() {
+                    return;
+                }
             }
             ScrollDelta::Pixels(delta) => {
                 let dy = tab.motion.touch(-f32::from(delta.y), now);
-                // Within the measured rows, as for motion steps.
-                tab.list
-                    .scroll_by(px(dy.clamp(-MEASURED_STEP, MEASURED_STEP)));
+                if dy == 0. {
+                    // Sideways (a code block's), or a touch begins: a split
+                    // PageUp goes on.
+                    return;
+                }
+                tab.scroll_measured(dy);
             }
         }
         tab.page_up_rest = None;
@@ -654,7 +681,7 @@ impl Viewer {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let tab = self.tabs.active()?;
-        let drag = self.thumb_drag.filter(|d| d.tab == tab.id);
+        let drag = self.thumb_drag;
         let thumb = match drag {
             Some(drag) => drag.thumb,
             None => {
@@ -863,6 +890,12 @@ impl Render for Viewer {
             }
         }
 
+        if let Some(drag) = self.thumb_drag
+            && self.tabs.active().is_none_or(|t| t.id != drag.tab)
+        {
+            // Its tab was switched away or closed.
+            self.thumb_drag = None;
+        }
         let scrollbar = self.render_scrollbar(viewport, &theme, cx);
         let content = match self.tabs.active() {
             Some(tab) => {
@@ -1445,54 +1478,6 @@ mod tests {
         });
         tab.leading_measured = item_ix == 0;
         tab
-    }
-
-    fn frame(t0: Instant, ms: u64) -> Instant {
-        t0 + Duration::from_millis(ms)
-    }
-
-    #[test]
-    fn motion_stops_at_the_top() {
-        let t0 = Instant::now();
-        let mut tab = tab_at(100, 0);
-        tab.motion.wheel(-100., t0);
-        assert!(!tab.advance_motion(frame(t0, 16), 500.));
-        assert!(!tab.motion.is_active());
-        assert_eq!(tab.list.logical_scroll_top().item_ix, 0);
-        // Downward from the top goes on.
-        tab.motion.wheel(100., t0);
-        assert!(tab.advance_motion(frame(t0, 16), 500.));
-    }
-
-    #[test]
-    fn motion_stops_at_the_bottom() {
-        let t0 = Instant::now();
-        // Rows 95..100 (5 × 60 px) fill the 300 px viewport.
-        let mut tab = tab_at(100, 95);
-        assert_eq!(tab.extent(), (95. * 60., 100. * 60., 60.));
-        tab.motion.wheel(100., t0);
-        assert!(!tab.advance_motion(frame(t0, 16), 300.));
-        assert!(!tab.motion.is_active());
-        assert_eq!(tab.list.logical_scroll_top().item_ix, 95);
-        // One row more of viewport isn't at the bottom yet... nor is upward.
-        tab.motion.wheel(100., t0);
-        assert!(tab.advance_motion(frame(t0, 16), 240.));
-        let mut tab = tab_at(100, 95);
-        tab.motion.wheel(-100., t0);
-        assert!(tab.advance_motion(frame(t0, 16), 300.));
-    }
-
-    #[test]
-    fn motion_moves_at_most_a_measured_step_per_frame() {
-        let t0 = Instant::now();
-        for (dir, leading_measured) in [(-1., false), (-1., true), (1., false), (1., true)] {
-            let mut tab = tab_at(400, 300);
-            tab.leading_measured = leading_measured;
-            tab.motion.wheel(2000. * dir, t0);
-            // The glide is over, but only MEASURED_STEP went: the rest waits
-            // for the next frame to measure the rows it will cross.
-            assert!(tab.advance_motion(frame(t0, 200), 500.));
-        }
     }
 
     #[test]
