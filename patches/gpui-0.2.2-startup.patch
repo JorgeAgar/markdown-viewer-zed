@@ -416,7 +416,7 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
                          let result = match err {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/client.rs gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
 --- gpui-0.2.2/src/platform/linux/wayland/client.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs	2026-11-25 15:49:34.926449070 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs	2026-11-25 19:47:26.931149361 -0500
 @@ -224,6 +224,9 @@
      vertical_modifier: f32,
      horizontal_modifier: f32,
@@ -457,14 +457,21 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
              axis_source: AxisSource::Wheel,
              mouse_location: None,
              continuous_scroll_delta: None,
-@@ -1725,6 +1735,14 @@
+@@ -1725,6 +1735,21 @@
                      _ => unreachable!(),
                  }
              }
 +            // mdview: Wayland leaves kinetic scrolling to the client. Report
 +            // the end of a touchpad scroll so the app can continue it.
-+            wl_pointer::Event::AxisStop { .. } => {
-+                if state.axis_source == AxisSource::Finger {
++            // Only the vertical axis: in a diagonal swipe the horizontal
++            // one can stop while the fingers still scroll vertically.
++            wl_pointer::Event::AxisStop {
++                axis: WEnum::Value(axis),
++                ..
++            } => {
++                // Shift turns vertical scrolling into horizontal, as above.
++                let vertical = axis == wl_pointer::Axis::VerticalScroll && !state.modifiers.shift;
++                if state.axis_source == AxisSource::Finger && vertical {
 +                    state.scroll_event_received = true;
 +                    state.scroll_stopped = true;
 +                }
@@ -472,12 +479,14 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
              wl_pointer::Event::AxisDiscrete {
                  axis: WEnum::Value(axis),
                  discrete,
-@@ -1785,28 +1803,35 @@
+@@ -1785,28 +1810,37 @@
                      state.scroll_event_received = false;
                      let continuous = state.continuous_scroll_delta.take();
                      let discrete = state.discrete_scroll_delta.take();
-+                    // mdview: also send the end of a touchpad scroll.
-+                    let stopped = std::mem::take(&mut state.scroll_stopped);
++                    // mdview: also send the end of a touchpad scroll, unless
++                    // this frame still scrolls vertically.
++                    let stopped = std::mem::take(&mut state.scroll_stopped)
++                        && continuous.is_none_or(|delta| delta.y == px(0.));
 +                    let Some(window) = state.mouse_focused_window.clone() else {
 +                        return;
 +                    };

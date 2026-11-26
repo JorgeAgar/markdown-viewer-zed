@@ -560,12 +560,12 @@ impl Viewer {
                 }
             }
             ScrollDelta::Pixels(delta) => {
-                let dy = tab.motion.touch(-f32::from(delta.y), now);
-                if dy == 0. {
-                    // Sideways (a code block's), or a touch begins: a split
-                    // PageUp goes on.
+                if delta.y == px(0.) {
+                    // Sideways (a code block's), or a touch begins: a wheel
+                    // glide or a split PageUp goes on.
                     return;
                 }
+                let dy = tab.motion.touch(-f32::from(delta.y), now);
                 tab.scroll_measured(dy);
             }
         }

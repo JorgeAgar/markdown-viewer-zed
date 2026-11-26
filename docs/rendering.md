@@ -93,7 +93,7 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   - A touchpad (`ScrollDelta::Pixels`) scrolls 1:1, within the measured
     rows like GPUI's own handler (`Tab::scroll_measured`), and not at all
     right after a reset, before any row has a height. A sideways delta (a
-    code block's) leaves a split PageUp going. When the fingers lift
+    code block's) leaves a wheel glide or a split PageUp going. When the fingers lift
     (`TouchPhase::Ended`, which the GPUI fork sends on Wayland's `axis_stop`),
     the speed of the last 100 ms flings on, slowing down exponentially
     (τ = 350 ms). macOS sends its own momentum events, so there's no fling

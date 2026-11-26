@@ -1737,8 +1737,15 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
             }
             // mdview: Wayland leaves kinetic scrolling to the client. Report
             // the end of a touchpad scroll so the app can continue it.
-            wl_pointer::Event::AxisStop { .. } => {
-                if state.axis_source == AxisSource::Finger {
+            // Only the vertical axis: in a diagonal swipe the horizontal
+            // one can stop while the fingers still scroll vertically.
+            wl_pointer::Event::AxisStop {
+                axis: WEnum::Value(axis),
+                ..
+            } => {
+                // Shift turns vertical scrolling into horizontal, as above.
+                let vertical = axis == wl_pointer::Axis::VerticalScroll && !state.modifiers.shift;
+                if state.axis_source == AxisSource::Finger && vertical {
                     state.scroll_event_received = true;
                     state.scroll_stopped = true;
                 }
@@ -1803,8 +1810,10 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                     state.scroll_event_received = false;
                     let continuous = state.continuous_scroll_delta.take();
                     let discrete = state.discrete_scroll_delta.take();
-                    // mdview: also send the end of a touchpad scroll.
-                    let stopped = std::mem::take(&mut state.scroll_stopped);
+                    // mdview: also send the end of a touchpad scroll, unless
+                    // this frame still scrolls vertically.
+                    let stopped = std::mem::take(&mut state.scroll_stopped)
+                        && continuous.is_none_or(|delta| delta.y == px(0.));
                     let Some(window) = state.mouse_focused_window.clone() else {
                         return;
                     };

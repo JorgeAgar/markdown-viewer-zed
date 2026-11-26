@@ -1819,3 +1819,26 @@ fn a_thumb_drag_does_not_come_back_with_its_tab() {
     redraw(&v, cx);
     assert!(dragged_thumb(&v, cx).is_none());
 }
+
+#[test]
+fn a_sideways_swipe_keeps_a_wheel_glide() {
+    let (v, cx) = tall_doc();
+    wheel_lines(cx, -3.);
+    assert!(motion_active(&v, cx));
+    touchpad_x(cx, -40.);
+    assert!(motion_active(&v, cx), "the glide goes on");
+    settle(&v, cx);
+    assert!(
+        (scrolled_px(&v, cx) - 60.).abs() < 0.01,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+}
+
+fn touchpad_x(cx: &mut VisualTestContext, dx: f32) {
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Pixels(point(px(dx), px(0.))),
+        ..Default::default()
+    });
+}
