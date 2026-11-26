@@ -1842,3 +1842,66 @@ fn touchpad_x(cx: &mut VisualTestContext, dx: f32) {
         ..Default::default()
     });
 }
+
+/// A wheel event handled with no frame drawn first.
+fn wheel_now(v: &Entity<Viewer>, cx: &mut VisualTestContext, lines: f32) {
+    cx.update(|_, cx| {
+        v.update(cx, |v, cx| {
+            v.wheel(
+                &ScrollWheelEvent {
+                    position: point(px(300.), px(300.)),
+                    delta: ScrollDelta::Lines(point(0., lines)),
+                    ..Default::default()
+                },
+                cx,
+            )
+        })
+    });
+}
+
+#[test]
+fn a_step_back_from_an_edge_is_not_absorbed() {
+    let (v, cx) = tall_doc();
+    let vh = viewport_height(cx);
+    with_tab(&v, cx, |tab| tab.scroll_measured(15.));
+    redraw(&v, cx);
+    // One line (20 px) up aims 5 px past the top; one frame later the glide
+    // is still on its way...
+    wheel_now(&v, cx, 1.);
+    let going = with_tab(&v, cx, |tab| {
+        tab.advance_motion(Instant::now() + Duration::from_millis(16), vh)
+    });
+    assert!(going);
+    let mid = scrolled_px(&v, cx);
+    assert!(mid > 0. && mid < 15., "{mid}");
+    // ...and one line down ends a line below the top, as on main (the up
+    // step clamps at the top), not back at 15 px.
+    wheel_now(&v, cx, -1.);
+    settle(&v, cx);
+    assert!(
+        (scrolled_px(&v, cx) - 20.).abs() < 0.01,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+}
+
+#[test]
+fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
+    let (v, cx) = tall_doc();
+    cx.dispatch_action(Bottom);
+    redraw(&v, cx);
+    let vh = viewport_height(cx);
+    let gap = |v: &Entity<Viewer>, cx: &mut VisualTestContext| {
+        with_tab(v, cx, |tab| {
+            let (above, content, _) = tab.extent();
+            content - above - vh
+        })
+    };
+    assert!(gap(&v, cx).abs() < 0.01);
+    with_tab(&v, cx, |tab| tab.scroll_measured(-0.25));
+    redraw(&v, cx);
+    assert!((gap(&v, cx) - 0.25).abs() < 0.01);
+    wheel_lines(cx, -1.);
+    settle(&v, cx);
+    assert!(gap(&v, cx).abs() < 0.01, "{}", gap(&v, cx));
+}

@@ -115,6 +115,17 @@ impl Motion {
         if secs < 0.001 { 0. } else { distance / secs }
     }
 
+    /// Limits what's left of a glide to `min..=max` px from here: the room
+    /// to the document's edges. A destination past an edge would otherwise
+    /// absorb a following step back (5 px from the top, one step up and one
+    /// down must end 20 px down, not 5). A fling ends at the edge anyway.
+    pub fn limit(&mut self, min: f32, max: f32) {
+        if let Some(Anim::Glide { distance, done, .. }) = &mut self.anim {
+            let rest = *distance - *done + self.carry;
+            *distance += rest.clamp(min, max) - rest;
+        }
+    }
+
     pub fn stop(&mut self) {
         *self = Self::default();
     }
@@ -445,6 +456,37 @@ mod tests {
         m.tick(ms(t0, 150), 760.);
         m.wheel(10., ms(t0, 160));
         assert!((run(&mut m, t0, 160) - 1250.).abs() < 1e-3);
+    }
+
+    #[test]
+    fn limit_keeps_a_glide_within_the_edges() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.wheel(-20., t0);
+        let a = m.tick(ms(t0, 16), f32::INFINITY);
+        // Started 10 px from the top: the rest shrinks to the room left,
+        // so a step back down ends 10 px below where it started.
+        assert!(a > -10.);
+        m.limit(-(10. + a), 100.);
+        m.wheel(20., ms(t0, 20));
+        assert!((a + run(&mut m, t0, 20) - 10.).abs() < 1e-3);
+        // Within the room it's untouched, carry included.
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 50), 100.);
+        m.limit(-10., 1900.);
+        assert!((100. + run(&mut m, t0, 50) - 2000.).abs() < 1e-3);
+        // Down too.
+        let mut m = Motion::default();
+        m.wheel(300., t0);
+        m.limit(-10., 40.);
+        assert!((run(&mut m, t0, 0) - 40.).abs() < 1e-3);
+        // A fling is left alone.
+        let mut m = Motion::default();
+        swipe(&mut m, t0, 20.);
+        m.touch_end(ms(t0, 92));
+        m.limit(0., 0.);
+        assert!(run(&mut m, t0, 92) > 600.);
     }
 
     #[test]

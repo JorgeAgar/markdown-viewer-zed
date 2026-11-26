@@ -230,6 +230,15 @@ impl Tab {
         self.list.scroll_by(px(target - now));
     }
 
+    /// Limits the running glide to the room left to the document's edges,
+    /// before a new wheel step adds to it.
+    fn limit_motion(&mut self) {
+        let (above, content, _) = self.extent();
+        let viewport = f32::from(self.list.viewport_bounds().size.height);
+        self.motion
+            .limit(-above, (content - above - viewport).max(0.));
+    }
+
     /// True when the document has rows but none is measured yet.
     fn unmeasured(&self) -> bool {
         let all = measured(&self.list, usize::MAX);
@@ -250,7 +259,10 @@ impl Tab {
         let top = self.list.logical_scroll_top();
         let at_top = top.item_ix == 0 && top.offset_in_item <= px(0.);
         let (above, content, _) = self.extent();
-        let at_bottom = above + viewport >= content - 0.5;
+        // Not 0.5 px: a wheel step must still cover a fraction a touchpad
+        // left. Float error is far below 0.01 px; a stray miss only costs
+        // the rest of the glide.
+        let at_bottom = above + viewport >= content - 0.01;
         if (dir < 0. && at_top) || (dir > 0. && at_bottom) {
             self.motion.stop();
             return false;
@@ -548,6 +560,7 @@ impl Viewer {
                 if lines.y == 0. {
                     return;
                 }
+                tab.limit_motion();
                 tab.motion.wheel(-lines.y * scroll::LINE_HEIGHT, now);
             }
             // macOS sends the momentum after the fingers lift itself.
@@ -578,6 +591,7 @@ impl Viewer {
         let p = self.page(window);
         if let Some(tab) = self.tabs.active_mut() {
             tab.page_up_rest = None;
+            tab.limit_motion();
             tab.motion.wheel(if up { -p } else { p }, Instant::now());
             cx.notify();
         }
