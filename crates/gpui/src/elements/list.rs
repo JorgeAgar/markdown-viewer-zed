@@ -30,6 +30,7 @@ pub fn list(
         render_item: Box::new(render_item),
         style: StyleRefinement::default(),
         sizing_behavior: ListSizingBehavior::default(),
+        handle_scroll_wheel: true,
     }
 }
 
@@ -39,9 +40,18 @@ pub struct List {
     render_item: Box<RenderItemFn>,
     style: StyleRefinement,
     sizing_behavior: ListSizingBehavior,
+    // mdview: false when the view scrolls the list itself (smooth/kinetic).
+    handle_scroll_wheel: bool,
 }
 
 impl List {
+    /// mdview: Don't scroll on wheel events. For views that animate the
+    /// scroll themselves through [`ListState::scroll_by`].
+    pub fn without_scroll_wheel(mut self) -> Self {
+        self.handle_scroll_wheel = false;
+        self
+    }
+
     /// Set the sizing behavior for the list.
     pub fn with_sizing_behavior(mut self, behavior: ListSizingBehavior) -> Self {
         self.sizing_behavior = behavior;
@@ -473,6 +483,30 @@ impl ListState {
     pub fn viewport_bounds(&self) -> Bounds<Pixels> {
         self.0.borrow().last_layout_bounds.unwrap_or_default()
     }
+
+    /// mdview: How many of the first `end` items have been measured, and
+    /// their total height. Lets a scrollbar estimate the unmeasured ones.
+    pub fn measured_before(&self, end: usize) -> ListMeasurement {
+        let state = self.0.borrow();
+        let mut cursor = state.items.cursor::<ListItemSummary>(());
+        let summary: ListItemSummary = cursor.summary(&Count(end), Bias::Right);
+        ListMeasurement {
+            count: summary.count,
+            measured_count: summary.rendered_count,
+            measured_height: summary.height,
+        }
+    }
+}
+
+/// mdview: Measured items in a prefix of a list. See [`ListState::measured_before`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ListMeasurement {
+    /// Items in the prefix.
+    pub count: usize,
+    /// Items in the prefix whose height is known.
+    pub measured_count: usize,
+    /// Total height of the measured items.
+    pub measured_height: Pixels,
 }
 
 impl StateInner {
@@ -1078,6 +1112,10 @@ impl Element for List {
         let scroll_top = prepaint.layout.scroll_top;
         let hitbox_id = prepaint.hitbox.id;
         let mut accumulated_scroll_delta = ScrollDelta::default();
+        // mdview: the view may handle the wheel itself.
+        if !self.handle_scroll_wheel {
+            return;
+        }
         window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
             if phase == DispatchPhase::Bubble && hitbox_id.should_handle_scroll(window) {
                 accumulated_scroll_delta = accumulated_scroll_delta.coalesce(event.delta);

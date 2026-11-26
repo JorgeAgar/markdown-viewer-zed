@@ -1322,3 +1322,586 @@ fn vertical_wheel_over_code_scrolls_the_page_not_the_code() {
     assert_eq!(code_x(cx), px(-80.));
     assert_eq!(scroll_top(&v, cx), (0, 120.));
 }
+
+/// A document of 200 headed paragraphs, tall enough to scroll a long way.
+fn tall_doc() -> (Entity<Viewer>, &'static mut VisualTestContext) {
+    let mut md = String::new();
+    for i in 0..200 {
+        md.push_str(&format!(
+            "## Heading {i}\n\nParagraph {i} with some text.\n\n"
+        ));
+    }
+    let (v, cx) = open(vec![(PathBuf::from("/x/tall.md"), parsed(&md))]);
+    cx.run_until_parked();
+    (v, cx)
+}
+
+fn motion_active(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> bool {
+    cx.update(|_, cx| v.read(cx).tabs.active().unwrap().motion.is_active())
+}
+
+/// Draws frames in real time until the glide or fling ends.
+fn settle(v: &Entity<Viewer>, cx: &mut VisualTestContext) {
+    for _ in 0..300 {
+        if !motion_active(v, cx) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(8));
+        cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+        cx.run_until_parked();
+    }
+    panic!("scroll motion never stopped");
+}
+
+fn wheel_lines(cx: &mut VisualTestContext, lines: f32) {
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Lines(point(0., lines)),
+        ..Default::default()
+    });
+}
+
+fn touchpad(cx: &mut VisualTestContext, dy: f32, touch_phase: TouchPhase) {
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Pixels(point(px(0.), px(dy))),
+        touch_phase,
+        ..Default::default()
+    });
+}
+
+/// Scroll position in pixels from the top (all rows above are measured).
+fn scrolled_px(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> f32 {
+    cx.update(|_, cx| v.read(cx).tabs.active().unwrap().extent().0)
+}
+
+#[test]
+fn wheel_steps_glide_to_their_distance() {
+    let (v, cx) = tall_doc();
+    // One notch down: 3 lines of 20 px, not all at once.
+    wheel_lines(cx, -3.);
+    assert!(motion_active(&v, cx));
+    settle(&v, cx);
+    assert!((scrolled_px(&v, cx) - 60.).abs() < 0.01);
+    // Two quick notches add up.
+    wheel_lines(cx, -3.);
+    wheel_lines(cx, -3.);
+    settle(&v, cx);
+    assert!((scrolled_px(&v, cx) - 180.).abs() < 0.01);
+    // Back up past the top stops there.
+    wheel_lines(cx, 30.);
+    settle(&v, cx);
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+}
+
+#[test]
+fn touchpad_follows_the_fingers_then_flings() {
+    let (v, cx) = tall_doc();
+    for _ in 0..6 {
+        touchpad(cx, -30., TouchPhase::Moved);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let moved = scrolled_px(&v, cx);
+    assert!((moved - 180.).abs() < 0.01, "{moved}");
+    assert!(!motion_active(&v, cx));
+    touchpad(cx, 0., TouchPhase::Ended);
+    if cfg!(target_os = "macos") {
+        assert!(!motion_active(&v, cx), "macOS flings by itself");
+        return;
+    }
+    assert!(motion_active(&v, cx));
+    settle(&v, cx);
+    assert!(
+        scrolled_px(&v, cx) > moved + 200.,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+    // A click stops a fling.
+    for _ in 0..6 {
+        touchpad(cx, -30., TouchPhase::Moved);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    touchpad(cx, 0., TouchPhase::Ended);
+    cx.simulate_mouse_down(
+        point(px(300.), px(300.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    assert!(!motion_active(&v, cx));
+    // So does a key.
+    for _ in 0..6 {
+        touchpad(cx, -30., TouchPhase::Moved);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    touchpad(cx, 0., TouchPhase::Ended);
+    cx.dispatch_action(ScrollDown);
+    assert!(!motion_active(&v, cx));
+}
+
+/// The window size and the scrollbar thumb now.
+fn thumb_now(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> (f32, f32, Thumb) {
+    let (w, h) = cx.update(|window, _| {
+        let s = window.viewport_size();
+        (f32::from(s.width), f32::from(s.height))
+    });
+    let thumb = cx.update(|_, cx| {
+        let tab = v.read(cx).tabs.active().unwrap();
+        let (top, content, _) = tab.extent();
+        let track = h - TAB_BAR_HEIGHT;
+        scroll::thumb(top, content, track, track).unwrap()
+    });
+    (w, h, thumb)
+}
+
+fn dragged_thumb(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> Option<Thumb> {
+    cx.update(|_, cx| v.read(cx).thumb_drag.map(|d| d.thumb))
+}
+
+#[test]
+fn dragging_the_scrollbar_thumb_scrolls_the_document() {
+    let (v, cx) = tall_doc();
+    // Let the second frame size the scrollbar from measured rows.
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let (w, h, thumb) = thumb_now(&v, cx);
+    let track = h - TAB_BAR_HEIGHT;
+    assert_eq!(thumb.top, 0.);
+    let x = px(w - 5.);
+    let grab_y = TAB_BAR_HEIGHT + thumb.len / 2.;
+    cx.simulate_mouse_down(point(x, px(grab_y)), MouseButton::Left, Default::default());
+    assert_eq!(dragged_thumb(&v, cx), Some(thumb));
+    let content = cx.update(|_, cx| v.read(cx).thumb_drag.unwrap().content);
+    // The thumb follows the mouse 1:1, and the document follows the thumb.
+    cx.simulate_mouse_move(
+        point(x, px(grab_y + 100.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    let moved = dragged_thumb(&v, cx).unwrap();
+    assert!((moved.top - 100.).abs() < 1e-3, "{moved:?}");
+    let want = scroll::position_for_thumb(100., thumb.len, content, track, track);
+    // Rows measured after the jump refine the estimate a little.
+    let got = scrolled_px(&v, cx);
+    assert!((got - want).abs() < 0.01 * want, "{got} vs {want}");
+    // A right button release doesn't end the drag.
+    cx.simulate_mouse_up(point(x, px(grab_y)), MouseButton::Right, Default::default());
+    assert!(dragged_thumb(&v, cx).is_some());
+    // Past the bottom of the window: the thumb stops at the end of the track,
+    // and the document at its end.
+    cx.simulate_mouse_move(
+        point(x, px(h + 100.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    cx.run_until_parked();
+    assert_eq!(dragged_thumb(&v, cx).unwrap().top, track - thumb.len);
+    let (ix, _) = scroll_top(&v, cx);
+    assert!(ix > 370, "{ix}");
+    cx.simulate_mouse_up(point(x, px(h)), MouseButton::Left, Default::default());
+    assert!(dragged_thumb(&v, cx).is_none());
+    // Back to the top.
+    let (_, _, thumb) = thumb_now(&v, cx);
+    let on_thumb = point(x, px(TAB_BAR_HEIGHT + thumb.top + thumb.len / 2.));
+    cx.simulate_mouse_down(on_thumb, MouseButton::Left, Default::default());
+    // Grabbed at its middle, the thumb moves with the mouse, without a jump.
+    cx.simulate_mouse_move(
+        on_thumb - point(px(0.), px(50.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    assert!((dragged_thumb(&v, cx).unwrap().top - (thumb.top - 50.)).abs() < 1e-3);
+    cx.simulate_mouse_move(point(x, px(-500.)), MouseButton::Left, Default::default());
+    assert_eq!(dragged_thumb(&v, cx).unwrap().top, 0.);
+    cx.simulate_mouse_up(point(x, px(0.)), MouseButton::Left, Default::default());
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+    // A move without the button (released where we didn't see it) ends a drag.
+    cx.simulate_mouse_down(on_thumb, MouseButton::Left, Default::default());
+    cx.simulate_mouse_move(point(x, px(300.)), None, Default::default());
+    assert!(dragged_thumb(&v, cx).is_none());
+}
+
+#[test]
+fn clicking_the_scrollbar_track_glides_a_page() {
+    let (v, cx) = tall_doc();
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let (w, h, thumb) = thumb_now(&v, cx);
+    let x = px(w - 5.);
+    let page = h - 80.;
+    // Just below the thumb: a page down.
+    let below = TAB_BAR_HEIGHT + thumb.top + thumb.len + 2.;
+    cx.simulate_mouse_down(point(x, px(below)), MouseButton::Left, Default::default());
+    assert!(dragged_thumb(&v, cx).is_none());
+    assert!(
+        motion_active(&v, cx),
+        "the click must not stop its own glide"
+    );
+    settle(&v, cx);
+    assert!(
+        (scrolled_px(&v, cx) - page).abs() < 0.5,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+    // Below a thumb that has moved down: another page down.
+    let (_, _, thumb) = thumb_now(&v, cx);
+    assert!(thumb.top > 4.);
+    let below = TAB_BAR_HEIGHT + thumb.top + thumb.len + 2.;
+    cx.simulate_mouse_down(point(x, px(below)), MouseButton::Left, Default::default());
+    settle(&v, cx);
+    let two = scrolled_px(&v, cx);
+    assert!((two - 2. * page).abs() < 0.5, "{two}");
+    // Just above the thumb: a page back up.
+    let (_, _, thumb) = thumb_now(&v, cx);
+    let above = TAB_BAR_HEIGHT + thumb.top - 2.;
+    cx.simulate_mouse_down(point(x, px(above)), MouseButton::Left, Default::default());
+    settle(&v, cx);
+    assert!(
+        (scrolled_px(&v, cx) - page).abs() < 0.5,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+}
+
+#[test]
+fn short_documents_have_no_scrollbar() {
+    let (v, cx) = open_docs(&["a.md"]);
+    cx.run_until_parked();
+    let (w, _) = cx.update(|window, _| {
+        let s = window.viewport_size();
+        (f32::from(s.width), f32::from(s.height))
+    });
+    cx.simulate_mouse_down(
+        point(px(w - 5.), px(TAB_BAR_HEIGHT + 5.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    assert!(cx.update(|_, cx| v.read(cx).thumb_drag.is_none()));
+    assert!(!motion_active(&v, cx));
+}
+
+#[test]
+fn a_thumb_drag_ends_when_its_tab_is_switched() {
+    let mut md = String::new();
+    for i in 0..200 {
+        md.push_str(&format!(
+            "## Heading {i}\n\nParagraph {i} with some text.\n\n"
+        ));
+    }
+    let (v, cx) = open(vec![
+        (PathBuf::from("/x/a.md"), parsed(&md)),
+        (PathBuf::from("/x/b.md"), parsed(&md)),
+    ]);
+    cx.run_until_parked();
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let (w, _, thumb) = thumb_now(&v, cx);
+    let x = px(w - 5.);
+    let grab = point(x, px(TAB_BAR_HEIGHT + thumb.len / 2.));
+    cx.simulate_mouse_down(grab, MouseButton::Left, Default::default());
+    assert!(dragged_thumb(&v, cx).is_some());
+    cx.dispatch_action(PrevTab);
+    assert_eq!(active(&v, cx).as_deref(), Some("a.md"));
+    cx.simulate_mouse_move(point(x, px(400.)), MouseButton::Left, Default::default());
+    assert!(dragged_thumb(&v, cx).is_none());
+    assert_eq!(scroll_top(&v, cx), (0, 0.), "the other tab didn't move");
+}
+
+#[test]
+fn a_big_touchpad_delta_stays_within_measured_rows() {
+    let (v, cx) = tall_doc();
+    touchpad(cx, -100_000., TouchPhase::Moved);
+    let (ix, _) = scroll_top(&v, cx);
+    assert!(ix < 100, "jumped to row {ix} of 400");
+}
+
+/// Runs `f` on the active tab, with no frame drawn in between.
+fn with_tab<R>(v: &Entity<Viewer>, cx: &mut VisualTestContext, f: impl FnOnce(&mut Tab) -> R) -> R {
+    cx.update(|_, cx| v.update(cx, |v, _| f(v.tabs.active_mut().unwrap())))
+}
+
+fn redraw(v: &Entity<Viewer>, cx: &mut VisualTestContext) {
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+}
+
+fn viewport_height(cx: &mut VisualTestContext) -> f32 {
+    cx.update(|window, _| f32::from(window.viewport_size().height)) - TAB_BAR_HEIGHT
+}
+
+fn at(t0: Instant, ms: u64) -> Instant {
+    t0 + Duration::from_millis(ms)
+}
+
+#[test]
+fn motion_stops_at_the_top_and_bottom() {
+    let (v, cx) = tall_doc();
+    let vh = viewport_height(cx);
+    let t0 = Instant::now();
+    // Upward at the top: done.
+    let going = with_tab(&v, cx, |tab| {
+        tab.motion.wheel(-100., t0);
+        tab.advance_motion(at(t0, 16), vh)
+    });
+    assert!(!going);
+    assert!(!motion_active(&v, cx));
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+    // At the bottom: downward is done, upward goes on.
+    cx.dispatch_action(Bottom);
+    redraw(&v, cx);
+    let bottom = scroll_top(&v, cx);
+    let going = with_tab(&v, cx, |tab| {
+        tab.motion.wheel(100., t0);
+        tab.advance_motion(at(t0, 16), vh)
+    });
+    assert!(!going);
+    assert_eq!(scroll_top(&v, cx), bottom);
+    let going = with_tab(&v, cx, |tab| {
+        tab.motion.wheel(-100., t0);
+        tab.advance_motion(at(t0, 16), vh)
+    });
+    assert!(going);
+    // 50 px short of the bottom: downward goes on.
+    redraw(&v, cx);
+    with_tab(&v, cx, |tab| tab.motion.stop());
+    let going = with_tab(&v, cx, |tab| {
+        tab.motion.wheel(10., t0);
+        tab.advance_motion(at(t0, 16), vh)
+    });
+    assert!(going);
+}
+
+#[test]
+fn motion_moves_at_most_a_measured_step_per_frame() {
+    let (v, cx) = tall_doc();
+    let vh = viewport_height(cx);
+    let t0 = Instant::now();
+    for dir in [1., -1.] {
+        with_tab(&v, cx, |tab| tab.scroll_to_estimate(8000., 60.));
+        redraw(&v, cx);
+        let before = scrolled_px(&v, cx);
+        let going = with_tab(&v, cx, |tab| {
+            tab.motion.wheel(2000. * dir, t0);
+            // The glide is over, but only MEASURED_STEP goes: the rest waits
+            // for the next frame to measure the rows it will cross.
+            tab.advance_motion(at(t0, 200), vh)
+        });
+        assert!(going);
+        let moved = scrolled_px(&v, cx) - before;
+        assert!((moved - MEASURED_STEP * dir).abs() < 1., "{moved}");
+        with_tab(&v, cx, |tab| tab.motion.stop());
+    }
+}
+
+#[test]
+fn motion_waits_for_heights_after_a_reset() {
+    let (v, cx) = tall_doc();
+    let vh = viewport_height(cx);
+    let t0 = Instant::now();
+    with_tab(&v, cx, |tab| tab.scroll_to_estimate(3000., 60.));
+    redraw(&v, cx);
+    let before = scroll_top(&v, cx);
+    let going = with_tab(&v, cx, |tab| {
+        tab.list.reset(tab.list.item_count());
+        tab.list.scroll_to(ListOffset {
+            item_ix: before.0,
+            offset_in_item: px(before.1),
+        });
+        tab.motion.wheel(-300., t0);
+        tab.advance_motion(at(t0, 200), vh)
+    });
+    assert!(going, "kept for after the layout");
+    assert_eq!(scroll_top(&v, cx), before);
+}
+
+#[test]
+fn touchpad_scrolls_within_measured_rows() {
+    let (v, cx) = tall_doc();
+    // Several big deltas before a frame add up to no more than the
+    // measured rows below the viewport.
+    let measured_end = with_tab(&v, cx, |tab| {
+        let all = measured(&tab.list, usize::MAX).height;
+        let vh = f32::from(tab.list.viewport_bounds().size.height);
+        for _ in 0..3 {
+            tab.scroll_measured(700.);
+        }
+        all - vh
+    });
+    assert!(measured_end > 700., "{measured_end}");
+    assert!((scrolled_px(&v, cx) - measured_end).abs() < 0.01);
+    let (ix, _) = scroll_top(&v, cx);
+    assert!(ix < 100, "jumped to row {ix} of 400");
+    // A big delta within the measured rows goes all the way.
+    redraw(&v, cx);
+    with_tab(&v, cx, |tab| tab.scroll_measured(-700.));
+    assert!((scrolled_px(&v, cx) - (measured_end - 700.)).abs() < 0.01);
+    // Right after a reset (reload, resize) nothing has a height: ignored.
+    let before = scroll_top(&v, cx);
+    with_tab(&v, cx, |tab| {
+        tab.list.reset(tab.list.item_count());
+        tab.list.scroll_to(ListOffset {
+            item_ix: before.0,
+            offset_in_item: px(before.1),
+        });
+        tab.scroll_measured(-300.);
+    });
+    assert_eq!(scroll_top(&v, cx), before);
+}
+
+#[test]
+fn a_sideways_swipe_keeps_a_split_page_up() {
+    let (v, cx) = tall_doc();
+    let rest = Some(PageUpRest {
+        px: 500.,
+        laid_out: true,
+    });
+    // Handled with no frame in between, which would take the next step.
+    let wheel = |v: &Entity<Viewer>, cx: &mut VisualTestContext, delta, touch_phase| {
+        cx.update(|_, cx| {
+            v.update(cx, |v, cx| {
+                v.tabs.active_mut().unwrap().page_up_rest = rest;
+                v.wheel(
+                    &ScrollWheelEvent {
+                        position: point(px(300.), px(300.)),
+                        delta: ScrollDelta::Pixels(delta),
+                        touch_phase,
+                        ..Default::default()
+                    },
+                    cx,
+                );
+                v.tabs.active().unwrap().page_up_rest
+            })
+        })
+    };
+    // Sideways over a code block, the start or a slow end of a touch.
+    assert_eq!(
+        wheel(&v, cx, point(px(-40.), px(0.)), TouchPhase::Moved),
+        rest
+    );
+    assert_eq!(
+        wheel(&v, cx, point(px(0.), px(0.)), TouchPhase::Started),
+        rest
+    );
+    assert_eq!(
+        wheel(&v, cx, point(px(0.), px(0.)), TouchPhase::Ended),
+        rest
+    );
+    // A vertical one drops it.
+    assert_eq!(
+        wheel(&v, cx, point(px(0.), px(-10.)), TouchPhase::Moved),
+        None
+    );
+}
+
+#[test]
+fn a_thumb_drag_does_not_come_back_with_its_tab() {
+    let mut md = String::new();
+    for i in 0..200 {
+        md.push_str(&format!(
+            "## Heading {i}\n\nParagraph {i} with some text.\n\n"
+        ));
+    }
+    let (v, cx) = open(vec![
+        (PathBuf::from("/x/a.md"), parsed(&md)),
+        (PathBuf::from("/x/b.md"), parsed(&md)),
+    ]);
+    redraw(&v, cx);
+    let (w, _, thumb) = thumb_now(&v, cx);
+    let x = px(w - 5.);
+    cx.simulate_mouse_down(
+        point(x, px(TAB_BAR_HEIGHT + thumb.len / 2.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    assert!(dragged_thumb(&v, cx).is_some());
+    cx.dispatch_action(PrevTab);
+    cx.dispatch_action(NextTab);
+    redraw(&v, cx);
+    assert!(dragged_thumb(&v, cx).is_none());
+}
+
+#[test]
+fn a_sideways_swipe_keeps_a_wheel_glide() {
+    let (v, cx) = tall_doc();
+    wheel_lines(cx, -3.);
+    assert!(motion_active(&v, cx));
+    touchpad_x(cx, -40.);
+    assert!(motion_active(&v, cx), "the glide goes on");
+    settle(&v, cx);
+    assert!(
+        (scrolled_px(&v, cx) - 60.).abs() < 0.01,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+}
+
+fn touchpad_x(cx: &mut VisualTestContext, dx: f32) {
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Pixels(point(px(dx), px(0.))),
+        ..Default::default()
+    });
+}
+
+/// A wheel event handled with no frame drawn first.
+fn wheel_now(v: &Entity<Viewer>, cx: &mut VisualTestContext, lines: f32) {
+    cx.update(|_, cx| {
+        v.update(cx, |v, cx| {
+            v.wheel(
+                &ScrollWheelEvent {
+                    position: point(px(300.), px(300.)),
+                    delta: ScrollDelta::Lines(point(0., lines)),
+                    ..Default::default()
+                },
+                cx,
+            )
+        })
+    });
+}
+
+#[test]
+fn a_step_back_from_an_edge_is_not_absorbed() {
+    let (v, cx) = tall_doc();
+    let vh = viewport_height(cx);
+    with_tab(&v, cx, |tab| tab.scroll_measured(15.));
+    redraw(&v, cx);
+    // One line (20 px) up aims 5 px past the top; one frame later the glide
+    // is still on its way...
+    wheel_now(&v, cx, 1.);
+    let going = with_tab(&v, cx, |tab| {
+        tab.advance_motion(Instant::now() + Duration::from_millis(16), vh)
+    });
+    assert!(going);
+    let mid = scrolled_px(&v, cx);
+    assert!(mid > 0. && mid < 15., "{mid}");
+    // ...and one line down ends a line below the top, as on main (the up
+    // step clamps at the top), not back at 15 px.
+    wheel_now(&v, cx, -1.);
+    settle(&v, cx);
+    assert!(
+        (scrolled_px(&v, cx) - 20.).abs() < 0.01,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+}
+
+#[test]
+fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
+    let (v, cx) = tall_doc();
+    cx.dispatch_action(Bottom);
+    redraw(&v, cx);
+    let vh = viewport_height(cx);
+    let gap = |v: &Entity<Viewer>, cx: &mut VisualTestContext| {
+        with_tab(v, cx, |tab| {
+            let (above, content, _) = tab.extent();
+            content - above - vh
+        })
+    };
+    assert!(gap(&v, cx).abs() < 0.01);
+    with_tab(&v, cx, |tab| tab.scroll_measured(-0.25));
+    redraw(&v, cx);
+    assert!((gap(&v, cx) - 0.25).abs() < 0.01);
+    wheel_lines(cx, -1.);
+    settle(&v, cx);
+    assert!(gap(&v, cx).abs() < 0.01, "{}", gap(&v, cx));
+}

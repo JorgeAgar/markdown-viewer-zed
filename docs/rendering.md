@@ -85,6 +85,37 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   (`PageUpRest`): each frame measures the overdraw above the new scroll top
   before the next step crosses it. Any other scroll, jump or reload drops the
   rest of the page.
+- The mouse wheel and touchpad go through `Viewer::wheel`, not GPUI's list
+  (`List::without_scroll_wheel`), into the tab's `scroll::Motion`:
+  - A wheel step (`ScrollDelta::Lines`, 20 px per line) glides there with a
+    150 ms cubic ease-out. Steps add up toward one destination, both ways, so
+    a step down and one up return exactly to the start (as on main). What's
+    left of a glide is first limited to the room to the edges
+    (`Tab::limit_motion`), so an unreachable destination past an edge can't
+    absorb a step back.
+  - A touchpad (`ScrollDelta::Pixels`) scrolls 1:1, within the measured
+    rows like GPUI's own handler (`Tab::scroll_measured`), and not at all
+    right after a reset, before any row has a height. A sideways delta (a
+    code block's) leaves a wheel glide or a split PageUp going. When the fingers lift
+    (`TouchPhase::Ended`, which the GPUI fork sends on Wayland's `axis_stop`),
+    the speed of the last 100 ms flings on, slowing down exponentially
+    (τ = 350 ms). macOS sends its own momentum events, so there's no fling
+    there.
+  - `Tab::advance_motion` scrolls each frame's part at the start of the frame
+    and asks for the next frame while motion goes on. It stops at the top or
+    bottom, on a click in the document, on any key scroll or jump, on a
+    reload, and when the tab isn't active. A frame moves at most
+    `LIST_OVERDRAW - 40` px either way, like a split PageUp: the last frame
+    measured that far past both edges, and a longer step could skip
+    unmeasured (0 px) rows. Right after a reset (resize, reload) the motion
+    waits a frame for the rows' heights.
+- The scrollbar (`Viewer::render_scrollbar`) is an overlay at the right edge,
+  shown when the document doesn't fit. GPUI only knows the heights of
+  measured rows, so `Tab::extent` counts each unmeasured row as the average
+  measured one (`ListState::measured_before`, added in the fork). Dragging the
+  thumb freezes that estimate for the drag and jumps to the row at the
+  matching position (`scroll::locate`). A drag ends if its tab stops being
+  the active one, even if it comes back. A click on the track glides one page toward it.
 - When a file is reloaded, `Tab::replace` remaps the top visible row through
   `(block_ix, offset_within_block)` before calling `ListState::reset` (resetting
   `offset_in_item` to 0 when the target row was clamped or shrank), so growing

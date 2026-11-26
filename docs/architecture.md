@@ -13,6 +13,7 @@
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model + rows → GPUI elements; link handling
 │   ├── rows.rs        `Rows`: splits large top-level blocks into virtualized list rows (GUI-free, unit-tested)
+│   ├── scroll.rs      Smooth wheel glides, touchpad flings, scrollbar geometry (GUI-free, unit-tested)
 │   ├── http.rs        Lazy HTTP(S) image transport on the blocking pool
 │   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (GUI-free)
 │   └── theme.rs       Light and dark palettes
@@ -46,6 +47,7 @@ flowchart TD
     resvg[("resvg")]
     render["render.rs<br/>render_row() → AnyElement"]
     rows["rows.rs<br/>Rows::from_document()"]
+    scroll["scroll.rs<br/>Motion, thumb(), locate()"]
     links["links.rs<br/>classify_link() → LinkTarget"]
     theme["theme.rs<br/>Theme"]
     gpui[("crates/gpui<br/>GPUI (vendored)")]
@@ -62,6 +64,7 @@ flowchart TD
     main --> gpui
     viewer --> markdown
     viewer --> rows
+    viewer --> scroll
     viewer --> render
     viewer --> theme
     rows --> markdown
@@ -162,6 +165,7 @@ classDiagram
         fonts: Fonts
         window_title: SharedString
         last_open_dir: Option~PathBuf~
+        thumb_drag: Option~ThumbDrag~  scrollbar thumb being dragged
     }
     class Tab {
         path: PathBuf  canonical
@@ -175,6 +179,7 @@ classDiagram
         leading_measured: bool  rows above the scroll top are measured
         last_viewport_width: Option~Pixels~
         page_up_rest: Option~PageUpRest~  rest of a PageUp split across frames
+        motion: Motion  wheel glide or touchpad fling in progress
     }
     class Tabs~T~ {
         items: Vec~T~

@@ -62,7 +62,7 @@ if [[ $all == 1 ]]; then
     info "Full run (about an hour). Core crate first, then the app's pure modules."
     runs=(
         "-p mdview-core --test-package mdview-core --timeout 30"
-        "-p mdview -f src/tabs.rs -f src/links.rs -f src/cli.rs -f src/rows.rs --timeout 60"
+        "-p mdview -f src/tabs.rs -f src/links.rs -f src/cli.rs -f src/rows.rs -f src/scroll.rs --timeout 60"
     )
 else
     git rev-parse --verify --quiet "$base" >/dev/null || base=main
@@ -99,7 +99,9 @@ for run in "${runs[@]}"; do
     )
     s=$?
     # 2 = some mutants survived, 3 = some timed out (they count as caught).
+    # With both, cargo mutants exits 3, so also check the list of survivors.
     [[ $s == 0 || $s == 3 ]] || status=1
+    [[ ! -s $out/$n/mutants.out/missed.txt ]] || status=1
 done
 git -C "$wt" checkout --quiet --force HEAD
 
