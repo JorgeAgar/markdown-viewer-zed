@@ -53,15 +53,15 @@ enum Anim {
 
 impl Motion {
     /// A wheel step of `dy` pixels: glides there, on top of what's left of
-    /// a glide in the same direction (fast wheel spins add up, like in a
-    /// browser). A fling or a glide the other way is dropped.
+    /// the running glide either way, so fast spins add up and a step back
+    /// returns exactly to where the first started (like GPUI's own handler,
+    /// and Firefox). A fling is dropped.
     pub fn wheel(&mut self, dy: f32, now: Instant) {
         let left = match self.anim {
             Some(Anim::Glide { distance, done, .. }) => distance - done + self.carry,
             None => self.carry,
             Some(Anim::Fling { .. }) => 0.,
         };
-        let left = if left * dy > 0. { left } else { 0. };
         self.carry = 0.;
         self.samples.clear();
         self.anim = Some(Anim::Glide {
@@ -313,15 +313,20 @@ mod tests {
     }
 
     #[test]
-    fn wheel_against_the_glide_drops_its_rest() {
+    fn wheel_back_returns_to_the_start() {
         let t0 = Instant::now();
+        // Before any frame: the steps cancel out.
+        let mut m = Motion::default();
+        m.wheel(60., t0);
+        m.wheel(-60., t0);
+        assert!(run(&mut m, t0, 0).abs() < 1e-3);
+        // Mid-glide: back to the start, not 60 px past it.
         let mut m = Motion::default();
         m.wheel(60., t0);
         let a = m.tick(ms(t0, 16), f32::INFINITY);
         m.wheel(-60., ms(t0, 20));
         assert_eq!(m.direction(), -1.);
-        let rest = run(&mut m, t0, 20);
-        assert!((a + rest - (a - 60.)).abs() < 1e-3);
+        assert!((a + run(&mut m, t0, 20)).abs() < 1e-3);
     }
 
     #[test]
@@ -543,13 +548,14 @@ mod tests {
     }
 
     #[test]
-    fn wheel_against_a_long_glide_drops_it() {
+    fn wheel_against_a_long_glide_shortens_it() {
         let t0 = Instant::now();
         let mut m = Motion::default();
         m.wheel(200., t0);
         let a = m.tick(ms(t0, 16), f32::INFINITY);
         m.wheel(-10., ms(t0, 20));
-        assert!((a + run(&mut m, t0, 20) - (a - 10.)).abs() < 1e-3);
+        assert_eq!(m.direction(), 1.);
+        assert!((a + run(&mut m, t0, 20) - 190.).abs() < 1e-3);
     }
 
     #[test]

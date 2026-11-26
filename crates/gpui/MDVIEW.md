@@ -67,9 +67,8 @@ Wayland leaves kinetic (fling) scrolling to clients, but upstream ignores
 `wl_pointer.axis_stop`, so an app can't tell when the fingers left the
 touchpad. A finger `axis_stop` on the vertical axis is now sent, after the
 frame's other scroll events, as a `ScrollWheelEvent` with a zero `Pixels`
-delta and `TouchPhase::Ended`. A horizontal stop is ignored (in a diagonal
-swipe it can come while the fingers still scroll vertically), and so is a
-stop in a frame that still has vertical movement.
+delta and `TouchPhase::Ended`. A horizontal stop is ignored: in a diagonal
+swipe it can come while the fingers still scroll vertically.
 
 `List::without_scroll_wheel()` skips the list's own wheel listener, so a view
 can animate the scroll itself with `ListState::scroll_by`.

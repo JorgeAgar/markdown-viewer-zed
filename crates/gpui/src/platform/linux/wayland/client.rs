@@ -1810,10 +1810,9 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                     state.scroll_event_received = false;
                     let continuous = state.continuous_scroll_delta.take();
                     let discrete = state.discrete_scroll_delta.take();
-                    // mdview: also send the end of a touchpad scroll, unless
-                    // this frame still scrolls vertically.
-                    let stopped = std::mem::take(&mut state.scroll_stopped)
-                        && continuous.is_none_or(|delta| delta.y == px(0.));
+                    // mdview: also send the end of a touchpad scroll, after
+                    // this frame's last movement.
+                    let stopped = std::mem::take(&mut state.scroll_stopped);
                     let Some(window) = state.mouse_focused_window.clone() else {
                         return;
                     };

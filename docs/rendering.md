@@ -88,8 +88,8 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
 - The mouse wheel and touchpad go through `Viewer::wheel`, not GPUI's list
   (`List::without_scroll_wheel`), into the tab's `scroll::Motion`:
   - A wheel step (`ScrollDelta::Lines`, 20 px per line) glides there with a
-    150 ms cubic ease-out. Steps in the same direction add up; a step the
-    other way drops the rest.
+    150 ms cubic ease-out. Steps add up toward one destination, both ways, so
+    a step down and one up return exactly to the start (as on main).
   - A touchpad (`ScrollDelta::Pixels`) scrolls 1:1, within the measured
     rows like GPUI's own handler (`Tab::scroll_measured`), and not at all
     right after a reset, before any row has a height. A sideways delta (a

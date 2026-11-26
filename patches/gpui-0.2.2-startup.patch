@@ -416,7 +416,7 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
                          let result = match err {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/client.rs gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
 --- gpui-0.2.2/src/platform/linux/wayland/client.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs	2026-11-25 19:47:26.931149361 -0500
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs	2026-11-25 20:42:27.004763679 -0500
 @@ -224,6 +224,9 @@
      vertical_modifier: f32,
      horizontal_modifier: f32,
@@ -479,14 +479,13 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
              wl_pointer::Event::AxisDiscrete {
                  axis: WEnum::Value(axis),
                  discrete,
-@@ -1785,28 +1810,37 @@
+@@ -1785,28 +1810,36 @@
                      state.scroll_event_received = false;
                      let continuous = state.continuous_scroll_delta.take();
                      let discrete = state.discrete_scroll_delta.take();
-+                    // mdview: also send the end of a touchpad scroll, unless
-+                    // this frame still scrolls vertically.
-+                    let stopped = std::mem::take(&mut state.scroll_stopped)
-+                        && continuous.is_none_or(|delta| delta.y == px(0.));
++                    // mdview: also send the end of a touchpad scroll, after
++                    // this frame's last movement.
++                    let stopped = std::mem::take(&mut state.scroll_stopped);
 +                    let Some(window) = state.mouse_focused_window.clone() else {
 +                        return;
 +                    };
