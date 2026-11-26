@@ -1,0 +1,8 @@
+# The Rust version for local builds and CI. Pinned so builds are reproducible
+# and CI caches (keyed on the compiler version) don't all go cold when a new
+# stable comes out. Bump it deliberately, in its own commit, after
+# scripts/check.sh --release passes on the new version.
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
