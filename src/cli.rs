@@ -47,19 +47,32 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Command {
     Command::Run { standalone, paths }
 }
 
-/// Where the single-instance socket lives: `$XDG_RUNTIME_DIR/mdview.sock`,
-/// else `$TMPDIR/mdview-$USER.sock`. The fallback is only computed when
+/// The directory that holds the single-instance socket (`mdview.sock`) and
+/// its lock file (`mdview.lock`).
+#[cfg(unix)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum SocketDir {
+    /// `$XDG_RUNTIME_DIR`: private to the user by the XDG spec, used as is.
+    Runtime(PathBuf),
+    /// `$TMPDIR/mdview-$UID`: the temp dir is shared, so mdview creates this
+    /// directory itself (mode 0700) and checks who owns it before use.
+    Private(PathBuf),
+}
+
+/// Picks the [`SocketDir`]. An unset, empty or relative `XDG_RUNTIME_DIR`
+/// is ignored (the XDG spec says to), so the socket is never relative to the
+/// working directory. The fallback (temp dir, uid) is only computed when
 /// needed.
-#[cfg(any(unix, test))]
-pub fn socket_path_in(
+#[cfg(unix)]
+pub fn socket_dir_in(
     runtime_dir: Option<OsString>,
-    fallback: impl FnOnce() -> (PathBuf, String),
-) -> PathBuf {
-    match runtime_dir {
-        Some(dir) => PathBuf::from(dir).join("mdview.sock"),
-        None => {
-            let (tmp, user) = fallback();
-            tmp.join(format!("mdview-{user}.sock"))
+    fallback: impl FnOnce() -> (PathBuf, u32),
+) -> SocketDir {
+    match runtime_dir.map(PathBuf::from) {
+        Some(dir) if dir.is_absolute() => SocketDir::Runtime(dir),
+        _ => {
+            let (tmp, uid) = fallback();
+            SocketDir::Private(tmp.join(format!("mdview-{uid}")))
         }
     }
 }
@@ -122,7 +135,6 @@ pub fn decode_paths(mut body: &[u8]) -> Option<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     #[cfg(unix)]
     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
@@ -219,26 +231,31 @@ mod tests {
         assert!(HELP.ends_with('\n'));
     }
 
+    #[cfg(unix)]
     #[test]
-    fn socket_path() {
-        let never = || -> (PathBuf, String) { panic!("fallback computed needlessly") };
+    fn socket_dir() {
+        let never = || -> (PathBuf, u32) { panic!("fallback computed needlessly") };
         assert_eq!(
-            socket_path_in(Some("/run/user/1000".into()), never),
-            Path::new("/run/user/1000/mdview.sock")
+            socket_dir_in(Some("/run/user/1000".into()), never),
+            SocketDir::Runtime("/run/user/1000".into())
         );
         assert_eq!(
-            socket_path_in(None, || ("/tmp".into(), "jo".into())),
-            Path::new("/tmp/mdview-jo.sock")
+            socket_dir_in(None, || ("/tmp".into(), 1000)),
+            SocketDir::Private("/tmp/mdview-1000".into())
         );
         assert_eq!(
-            socket_path_in(None, || ("/tmp".into(), String::new())),
-            Path::new("/tmp/mdview-.sock")
+            socket_dir_in(None, || ("/var/folders/x/T/".into(), 0)),
+            SocketDir::Private("/var/folders/x/T/mdview-0".into())
         );
-        // An empty XDG_RUNTIME_DIR is used as is (a relative socket path).
-        assert_eq!(
-            socket_path_in(Some("".into()), never),
-            Path::new("mdview.sock")
-        );
+        // An empty or relative XDG_RUNTIME_DIR would put the socket (and its
+        // lock file) in the working directory: use the fallback instead.
+        for bad in ["", "run/user/1000", "./x"] {
+            assert_eq!(
+                socket_dir_in(Some(bad.into()), || ("/tmp".into(), 7)),
+                SocketDir::Private("/tmp/mdview-7".into()),
+                "{bad:?}"
+            );
+        }
     }
 
     /// Encodes `paths` and splits off the header, checking it on the way.
@@ -294,6 +311,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn header_is_capped() {
+        assert_eq!(MAX_MESSAGE, 16 << 20, "documented as 16 MiB, like Windows");
         assert_eq!(body_len([0; 4]), Some(0));
         assert_eq!(body_len([1, 2, 0, 0]), Some(0x0201));
         assert_eq!(

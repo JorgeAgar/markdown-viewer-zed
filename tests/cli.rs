@@ -14,7 +14,7 @@
 //! ```
 //!
 //! Wire format (`cli::encode_paths`): the client connects to
-//! `$XDG_RUNTIME_DIR/mdview.sock` (or `$TMPDIR/mdview-$USER.sock`), writes a
+//! `$XDG_RUNTIME_DIR/mdview.sock` (or `$TMPDIR/mdview-$UID/mdview.sock`), writes a
 //! little-endian `u32` body length, then each absolute path as a `u32` byte
 //! count and its raw OS bytes, and closes the connection. [`read_handoff`]
 //! decodes it independently of the app's code.
@@ -36,8 +36,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(target_os = "linux")]
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 const BIN: &str = env!("CARGO_BIN_EXE_mdview");
 /// The warm path should take milliseconds; this only catches hangs and
@@ -202,20 +201,61 @@ fn warm_path_with_no_files_still_hands_off() {
 
 #[test]
 fn warm_path_falls_back_to_tmpdir_without_xdg_runtime_dir() {
-    let tmp = TempDir::new("tmpdir");
-    std::fs::write(tmp.join("x.md"), "x").unwrap();
-    let listener = UnixListener::bind(tmp.join("mdview-mdview-test.sock")).unwrap();
+    // Without XDG_RUNTIME_DIR the socket lives in a private mdview-$UID
+    // directory under $TMPDIR. An empty or relative XDG_RUNTIME_DIR counts
+    // as unset, rather than putting the socket in the working directory.
+    for xdg in [None, Some(""), Some("relative/run")] {
+        let tmp = TempDir::new("tmp");
+        std::fs::write(tmp.join("x.md"), "x").unwrap();
+        let uid = std::fs::metadata(tmp.path()).unwrap().uid();
+        let dir = tmp.join(format!("mdview-{uid}"));
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let listener = UnixListener::bind(dir.join("mdview.sock")).unwrap();
+        let mut cmd = Command::new(BIN);
+        cmd.current_dir(&tmp)
+            .arg("x.md")
+            .env_remove("XDG_RUNTIME_DIR")
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("DISPLAY")
+            .env("TMPDIR", tmp.path());
+        if let Some(xdg) = xdg {
+            cmd.env("XDG_RUNTIME_DIR", xdg);
+        }
+        let (out, msgs) = serve(listener, cmd, 1);
+        assert!(out.success());
+        assert_eq!(msgs, [vec![canon(&tmp.join("x.md"))]], "{xdg:?}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn warm_path_refuses_a_socket_dir_other_users_can_enter() {
+    // Anyone can create $TMPDIR/mdview-$UID first and listen in it. mdview
+    // must not hand that listener the paths; it says why and runs alone
+    // (which, with no display, fails here).
+    let tmp = TempDir::new("tmp");
+    let uid = std::fs::metadata(tmp.path()).unwrap().uid();
+    let dir = tmp.join(format!("mdview-{uid}"));
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let listener = UnixListener::bind(dir.join("mdview.sock")).unwrap();
+    listener.set_nonblocking(true).unwrap();
     let mut cmd = Command::new(BIN);
     cmd.current_dir(&tmp)
         .arg("x.md")
         .env_remove("XDG_RUNTIME_DIR")
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("DISPLAY")
-        .env("TMPDIR", tmp.path())
-        .env("USER", "mdview-test");
-    let (out, msgs) = serve(listener, cmd, 1);
-    assert!(out.success());
-    assert_eq!(msgs, [vec![canon(&tmp.join("x.md"))]]);
+        .env("TMPDIR", tmp.path());
+    let out = run(&mut cmd, Duration::from_secs(20));
+    assert!(listener.accept().is_err(), "sent paths to a planted socket");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("single-instance socket unavailable") && stderr.contains("mode 777"),
+        "{}",
+        describe(&out)
+    );
 }
 
 #[test]

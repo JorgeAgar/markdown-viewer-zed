@@ -7,7 +7,7 @@
 ├── src/
 │   ├── main.rs        Entry point: IPC/events, key bindings, font choice, window creation
 │   ├── platform/      OS integration; unix.rs owns Unix sockets, windows.rs owns named pipes, mac.rs handles Finder/Dock
-│   ├── cli.rs         Argument parsing, help text, socket path and message format (GUI-free)
+│   ├── cli.rs         Argument parsing, help text, socket directory and message format (GUI-free)
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
@@ -33,7 +33,7 @@
 ```mermaid
 flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
-    cli["cli.rs<br/>parse_args(), encode/decode_paths()"]
+    cli["cli.rs<br/>parse_args(), socket_dir_in(), encode/decode_paths()"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
     tabs["tabs.rs<br/>Tabs: list + active index"]
     subgraph core["crates/mdview-core (no GPUI)"]
@@ -237,17 +237,42 @@ flowchart LR
 
 ## Single-instance protocol
 
-The socket lives at `$XDG_RUNTIME_DIR/mdview.sock`, or
-`$TMPDIR/mdview-$USER.sock` when `XDG_RUNTIME_DIR` isn't set. The client
-writes one message and closes the connection: a little-endian `u32` body
-length, then for each absolute path a little-endian `u32` byte count and the
-path's raw OS bytes. An empty list just raises the window.
-`cli::encode_paths` / `cli::decode_paths` implement it. Because it carries the
-bytes and not a display string, every Unix path arrives exactly as given:
-newlines, a trailing `\r` and non-UTF-8 bytes included. The body is capped at
-`cli::MAX_MESSAGE` (16 MiB, like the Windows pipe); the listener checks the
-header before it reads anything, and drops truncated or malformed messages
-without stopping.
+`platform/unix.rs` implements it; `cli.rs` holds the pure parts (where the
+socket lives, the message format).
+
+**Where.** The socket is `mdview.sock` in `$XDG_RUNTIME_DIR`, which the XDG
+spec makes private to the user. When `XDG_RUNTIME_DIR` is unset (always on
+macOS, often over SSH), empty or relative, it's in `$TMPDIR/mdview-$UID/`
+instead (`cli::socket_dir_in`). The temp dir is shared, so mdview creates
+that directory with mode 0700 and, before every use, checks that it's a real
+directory (not a symlink), owned by the current uid, with no group or other
+permission bits. If the check fails, mdview prints why and runs as a separate
+instance: it never connects to, or binds, a socket another user could have
+planted. The socket itself is made mode 0600 when it's bound.
+
+**Message.** The client writes one message and closes the connection: a
+little-endian `u32` body length, then for each absolute path a little-endian
+`u32` byte count and the path's raw OS bytes. An empty list just raises the
+window. `cli::encode_paths` / `cli::decode_paths` implement it. Because it
+carries the bytes and not a display string, every Unix path arrives exactly
+as given: newlines, a trailing `\r` and non-UTF-8 bytes included.
+
+**Limits.** The body is capped at `cli::MAX_MESSAGE` (16 MiB, like the
+Windows pipe): the listener checks the header before it reads anything, and
+a client with more paths than that opens its own window. The listener reads
+one client at a time and gives each 2 seconds for its whole message, so a
+client that stalls or trickles bytes can't block later handoffs. Truncated,
+oversized, malformed or late messages are dropped without stopping the
+listener.
+
+**Taking over.** Only a launch that can't connect takes the lock
+(`flock` on `mdview.lock` next to the socket, which is never deleted). Under
+the lock it connects again, because another launch may have just become the
+server; if nobody answers, the socket is stale, so it removes it and binds its
+own. Two launches started together therefore elect one server instead of
+unlinking each other's socket. At exit, `cleanup()` takes the lock and
+removes the socket only if its `(dev, inode)` is still the one this process
+bound, so it can't delete a newer instance's socket.
 
 ```mermaid
 sequenceDiagram
@@ -256,15 +281,22 @@ sequenceDiagram
     participant L as IPC listener thread
     participant UI as Main thread (Viewer)
 
-    C->>S: connect()
+    C->>S: connect() (no lock)
     alt An instance is running
         C->>S: write(len, [len, bytes of /abs/path/b.md])
         C-->>C: exit(0) (~4 ms total)
-        S->>L: accept() + read the length-prefixed frames
+        S->>L: accept() + read the frames (2 s deadline, 16 MiB cap)
         L->>UI: unbounded_send(paths)
         UI->>UI: open_paths() → new tab, activate_window()
-    else Nothing is listening (or a stale socket)
-        C->>C: remove the stale file, bind(), become the server
+    else Nothing answered
+        C->>C: flock(mdview.lock)
+        C->>S: connect() again
+        alt Another launch became the server meanwhile
+            C->>S: unlock, write(message), exit(0)
+        else Still nobody (missing or stale socket)
+            C->>C: remove the stale file, bind() mode 0600, record (dev, inode), unlock
+            C->>C: become the server
+        end
     end
 ```
 
