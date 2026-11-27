@@ -635,10 +635,15 @@ fn render_block(block: &Block, rcx: &RenderCx, c: &mut Cx, depth: usize) -> AnyE
             .child(div().flex_none().child(format!("[{label}]")))
             .child(
                 div()
+                    // `min_w_0` lets wide content (code, tables, long
+                    // words) shrink to the column, as in `list_item_row`.
                     .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
                     .gap_2()
+                    // A no-op outside tests (GPUI's `test-support`).
+                    .debug_selector(|| "footnote-body".into())
                     .children(blocks.iter().map(|b| render_block(b, rcx, c, depth + 1))),
             )
             .into_any_element(),

@@ -805,6 +805,35 @@ fn draws_split_large_code_quotes_and_header_only_table_in_both_themes() {
 }
 
 #[test]
+fn wide_footnote_content_stays_in_the_column() {
+    // Issue #53: the footnote body is a flex item without `min_w_0`, so a
+    // long code line or an unbreakable word widened it past the column
+    // instead of scrolling or wrapping inside it.
+    let long = "x".repeat(400);
+    for (case, body) in [
+        ("code", format!("The note.\n\n    ```\n    {long}\n    ```")),
+        ("url", format!("https://example.com/{long}")),
+    ] {
+        let md = format!("Ref[^1].\n\n[^1]: {body}\n");
+        let (v, cx) = open(vec![(PathBuf::from("/x/footnote.md"), parsed(&md))]);
+        let handle = cx.window_handle();
+        cx.simulate_window_resize(handle, size(px(1200.), px(800.)));
+        cx.run_until_parked();
+        let row = cx.update(|_, cx| {
+            let list = v.read(cx).active_list().unwrap();
+            list.bounds_for_item(list.item_count() - 1).unwrap()
+        });
+        let body_bounds = cx.debug_bounds("footnote-body").expect("footnote drawn");
+        // The column is at most CONTENT_MAX_WIDTH wide, with `px_8` padding.
+        assert!(
+            body_bounds.size.width <= px(render::CONTENT_MAX_WIDTH - 64.)
+                && body_bounds.right() <= row.right(),
+            "{case}: body {body_bounds:?} in row {row:?}"
+        );
+    }
+}
+
+#[test]
 fn reload_keeps_heading_position_when_preceding_table_grows_or_shrinks() {
     let make = |rows: usize| {
         let mut s = String::from("| ID | Desc |\n|---:|:---|\n");
