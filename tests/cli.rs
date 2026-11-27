@@ -13,15 +13,18 @@
 //! MDVIEW_E2E=1 cargo test --test cli
 //! ```
 //!
-//! Wire format (src/main.rs): the client connects to
-//! `$XDG_RUNTIME_DIR/mdview.sock` (or `$TMPDIR/mdview-$USER.sock`), writes the
-//! absolute paths joined by '\n', and closes the connection.
+//! Wire format (`cli::encode_paths`): the client connects to
+//! `$XDG_RUNTIME_DIR/mdview.sock` (or `$TMPDIR/mdview-$USER.sock`), writes a
+//! little-endian `u32` body length, then each absolute path as a `u32` byte
+//! count and its raw OS bytes, and closes the connection. [`read_handoff`]
+//! decodes it independently of the app's code.
 
 #![cfg(unix)]
 
 use std::{
+    ffi::OsStr,
     io::{BufRead, BufReader, Read},
-    os::unix::net::UnixListener,
+    os::unix::{ffi::OsStrExt, net::UnixListener},
     path::{Component, Path, PathBuf},
     process::{Child, Command, ExitStatus, Output, Stdio},
     sync::{
@@ -159,13 +162,42 @@ fn warm_path_handles_spaces_and_unicode() {
     assert_eq!(got, want);
 }
 
+/// Issue #25: names that a text protocol mangles reach the running instance
+/// byte for byte. The files don't need to exist: missing ones are sent too.
+#[test]
+fn warm_path_keeps_newlines_carriage_returns_and_non_utf8_bytes() {
+    let work = TempDir::new("work");
+    let names: [&[u8]; 5] = [
+        b"line\nbreak.md",
+        b"trailing-cr.md\r",
+        b"\r\n",
+        b"caf\xe9 \xff.md",
+        b"plain.md",
+    ];
+    let rt = TempDir::new("rt");
+    let listener = UnixListener::bind(rt.join("mdview.sock")).unwrap();
+    let mut cmd = mdview(&rt);
+    cmd.current_dir(&work);
+    for n in names {
+        cmd.arg(OsStr::from_bytes(n));
+    }
+    let (status, msgs) = serve(listener, cmd, 1);
+    assert!(status.success());
+    let base = canon(work.path());
+    let want: Vec<PathBuf> = names
+        .iter()
+        .map(|n| base.join(OsStr::from_bytes(n)))
+        .collect();
+    assert_eq!(msgs, [want]);
+}
+
 #[test]
 fn warm_path_with_no_files_still_hands_off() {
     // `mdview` alone, with an instance running, just focuses that window.
     let rt = TempDir::new("rt");
     let (status, msgs) = handoff_raw(&rt, rt.path(), &[], &[]);
     assert!(status.success());
-    assert_eq!(msgs, [""], "expected one empty message");
+    assert_eq!(msgs, [Vec::<PathBuf>::new()], "expected one empty message");
 }
 
 #[test]
@@ -183,7 +215,7 @@ fn warm_path_falls_back_to_tmpdir_without_xdg_runtime_dir() {
         .env("USER", "mdview-test");
     let (out, msgs) = serve(listener, cmd, 1);
     assert!(out.success());
-    assert_eq!(msgs, [canon(&tmp.join("x.md")).display().to_string()]);
+    assert_eq!(msgs, [vec![canon(&tmp.join("x.md"))]]);
 }
 
 #[test]
@@ -203,19 +235,14 @@ fn unknown_flags_are_not_silently_dropped() {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         if let Ok((mut s, _)) = listener.accept() {
-            let mut buf = String::new();
-            let _ = s.read_to_string(&mut buf);
-            let _ = tx.send(buf);
+            let _ = tx.send(read_handoff(&mut s));
         }
     });
     let out = wait_with_timeout(child, WARM_TIMEOUT);
     match rx.recv_timeout(Duration::from_millis(500)) {
         Ok(msg) => {
             assert!(out.status.success(), "{}", describe(&out));
-            assert_eq!(
-                msg,
-                canon(rt.path()).join("--frobnicate").display().to_string()
-            );
+            assert_eq!(msg, [canon(rt.path()).join("--frobnicate")]);
         }
         Err(_) => {
             assert_eq!(
@@ -477,7 +504,29 @@ fn handoff(cwd: &Path, args: &[&str]) -> Vec<PathBuf> {
     let (status, msgs) = handoff_raw(&rt, cwd, args, &[]);
     assert!(status.success());
     assert_eq!(msgs.len(), 1, "expected exactly one connection: {msgs:?}");
-    msgs[0].split('\n').map(PathBuf::from).collect()
+    msgs.into_iter().next().unwrap()
+}
+
+/// Decodes one handoff message, panicking on anything malformed.
+fn read_handoff(s: &mut impl Read) -> Vec<PathBuf> {
+    let mut msg = Vec::new();
+    s.read_to_end(&mut msg).unwrap();
+    let take = |msg: &mut &[u8], n: usize| {
+        assert!(msg.len() >= n, "truncated message");
+        let (head, tail) = msg.split_at(n);
+        *msg = tail;
+        head.to_vec()
+    };
+    let u32_le = |b: Vec<u8>| u32::from_le_bytes(b.try_into().unwrap()) as usize;
+    let mut rest = msg.as_slice();
+    let len = u32_le(take(&mut rest, 4));
+    assert_eq!(len, rest.len(), "header doesn't match the body");
+    let mut paths = Vec::new();
+    while !rest.is_empty() {
+        let n = u32_le(take(&mut rest, 4));
+        paths.push(PathBuf::from(OsStr::from_bytes(&take(&mut rest, n))));
+    }
+    paths
 }
 
 fn handoff_raw(
@@ -485,7 +534,7 @@ fn handoff_raw(
     cwd: &Path,
     args: &[&str],
     env: &[(&str, &str)],
-) -> (ExitStatus, Vec<String>) {
+) -> (ExitStatus, Vec<Vec<PathBuf>>) {
     let listener = UnixListener::bind(rt.join("mdview.sock")).unwrap();
     let mut cmd = mdview(rt);
     cmd.current_dir(cwd).args(args);
@@ -497,18 +546,20 @@ fn handoff_raw(
 
 /// Accepts `expect` connections while `cmd` runs; returns its status and what
 /// each connection sent.
-fn serve(listener: UnixListener, mut cmd: Command, expect: usize) -> (ExitStatus, Vec<String>) {
+fn serve(
+    listener: UnixListener,
+    mut cmd: Command,
+    expect: usize,
+) -> (ExitStatus, Vec<Vec<PathBuf>>) {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         for _ in 0..expect {
             let Ok((mut s, _)) = listener.accept() else {
                 return;
             };
-            let mut buf = String::new();
             // The subprocess/receiver deadlines bound this read. Setting a socket
             // timeout after an empty client disconnects fails with EINVAL on macOS.
-            s.read_to_string(&mut buf).unwrap();
-            if tx.send(buf).is_err() {
+            if tx.send(read_handoff(&mut s)).is_err() {
                 return;
             }
         }
@@ -526,7 +577,7 @@ fn serve(listener: UnixListener, mut cmd: Command, expect: usize) -> (ExitStatus
         start.elapsed(),
         describe(&out)
     );
-    let msgs: Vec<String> = (0..expect)
+    let msgs: Vec<Vec<PathBuf>> = (0..expect)
         .map(|_| {
             rx.recv_timeout(Duration::from_secs(2))
                 .expect("mdview exited without sending anything to the running instance")

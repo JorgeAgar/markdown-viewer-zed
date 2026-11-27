@@ -214,6 +214,8 @@ and reopening an empty window. URL event tests cover escaped and Unicode
 Finder paths and reject non-file URLs. Native desktop testing remains required
 for Finder/Dock integration, menus, themes, GPU presentation and startup.
 
+The Unix handoff tests send names with newlines, a trailing `\r` and non-UTF-8
+bytes through the real binary, and decode its frames independently of the app.
 The Unix transport has a GUI-free stale-socket replacement test on Linux and
 macOS. The binary test expecting startup to fail without DISPLAY is Linux-only:
 macOS has native windowing and does not use DISPLAY. IPC integration tests use

@@ -238,12 +238,16 @@ flowchart LR
 ## Single-instance protocol
 
 The socket lives at `$XDG_RUNTIME_DIR/mdview.sock`, or
-`$TMPDIR/mdview-$USER.sock` when `XDG_RUNTIME_DIR` isn't set. The protocol is
-deliberately trivial: the client writes absolute paths separated by `\n` and
-closes the connection. An empty message just raises the window.
-`cli::encode_paths` / `cli::decode_paths` implement it. Because it's text,
-it can't carry every path: non-UTF-8 bytes arrive as U+FFFD, a `\n` inside
-a path splits it, and a `\r` before a `\n` is dropped.
+`$TMPDIR/mdview-$USER.sock` when `XDG_RUNTIME_DIR` isn't set. The client
+writes one message and closes the connection: a little-endian `u32` body
+length, then for each absolute path a little-endian `u32` byte count and the
+path's raw OS bytes. An empty list just raises the window.
+`cli::encode_paths` / `cli::decode_paths` implement it. Because it carries the
+bytes and not a display string, every Unix path arrives exactly as given:
+newlines, a trailing `\r` and non-UTF-8 bytes included. The body is capped at
+`cli::MAX_MESSAGE` (16 MiB, like the Windows pipe); the listener checks the
+header before it reads anything, and drops truncated or malformed messages
+without stopping.
 
 ```mermaid
 sequenceDiagram
@@ -254,9 +258,9 @@ sequenceDiagram
 
     C->>S: connect()
     alt An instance is running
-        C->>S: write("/abs/path/b.md")
+        C->>S: write(len, [len, bytes of /abs/path/b.md])
         C-->>C: exit(0) (~4 ms total)
-        S->>L: accept() + read_to_string
+        S->>L: accept() + read the length-prefixed frames
         L->>UI: unbounded_send(paths)
         UI->>UI: open_paths() → new tab, activate_window()
     else Nothing is listening (or a stale socket)

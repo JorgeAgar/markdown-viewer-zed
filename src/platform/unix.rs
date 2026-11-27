@@ -1,7 +1,7 @@
 //! Unix single-instance transport. Keep the handoff ahead of GPUI startup.
 use crate::cli;
 use std::{
-    io::{Read, Write},
+    io::{self, Read, Write},
     os::unix::net::{UnixListener, UnixStream},
     path::PathBuf,
 };
@@ -26,11 +26,13 @@ pub fn start(standalone: bool, paths: &[PathBuf]) -> Instance {
     if standalone {
         return Instance::Primary(None);
     }
+    let Some(message) = cli::encode_paths(paths) else {
+        eprintln!("mdview: too many paths to hand off; opening a separate window");
+        return Instance::Primary(None);
+    };
     let sock = socket_path();
     if let Ok(mut stream) = UnixStream::connect(&sock)
-        && stream
-            .write_all(cli::encode_paths(paths).as_bytes())
-            .is_ok()
+        && stream.write_all(&message).is_ok()
     {
         return Instance::Forwarded;
     }
@@ -41,12 +43,28 @@ pub fn start(standalone: bool, paths: &[PathBuf]) -> Instance {
 impl Server {
     pub fn serve(self, mut send: impl FnMut(Vec<PathBuf>) -> bool) {
         for mut stream in self.0.incoming().flatten() {
-            let mut buf = String::new();
-            if stream.read_to_string(&mut buf).is_ok() && !send(cli::decode_paths(&buf)) {
+            if let Ok(paths) = read_message(&mut stream)
+                && !send(paths)
+            {
                 break;
             }
         }
     }
+}
+
+/// Reads one [`cli::encode_paths`] message. The header is checked against
+/// [`cli::MAX_MESSAGE`] before anything is allocated, and the body buffer
+/// only grows as bytes arrive, so a lying header can't make it allocate.
+fn read_message(stream: &mut impl Read) -> io::Result<Vec<PathBuf>> {
+    let mut header = [0; 4];
+    stream.read_exact(&mut header)?;
+    let len = cli::body_len(header).ok_or(io::ErrorKind::InvalidData)?;
+    let mut body = Vec::new();
+    stream.take(len as u64).read_to_end(&mut body)?;
+    if body.len() != len {
+        return Err(io::ErrorKind::UnexpectedEof.into());
+    }
+    cli::decode_paths(&body).ok_or_else(|| io::ErrorKind::InvalidData.into())
 }
 
 pub fn cleanup() {
@@ -57,7 +75,7 @@ pub fn cleanup() {
 mod tests {
     use super::*;
     use crate::test_util::TempDir;
-    use std::{sync::mpsc, time::Duration};
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, sync::mpsc, time::Duration};
 
     #[test]
     fn cleanup_removes_owned_endpoint() {
@@ -121,18 +139,32 @@ mod tests {
                 count < 2
             });
         });
-        // An invalid UTF-8 message must neither reach the viewer nor stop it.
+        // Malformed messages must neither reach the viewer nor stop it.
+        for bad in [
+            &[][..],
+            &[0xff],
+            b"/a.md\n/b.md",
+            &[5, 0, 0, 0, 9, 0, 0, 0, b'x'],
+            &[4, 0, 0, 0, 1, 0],
+        ] {
+            let mut client = UnixStream::connect(&path).unwrap();
+            client.write_all(bad).unwrap();
+        }
+        let paths = vec![
+            PathBuf::from("/a.md"),
+            PathBuf::from("/b c.md"),
+            PathBuf::from(OsStr::from_bytes(b"/new\nline\r")),
+            PathBuf::from(OsStr::from_bytes(b"/caf\xe9.md")),
+        ];
         let mut client = UnixStream::connect(&path).unwrap();
-        client.write_all(&[0xff]).unwrap();
+        client
+            .write_all(&cli::encode_paths(&paths).unwrap())
+            .unwrap();
         drop(client);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), paths);
         let mut client = UnixStream::connect(&path).unwrap();
-        client.write_all(b"/a.md\n/b c.md").unwrap();
+        client.write_all(&cli::encode_paths(&[]).unwrap()).unwrap();
         drop(client);
-        assert_eq!(
-            rx.recv_timeout(Duration::from_secs(2)).unwrap(),
-            vec![PathBuf::from("/a.md"), PathBuf::from("/b c.md")]
-        );
-        drop(UnixStream::connect(&path).unwrap());
         assert!(rx.recv_timeout(Duration::from_secs(2)).unwrap().is_empty());
         // Returning false must stop the listener instead of accepting forever.
         thread.join().unwrap();
