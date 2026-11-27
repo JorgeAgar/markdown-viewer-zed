@@ -11,8 +11,8 @@ Download the tarball from the repository's GitHub Releases page, extract it,
 and install the binary:
 
 ```sh
-tar -xzf mdview-v0.1.1-linux-x86_64.tar.gz
-install -Dm755 mdview-v0.1.1-linux-x86_64/mdview ~/.local/bin/mdview
+tar -xzf mdview-v0.2.0-linux-x86_64.tar.gz
+install -Dm755 mdview-v0.2.0-linux-x86_64/mdview ~/.local/bin/mdview
 mdview README.md
 ```
 
@@ -42,8 +42,8 @@ explicit maintainer action; ordinary pushes do not publish anything.
 ```sh
 git switch main
 git pull --ff-only
-git tag -a v0.1.1 -m 'mdview v0.1.1'
-git push origin v0.1.1
+git tag -a v0.2.0 -m 'mdview v0.2.0'
+git push origin v0.2.0
 ```
 
 Use the next version for subsequent releases. Never move a published tag.
@@ -85,7 +85,7 @@ tested in native CI. This does not replace interactive GPU testing.
 Local packaging (PowerShell, after building):
 
 ```powershell
-& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" /DAppVersion=0.1.1 "/DSourceDir=$PWD/target/release" packaging/windows/mdview.iss
+& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" /DAppVersion=0.2.0 "/DSourceDir=$PWD/target/release" packaging/windows/mdview.iss
 ```
 
 ## macOS
