@@ -25,6 +25,9 @@ Inno Setup 6 builds the installer from `packaging/windows/mdview.iss`.
 Native CI exercises installation, upgrade and uninstallation. Actual GPU/UI
 and startup validation still requires a Windows desktop.
 
+The Rust version is pinned in `rust-toolchain.toml`; rustup installs it
+automatically the first time you build.
+
 ## Build, run, test
 
 ```sh

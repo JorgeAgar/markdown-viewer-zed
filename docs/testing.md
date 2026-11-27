@@ -161,7 +161,7 @@ pasted into a commit message. See [startup.md](startup.md).
 `.github/workflows/ci.yml` runs on pushes to `main` and on pull requests. The
 target is under 10 minutes even with an empty cache, so CI builds with the
 `ci` cargo profile (unoptimized dependencies, no debug info), builds once per
-job, and runs two jobs in parallel:
+job, and runs two Linux jobs in parallel:
 
 - **test:** `scripts/check.sh --profile ci --no-clippy` (fmt, guards, every
   headless test). Linux real-window tests run locally via
@@ -170,6 +170,21 @@ job, and runs two jobs in parallel:
 - **clippy:** `cargo clippy --workspace --all-targets -D warnings`.
 
 To reproduce a CI failure locally: `scripts/check.sh --profile ci`.
+
+The Rust version is pinned in `rust-toolchain.toml`, for CI and local builds
+alike. Bump it in its own commit. Build caches are saved only from `main`:
+pull requests restore `main`'s cache but don't save their own, so they can't
+push it out of GitHub's 10 GB per-repository cache limit.
+
+The Windows and macOS jobs (below) run on every push to `main` and on
+manual runs. On pull requests they run only if the PR changes one of:
+`src/platform/`, `crates/gpui/`, `patches/`, `packaging/`,
+`scripts/validation/`, `assets/icon.*`, `build.rs`, `rust-toolchain.toml`,
+`Cargo.lock`, any `Cargo.toml`, `tests/windows_cli.rs`, `.gitattributes`, or
+the `ci`, `windows` and `macos` workflows. Shared code under `src/` has
+`#[cfg]` branches for Windows and macOS too; if a PR changes one, start the CI
+workflow by hand on the PR's branch (Actions → CI → Run workflow) to run the
+native jobs before merging.
 
 Mutation testing is deliberately not in CI (it's slow); see above.
 

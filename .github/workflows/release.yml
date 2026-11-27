@@ -23,9 +23,8 @@ jobs:
       TARGET: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install Rust (version from rust-toolchain.toml)
+        run: rustup toolchain install
       - name: Check release tag against package version
         run: |
           cargo metadata --locked --no-deps --format-version 1 | python3 -c '
@@ -44,6 +43,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-linux-x86_64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Full headless test suite, formatting, guards and clippy
         run: scripts/check.sh --profile ci
       - name: Build optimized binary

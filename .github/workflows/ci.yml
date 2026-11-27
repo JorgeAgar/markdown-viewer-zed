@@ -14,6 +14,8 @@ concurrency:
 # compiling GPUI and its dependencies on a 2-core runner, so: the `ci` cargo
 # profile (dependencies unoptimized, no debug info: ~5x less compile work than
 # the dev profile), one build per job, and clippy in a parallel job.
+# Caches are saved only from main: PRs restore main's cache but don't save
+# their own, which would push main's out of the repo's 10 GB cache limit.
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -35,10 +37,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends $GPUI_DEPS \
             fonts-dejavu-core
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - name: Install Rust (version from rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: scripts/check.sh (fmt, guards, all tests)
         run: scripts/check.sh --profile ci --no-clippy
 
@@ -49,15 +52,53 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install system libraries
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $GPUI_DEPS
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - name: Install Rust (version from rust-toolchain.toml)
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo clippy -D warnings
         run: cargo clippy --locked --workspace --all-targets --profile ci -- -D warnings
 
+  # The Windows and macOS jobs take 6-20 minutes, mostly an optimized fat-LTO
+  # build that the cache barely shortens. On pull requests they run only when
+  # the PR touches code or files that are platform-specific or change what
+  # gets built; pushes to main and manual runs always run them.
+  native-changes:
+    name: decide native jobs
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [[ $EVENT != pull_request ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # HEAD is the PR's merge commit; its first parent is the base branch.
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          echo "Changed files:"; echo "$changed"
+          pattern='^(src/platform/|crates/gpui/|patches/|packaging/|scripts/validation/|assets/icon\.|build\.rs$|rust-toolchain\.toml$|Cargo\.(lock|toml)$|crates/[^/]+/Cargo\.toml$|tests/windows_cli\.rs$|\.gitattributes$|\.github/workflows/(ci|windows|macos)\.yml$)'
+          if grep -qE "$pattern" <<<"$changed"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No platform, packaging or dependency changes: skipping the Windows and macOS jobs."
+          fi
+
   native-windows:
+    needs: native-changes
+    if: needs.native-changes.outputs.run == 'true'
     uses: ./.github/workflows/windows.yml
 
   native-macos:
+    needs: native-changes
+    if: needs.native-changes.outputs.run == 'true'
     uses: ./.github/workflows/macos.yml

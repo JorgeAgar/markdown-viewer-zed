@@ -112,8 +112,8 @@ Credentials are imported into a temporary keychain that is removed afterward.
 If the certificate secret is set but any other credential is missing, the
 macOS job fails and nothing is published. If no signing secrets are
 configured, the release ships an ad-hoc-signed, unnotarized DMG and the
-workflow emits a warning. PR CI always builds an ad-hoc-signed DMG for
-packaging tests.
+workflow emits a warning. CI on `main`, and on pull requests that touch
+platform code or packaging, builds an ad-hoc-signed DMG for packaging tests.
 
 Unnotarized DMGs are blocked by Gatekeeper on first launch. After copying
 mdview to Applications, either right-click it and choose Open (on macOS 15,
