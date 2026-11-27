@@ -1,6 +1,6 @@
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/elements/list.rs gpui-0.2.2-mdview/src/elements/list.rs
---- gpui-0.2.2/src/elements/list.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/elements/list.rs	2026-11-25 15:49:46.462395929 -0500
+--- gpui-0.2.2/src/elements/list.rs
++++ gpui-0.2.2-mdview/src/elements/list.rs
 @@ -30,6 +30,7 @@
          render_item: Box::new(render_item),
          style: StyleRefinement::default(),
@@ -71,8 +71,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/eleme
              if phase == DispatchPhase::Bubble && hitbox_id.should_handle_scroll(window) {
                  accumulated_scroll_delta = accumulated_scroll_delta.coalesce(event.delta);
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/blade/blade_renderer.rs gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs
---- gpui-0.2.2/src/platform/blade/blade_renderer.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs	2026-11-25 15:46:05.133947582 -0500
+--- gpui-0.2.2/src/platform/blade/blade_renderer.rs
++++ gpui-0.2.2-mdview/src/platform/blade/blade_renderer.rs
 @@ -166,141 +166,172 @@
              write_mask: gpu::ColorWrites::default(),
          }];
@@ -382,8 +382,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
      fn destroy(&mut self, gpu: &gpu::Context) {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/platform.rs gpui-0.2.2-mdview/src/platform/linux/platform.rs
---- gpui-0.2.2/src/platform/linux/platform.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/platform.rs	2026-11-25 15:46:05.116947582 -0500
+--- gpui-0.2.2/src/platform/linux/platform.rs
++++ gpui-0.2.2-mdview/src/platform/linux/platform.rs
 @@ -309,16 +309,25 @@
                      "Open File"
                  };
@@ -415,8 +415,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
                      Err(err) => {
                          let result = match err {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/client.rs gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
---- gpui-0.2.2/src/platform/linux/wayland/client.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs	2026-11-25 20:42:27.004763679 -0500
+--- gpui-0.2.2/src/platform/linux/wayland/client.rs
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/client.rs
 @@ -224,6 +224,9 @@
      vertical_modifier: f32,
      horizontal_modifier: f32,
@@ -538,8 +538,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
                  }
              }
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/wayland/window.rs gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs
---- gpui-0.2.2/src/platform/linux/wayland/window.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs	2026-11-25 15:46:05.120947582 -0500
+--- gpui-0.2.2/src/platform/linux/wayland/window.rs
++++ gpui-0.2.2-mdview/src/platform/linux/wayland/window.rs
 @@ -152,7 +152,14 @@
                      height: options.bounds.size.height.0 as u32,
                      depth: 1,
@@ -557,8 +557,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
              BladeRenderer::new(gpu_context, &raw_window, config)?
          };
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/linux/x11/client.rs gpui-0.2.2-mdview/src/platform/linux/x11/client.rs
---- gpui-0.2.2/src/platform/linux/x11/client.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/linux/x11/client.rs	2026-11-25 15:46:05.122947582 -0500
+--- gpui-0.2.2/src/platform/linux/x11/client.rs
++++ gpui-0.2.2-mdview/src/platform/linux/x11/client.rs
 @@ -302,6 +302,9 @@
  
  impl X11Client {
@@ -582,8 +582,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          let resource_database = x11rb::resource_manager::new_from_default(&xcb_connection)
              .context("Failed to create resource database")?;
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/platform.rs gpui-0.2.2-mdview/src/platform/mac/platform.rs
---- gpui-0.2.2/src/platform/mac/platform.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/mac/platform.rs	2026-11-25 15:46:05.131947582 -0500
+--- gpui-0.2.2/src/platform/mac/platform.rs
++++ gpui-0.2.2-mdview/src/platform/mac/platform.rs
 @@ -722,6 +722,14 @@
  
                      panel.setCanCreateDirectories(true.to_objc());
@@ -600,8 +600,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
                      let block = ConcreteBlock::new(move |response: NSModalResponse| {
                          let result = if response == NSModalResponse::NSModalResponseOk {
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/mac/window.rs gpui-0.2.2-mdview/src/platform/mac/window.rs
---- gpui-0.2.2/src/platform/mac/window.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/mac/window.rs	2026-11-25 15:46:05.116947582 -0500
+--- gpui-0.2.2/src/platform/mac/window.rs
++++ gpui-0.2.2-mdview/src/platform/mac/window.rs
 @@ -582,6 +582,7 @@
              display_id,
              window_min_size,
@@ -611,8 +611,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          executor: ForegroundExecutor,
          renderer_context: renderer::Context,
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/windows/platform.rs gpui-0.2.2-mdview/src/platform/windows/platform.rs
---- gpui-0.2.2/src/platform/windows/platform.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform/windows/platform.rs	2026-11-25 15:46:05.126947582 -0500
+--- gpui-0.2.2/src/platform/windows/platform.rs
++++ gpui-0.2.2-mdview/src/platform/windows/platform.rs
 @@ -914,6 +914,26 @@
          dialog_options |= FOS_PICKFOLDERS;
      }
@@ -641,8 +641,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          folder_dialog.SetOptions(dialog_options)?;
  
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform.rs gpui-0.2.2-mdview/src/platform.rs
---- gpui-0.2.2/src/platform.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/platform.rs	2026-11-25 15:46:05.130947582 -0500
+--- gpui-0.2.2/src/platform.rs
++++ gpui-0.2.2-mdview/src/platform.rs
 @@ -1181,6 +1181,15 @@
      pub window_min_size: Option<Size<Pixels>>,
      #[cfg(target_os = "macos")]
@@ -670,8 +670,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
  
  /// What kind of prompt styling to show
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/taffy.rs gpui-0.2.2-mdview/src/taffy.rs
---- gpui-0.2.2/src/taffy.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/taffy.rs	2026-11-25 15:46:05.115947582 -0500
+--- gpui-0.2.2/src/taffy.rs
++++ gpui-0.2.2-mdview/src/taffy.rs
 @@ -309,7 +309,9 @@
              unit: &Option<u16>,
          ) -> Vec<taffy::GridTemplateComponent<T>> {
@@ -684,8 +684,8 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/taffy
          }
  
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/window.rs gpui-0.2.2-mdview/src/window.rs
---- gpui-0.2.2/src/window.rs	2006-07-23 20:21:28.000000000 -0500
-+++ gpui-0.2.2-mdview/src/window.rs	2026-11-25 15:46:05.121947582 -0500
+--- gpui-0.2.2/src/window.rs
++++ gpui-0.2.2-mdview/src/window.rs
 @@ -968,6 +968,8 @@
                  window_min_size,
                  #[cfg(target_os = "macos")]
