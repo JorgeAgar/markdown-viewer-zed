@@ -192,9 +192,10 @@ classDiagram
 - Paths are canonicalized (`normalize`), so opening the same file twice just
   switches to its tab (`Tabs::activate_first`).
 - Opening several paths (at startup, from a second `mdview` launch, or from
-  the open dialog) handles them in order and skips directories, so the last
-  path ends up active, whether it was already open or not
-  (`Viewer::new`, `Viewer::open_paths`).
+  the open dialog) handles them in order so the last path ends up active,
+  whether it was already open or not (`Viewer::new`, `Viewer::open_paths`).
+  `Viewer::open_paths` skips directories (whereas startup loads every CLI
+  argument, showing an error tab for a directory).
 - Closing a tab keeps the active tab if it's still open. Closing the active
   tab activates its right neighbor, or its left one if it was the last
   (`Tabs::close`). Next/previous tab wrap around.
