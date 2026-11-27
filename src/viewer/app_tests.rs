@@ -161,6 +161,40 @@ fn open_paths_dedupes_skips_directories_and_shows_errors() {
 }
 
 #[test]
+fn open_paths_activates_the_last_path_like_startup() {
+    // Issue #30: open tabs were activated as they came up and new files
+    // only after the loop, so `mdview new.md existing.md` ended on new.md.
+    // A batch ends on its last (non-directory) path, as at startup.
+    let dir = TempDir::new("open-order");
+    for n in ["old.md", "a.md", "b.md"] {
+        std::fs::write(dir.join(n), format!("# {n}\n")).unwrap();
+    }
+    std::fs::create_dir(dir.join("sub")).unwrap();
+    let cases: &[(&[&str], &[&str], &str)] = &[
+        (&["a.md", "old.md"], &["old.md", "a.md"], "old.md"),
+        (&["old.md", "a.md"], &["old.md", "a.md"], "a.md"),
+        (&["a.md", "b.md"], &["old.md", "a.md", "b.md"], "b.md"),
+        (&["old.md", "old.md"], &["old.md"], "old.md"),
+        (&["a.md", "old.md", "a.md"], &["old.md", "a.md"], "a.md"),
+        (
+            &["a.md", "b.md", "a.md"],
+            &["old.md", "a.md", "b.md"],
+            "a.md",
+        ),
+        (&["a.md", "old.md", "sub"], &["old.md", "a.md"], "old.md"),
+        (&["old.md", "a.md", "sub"], &["old.md", "a.md"], "a.md"),
+        (&["sub"], &["old.md"], "old.md"),
+    ];
+    for &(paths, tabs, last) in cases {
+        let (v, cx) = open(vec![load(normalize(&dir.join("old.md")))]);
+        let batch = paths.iter().map(|n| dir.join(n)).collect();
+        v.update(cx, |v, cx| v.open_paths(batch, cx));
+        assert_eq!(titles(&v, cx), tabs, "{paths:?}");
+        assert_eq!(active(&v, cx).as_deref(), Some(last), "{paths:?}");
+    }
+}
+
+#[test]
 fn reload_action_rereads_the_active_tab() {
     let dir = TempDir::new("reload");
     let path = normalize(&dir.join("a.md"));

@@ -474,20 +474,21 @@ impl Viewer {
         }
     }
 
+    /// Opens `paths` in order, skipping directories: an open file switches
+    /// to its tab, a new one gets a tab. The last path ends up active, as at
+    /// startup, whether it was open already or not.
     pub fn open_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        let mut loaded = Vec::new();
         for p in paths {
             let p = normalize(&p);
             if p.is_dir() {
                 continue;
             }
-            if self.tabs.activate_first(|t| t.path == p) {
-                self.record_dir(&p);
-            } else {
-                loaded.push(load(p));
+            self.record_dir(&p);
+            if !self.tabs.activate_first(|t| t.path == p) {
+                let (path, res) = load(p);
+                self.tabs.push(Tab::new(path, res));
             }
         }
-        self.add_loaded(loaded);
         cx.notify();
     }
 
