@@ -1915,14 +1915,27 @@ fn first_row_origin(cx: &mut VisualTestContext) -> (f32, f32) {
     ((w - column) / 2. + 32., TAB_BAR_HEIGHT + 32. + 10.)
 }
 
-/// Clicks `dx` px right of the first row's left edge, in a new window
-/// showing `src`, and returns the URL handed to the system, if any.
-fn click_first_row(src: &str, dx: f32) -> Option<String> {
-    let (_, cx) = open(vec![(PathBuf::from("/docs/images.md"), parsed(src))]);
+/// Opens `path` showing `src` in a new window and clicks `dx` px right of
+/// the first row's left edge.
+fn click_first_row_of(
+    path: PathBuf,
+    src: &str,
+    dx: f32,
+) -> (Entity<Viewer>, &'static mut VisualTestContext) {
+    let (v, cx) = open(vec![(path, parsed(src))]);
     cx.run_until_parked();
+    // Images loaded since the first frame: lay them out.
+    redraw(&v, cx);
     let (x, y) = first_row_origin(cx);
     cx.simulate_click(point(px(x + dx), px(y)), Default::default());
     cx.run_until_parked();
+    (v, cx)
+}
+
+/// `click_first_row_of` for `/docs/images.md`, returning the URL handed to
+/// the system, if any.
+fn click_first_row(src: &str, dx: f32) -> Option<String> {
+    let (_, cx) = click_first_row_of(PathBuf::from("/docs/images.md"), src, dx);
     cx.opened_url()
 }
 
@@ -2041,4 +2054,38 @@ fn animated_images_advance_past_their_first_frame() {
     // Row 0: 32 px above, 16 below the image.
     assert_eq!(seen.first(), Some(&(32. + 10. + 16.)), "{seen:?}");
     assert_eq!(seen.last(), Some(&(32. + 30. + 16.)), "{seen:?}");
+}
+
+#[test]
+fn linked_images_follow_their_link() {
+    // A standalone `[![alt](img)](dest)` used to drop `dest`: clicking the
+    // image did nothing.
+    let dir = TempDir::new("linked-images");
+    let base = normalize(&dir);
+    image::RgbaImage::new(40, 40)
+        .save(base.join("narrow.png"))
+        .unwrap();
+    image::RgbaImage::new(200, 40)
+        .save(base.join("wide.png"))
+        .unwrap();
+    std::fs::write(base.join("docs.md"), "# Docs").unwrap();
+    let page = base.join("index.md");
+    let click = |src: &str, dx: f32| {
+        let (_, cx) = click_first_row_of(page.clone(), src, dx);
+        cx.opened_url()
+    };
+    // Each badge on a line follows its own link.
+    let badges = "[![A](narrow.png)](https://a.example) [![B](wide.png)](https://b.example)";
+    assert_eq!(click(badges, 5.).as_deref(), Some("https://a.example"));
+    assert_eq!(click(badges, 100.).as_deref(), Some("https://b.example"));
+    // An image GPUI can't load follows the link around it, not its own URL.
+    let src = "[![d](data:image/png;base64,AAAA)](https://d.example) ![f](ftp://x/f.png)";
+    assert_eq!(click(src, 5.).as_deref(), Some("https://d.example"));
+    // Without a link, an image isn't clickable.
+    assert_eq!(click("![plain](narrow.png)", 5.), None);
+    // Links go through the same routing as text links: a Markdown file
+    // opens in a tab.
+    let (v, cx) = click_first_row_of(page.clone(), "[![Docs](narrow.png)](docs.md)", 5.);
+    assert_eq!(cx.opened_url(), None);
+    assert_eq!(titles(&v, cx), ["index.md", "docs.md"]);
 }

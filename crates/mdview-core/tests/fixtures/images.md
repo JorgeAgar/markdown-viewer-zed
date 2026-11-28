@@ -28,3 +28,5 @@ Text and a [![badge](badge.svg)](https://ci) inside.
 ![fig](fig.png)[^fig]
 
 [^fig]: A footnote.
+
+[![A](a.svg)](https://a.example) [![B](b.svg)](https://b.example)

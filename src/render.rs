@@ -9,12 +9,12 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, AvailableSpace, Bounds, Element, ElementId, Font, FontFeatures, FontStyle,
-    FontWeight, GlobalElementId, Hsla, InspectorElementId, InteractiveElement, InteractiveText,
-    IntoElement, LayoutId, Length, ObjectFit, ParentElement, Pixels, ScrollHandle, SharedString,
-    StatefulInteractiveElement, StrikethroughStyle, Style, Styled, StyledImage, StyledText,
-    TextRun, UnderlineStyle, WeakEntity, Window, div, img, prelude::FluentBuilder, px, relative,
-    size,
+    AnyElement, App, AvailableSpace, Bounds, ClickEvent, Element, ElementId, Font, FontFeatures,
+    FontStyle, FontWeight, GlobalElementId, Hsla, InspectorElementId, InteractiveElement,
+    InteractiveText, IntoElement, LayoutId, Length, ObjectFit, ParentElement, Pixels, ScrollHandle,
+    SharedString, StatefulInteractiveElement, StrikethroughStyle, Style, Styled, StyledImage,
+    StyledText, TextRun, UnderlineStyle, WeakEntity, Window, div, img, prelude::FluentBuilder, px,
+    relative, size,
 };
 
 use crate::{
@@ -708,16 +708,30 @@ fn image(i: &Image, rcx: &RenderCx, ids: &mut IdGen) -> AnyElement {
     } else {
         i.alt.clone().into()
     };
+    // `[![alt](img)](dest)`: a click follows `dest` like a text link.
+    let follow = i.link.clone().map(|url| {
+        let viewer = rcx.viewer.clone();
+        let base = rcx.base_dir.clone();
+        move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+            open_link(&viewer, &base, &url, window, cx)
+        }
+    });
     if image_is_link(&i.url) {
-        // Unsupported URI schemes remain clickable.
-        let url = i.url.clone();
-        return div()
+        // Unsupported URI schemes remain clickable: they open the link
+        // around them, or else the image's own URL.
+        let el = div()
             .id(ids.next())
             .text_color(t.link)
             .cursor_pointer()
-            .child(format!("[image: {alt}]"))
-            .on_click(move |_, _, cx| cx.open_url(&url))
-            .into_any_element();
+            .child(format!("[image: {alt}]"));
+        return match follow {
+            Some(follow) => el.on_click(follow),
+            None => {
+                let url = i.url.clone();
+                el.on_click(move |_, _, cx| cx.open_url(&url))
+            }
+        }
+        .into_any_element();
     }
     let muted = t.muted;
     img(image_source(&i.url, &rcx.base_dir))
@@ -733,6 +747,7 @@ fn image(i: &Image, rcx: &RenderCx, ids: &mut IdGen) -> AnyElement {
                 .child(format!("[image: {alt}]"))
                 .into_any_element()
         })
+        .when_some(follow, |el, follow| el.cursor_pointer().on_click(follow))
         .into_any_element()
 }
 

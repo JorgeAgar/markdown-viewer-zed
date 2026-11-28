@@ -62,11 +62,11 @@ fn block(out: &mut String, b: &Block, d: usize) {
         Block::Images(images) => {
             line(out, d, "images");
             for i in images {
-                line(
-                    out,
-                    d + 1,
-                    &format!("image {} alt=\"{}\"", i.url, escape(&i.alt)),
-                );
+                let mut l = format!("image {} alt=\"{}\"", i.url, escape(&i.alt));
+                if let Some(link) = &i.link {
+                    l.push_str(&format!(" link={link}"));
+                }
+                line(out, d + 1, &l);
             }
         }
         Block::Code {

@@ -115,6 +115,9 @@ impl RichText {
 pub struct Image {
     pub url: String,
     pub alt: String,
+    /// The destination of the link around the image (`[![alt](url)](link)`),
+    /// as in `RichText::links`.
+    pub link: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -592,6 +595,7 @@ impl<'a> P<'a> {
                     image = Some(Image {
                         url: cow(dest_url),
                         alt: String::new(),
+                        link: link.map(|l| rich.links[l as usize].clone()),
                     });
                 }
                 _ => {}
@@ -879,6 +883,40 @@ mod tests {
                 doc.blocks
             );
         }
+    }
+
+    #[test]
+    fn linked_images_keep_their_link() {
+        let doc = parse(
+            "[![Logo](logo.png)](docs.md)\n\n\
+             [![A](a.svg)](https://a.example) [![B](b.svg)](https://b.example) ![C](c.png)\n\n\
+             [![M](m.png)](<me@x.y>)\n\n\
+             [![N ![nested](n2.png)](n.png)](#top)",
+        );
+        let images: Vec<Vec<(&str, Option<&str>)>> = doc
+            .blocks
+            .iter()
+            .map(|b| match b {
+                Block::Images(imgs) => imgs
+                    .iter()
+                    .map(|i| (i.url.as_str(), i.link.as_deref()))
+                    .collect(),
+                other => panic!("expected only images, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            images,
+            [
+                &[("logo.png", Some("docs.md"))][..],
+                &[
+                    ("a.svg", Some("https://a.example")),
+                    ("b.svg", Some("https://b.example")),
+                    ("c.png", None),
+                ],
+                &[("m.png", Some("me@x.y"))],
+                &[("n.png", Some("#top"))],
+            ]
+        );
     }
 
     #[test]

@@ -36,7 +36,9 @@ small recursive-descent parser (`struct P`):
 - A paragraph made only of images (and whitespace) becomes `Block::Images`.
   Any other visible content, such as text, a text link or a footnote
   reference, keeps it a paragraph, so nothing is dropped. There, an image
-  appears inline as `[alt]` and links to the image.
+  appears inline as `[alt]` and links to the image. An image inside a link
+  (`[![CI](badge.svg)](https://ci.example.com)`) still counts as an image, and
+  keeps the link's destination in `Image::link`.
 - HTML blocks and front matter (YAML `---` or TOML `+++`) are skipped.
 - Fenced code blocks are highlighted here, once, by `highlight::highlight`
   (see [Syntax highlighting](#syntax-highlighting)).
@@ -179,8 +181,11 @@ GPUI's existing reqwest dependency, with TLS verification, redirects (up to
 blocking pool only when requested; startup never waits for the network.
 Images scale down to fit the column and show alt text on failure. Animated
 GIFs and WebPs play: GPUI only keeps an image's current frame for an `img`
-with an `ElementId`, so each image gets one from the row's `IdGen`. Other URI
-schemes remain links. Images mixed into a text paragraph remain alt-text links.
+with an `ElementId`, so each image gets one from the row's `IdGen`. A linked
+image (`Image::link`, such as a CI badge) is clickable and follows its link
+through `open_link`, like a text link. Other URI schemes remain links: to the
+link around them if there is one, or else to the image's own URL. Images mixed
+into a text paragraph remain alt-text links.
 
 ### Math
 
