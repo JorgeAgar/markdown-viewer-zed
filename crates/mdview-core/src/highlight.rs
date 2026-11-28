@@ -1067,7 +1067,7 @@ fn config(code: &str, out: &mut Out) {
         }
         if b[i] == b'[' {
             // TOML/INI section header.
-            let end = line.rfind(']').map_or(b.len(), |e| e + 1);
+            let end = section_end(b, i);
             out.push(start + i..start + end, Tok::Type);
             value(line, end, start, out);
             continue;
@@ -1115,6 +1115,33 @@ fn config(code: &str, out: &mut Out) {
             _ => value(line, i, start, out),
         }
     }
+}
+
+/// End of the `[section]` or `[[array.of.tables]]` header opening at `i`:
+/// its matching `]`, skipping quoted keys (`[a."b]"]`), or the end of the
+/// line if it's unclosed.
+fn section_end(b: &[u8], i: usize) -> usize {
+    let mut depth = 0;
+    let mut j = i;
+    while j < b.len() {
+        match b[j] {
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return j + 1;
+                }
+            }
+            // TOML basic strings have escapes, literal strings don't.
+            q @ (b'"' | b'\'') => {
+                j = string_end(b, j, q, q == b'"');
+                continue;
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    b.len()
 }
 
 /// Highlights a scalar value (rest of a config line from `from`).

@@ -70,7 +70,7 @@ exclude_re = [
 
     # A scalar word starts with a byte accepted by its scan, so j > i; max(i + 1)
     # and max(i * 1) both return j.
-    '''^crates/mdview-core/src/highlight\.rs:1167:25: replace \+ with \* in value$''',
+    '''^crates/mdview-core/src/highlight\.rs:1194:25: replace \+ with \* in value$''',
 
     # Upright is only enabled inside font commands, which replace all italic ranges
     # before appending. W::sub already resets every other field; script inheritance

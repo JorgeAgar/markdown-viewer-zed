@@ -506,6 +506,47 @@ fn config_details() {
     );
 }
 
+/// A section header ends at its own `]`, not the last `]` on the line
+/// (#44): a trailing comment may contain brackets, and quoted keys may too.
+#[test]
+fn config_section_header_ends_at_its_bracket() {
+    for (code, header, comment) in [
+        ("[package] # see [section]", "[package]", "# see [section]"),
+        ("[[bin]] # [[x]]", "[[bin]]", "# [[x]]"),
+        ("[a.\"b]c\"] # ]", "[a.\"b]c\"]", "# ]"),
+        ("[a.'b]c'] # ]", "[a.'b]c']", "# ]"),
+        // Basic strings have escapes, literal strings don't.
+        ("[a.\"b\\\"]\"] # ]", "[a.\"b\\\"]\"]", "# ]"),
+        ("[a.'b\\'] # ]", "[a.'b\\']", "# ]"),
+    ] {
+        for lang in ["toml", "ini"] {
+            assert_eq!(
+                toks(lang, &format!("  {code}\nk = 1")),
+                [
+                    t(header, Tok::Type),
+                    t(comment, Tok::Comment),
+                    t("k", Tok::Property),
+                    t("1", Tok::Number),
+                ],
+                "{lang}: {code}"
+            );
+        }
+    }
+    // Unclosed headers (or quotes) run to the end of the line.
+    for code in ["[a # b", "[[a] # b", "[a.\"b] # c", "[a.\"b\\\"] # c"] {
+        assert_eq!(
+            toks("toml", &format!("{code}\nk")),
+            [t(code, Tok::Type)],
+            "{code}"
+        );
+    }
+    // Text after the header is still a value.
+    assert_eq!(
+        toks("ini", "[a] 1 [b]"),
+        [t("[a]", Tok::Type), t("1", Tok::Number)]
+    );
+}
+
 #[test]
 fn generic_details() {
     // SQL keywords are case-insensitive; other languages' aren't.
