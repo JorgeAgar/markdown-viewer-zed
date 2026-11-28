@@ -11,6 +11,7 @@ publish = false
 # run in seconds.
 [dependencies]
 pulldown-cmark = { version = "0.13", default-features = false }
+unicase = "2"
 
 # Test-only: none of these end up in the mdview binary.
 [dev-dependencies]

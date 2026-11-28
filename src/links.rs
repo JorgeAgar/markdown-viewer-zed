@@ -115,16 +115,8 @@ pub fn heading_place(blocks: &[Block], anchor: &str) -> Option<Place> {
 pub fn footnote_place(blocks: &[Block], label: &str) -> Option<Place> {
     find(
         blocks,
-        &|b| matches!(b, Block::Footnote { label: l, .. } if fold(l).eq(fold(label))),
+        &|b| matches!(b, Block::Footnote { label: l, .. } if crate::markdown::footnote_labels_match(l, label)),
     )
-}
-
-/// `s` case-folded, close enough to Unicode's full folding for labels:
-/// uppercasing first turns `ß` into `SS` and `ς` into `Σ`.
-fn fold(s: &str) -> impl Iterator<Item = char> + '_ {
-    s.chars()
-        .flat_map(char::to_uppercase)
-        .flat_map(char::to_lowercase)
 }
 
 /// The first block that `is` picks, in document order, at any depth, as the
@@ -521,5 +513,21 @@ mod tests {
         assert_eq!(heading_place(&doc.blocks, ""), None);
         // The repeat is still reachable, as on GitHub.
         assert_eq!(heading_place(&doc.blocks, "-1"), top(2));
+    }
+
+    #[test]
+    fn footnote_lookup_matches_pulldown_cmark_unicode_case_folding() {
+        // `ı` (U+0131, Turkish dotless i) must not match `i` (uppercase-then-
+        // lowercase falsely equated them), while `ẞ` (U+1E9E) must match `ss`.
+        let doc = markdown::parse(concat!(
+            "Refs[^i] [^ẞ].\n\n",      // 0
+            "[^ı]: Wrong target.\n\n", // 1
+            "[^i]: Correct.\n\n",      // 2
+            "[^ss]: Sharp s.\n",       // 3
+        ));
+        let blocks = &doc.blocks;
+        assert_eq!(footnote_place(blocks, "i"), top(2));
+        assert_eq!(footnote_place(blocks, "ı"), top(1));
+        assert_eq!(footnote_place(blocks, "ẞ"), top(3));
     }
 }

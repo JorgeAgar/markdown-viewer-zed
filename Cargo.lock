@@ -3465,6 +3465,7 @@ dependencies = [
  "proptest",
  "pulldown-cmark",
  "serde_json",
+ "unicase",
 ]
 
 [[package]]

@@ -542,6 +542,8 @@ impl<'a> P<'a> {
     fn inlines(&mut self, split_display: bool, open: &mut Open) -> (RichText, Vec<Image>) {
         let mut rich = RichText::default();
         let mut images = Vec::new();
+        // Whether anything visible besides images appeared in this segment.
+        let mut other = false;
         let Open {
             mut style,
             mut counts,
@@ -611,9 +613,19 @@ impl<'a> P<'a> {
                 }
             };
             match ev {
-                Event::Text(t) => rich.push(&t, style, link),
-                Event::Code(t) => rich.push(&t, style | CODE, link),
-                Event::InlineMath(t) | Event::DisplayMath(t) => rich.push_math(&t, style, link),
+                Event::Text(t) => {
+                    other |= !t.trim().is_empty();
+                    rich.push(&t, style, link)
+                }
+                Event::Code(t) => {
+                    other |= !t.trim().is_empty();
+                    rich.push(&t, style | CODE, link)
+                }
+                Event::InlineMath(t) | Event::DisplayMath(t) => {
+                    let before = rich.text.len();
+                    rich.push_math(&t, style, link);
+                    other |= !rich.text[before..].trim().is_empty();
+                }
                 Event::InlineHtml(h) => {
                     if is_br(&h) {
                         rich.push("\n", style, link);
@@ -625,11 +637,13 @@ impl<'a> P<'a> {
                     // Its own link even inside another link, so it always
                     // jumps to the footnote; the enclosing link carries on
                     // after it. (pulldown-cmark doesn't nest them today.)
+                    other = true;
                     let text = format!("[{l}]");
                     let l = rich.add_link(Link::Footnote(l.into_string()));
                     rich.push(&text, style | LINK, l);
                 }
                 Event::TaskListMarker(c) => {
+                    other = true;
                     rich.push(if c { "☑ " } else { "☐ " }, style, link);
                 }
                 Event::Start(Tag::Strong) => toggle(0, true, &mut style),
@@ -673,7 +687,7 @@ impl<'a> P<'a> {
             counts,
             link: target,
         };
-        (rich, images)
+        (rich, if other { Vec::new() } else { images })
     }
 }
 
@@ -761,15 +775,8 @@ fn cow(s: CowStr) -> String {
 
 fn push_paragraph(out: &mut Vec<Block>, mut rich: RichText, images: Vec<Image>) {
     if !images.is_empty() {
-        // Paragraph made only of images (and whitespace) => image block.
-        let only_images = rich
-            .spans
-            .iter()
-            .all(|s| s.style & LINK != 0 || rich.text[s.range.clone()].trim().is_empty());
-        if only_images {
-            out.push(Block::Images(images));
-            return;
-        }
+        out.push(Block::Images(images));
+        return;
     }
     rich.trim_start();
     rich.trim_end();
@@ -777,6 +784,13 @@ fn push_paragraph(out: &mut Vec<Block>, mut rich: RichText, images: Vec<Image>) 
     if !rich.text.is_empty() {
         out.push(Block::Paragraph(rich));
     }
+}
+
+/// Whether two footnote labels match under pulldown-cmark's Unicode case
+/// folding (`unicase::UniCase::unicode`), matching `ß`/`ẞ` with `SS` without
+/// conflating Turkish dotless `ı` with `i`.
+pub fn footnote_labels_match(a: &str, b: &str) -> bool {
+    unicase::UniCase::unicode(a) == unicase::UniCase::unicode(b)
 }
 
 fn heading_level(l: HeadingLevel) -> u8 {
@@ -1375,5 +1389,30 @@ mod tests {
         };
         // `<Br/ >` isn't an HTML tag for CommonMark, so it stays text.
         assert_eq!(p.text, "a\nb\nc\nd\ne<Br/ >f\ng\nhijk");
+    }
+
+    #[test]
+    fn image_promotion_does_not_drop_footnotes_or_links_after_display_math() {
+        // Footnote reference next to an image must stay a paragraph so the
+        // footnote link isn't lost.
+        let doc = parse("![alt](a.png) [^n]\n\n[^n]: Note.\n");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected paragraph, got {:?}", doc.blocks[0]);
+        };
+        assert!(
+            p.links.contains(&Link::Footnote("n".into())),
+            "footnote link lost: {:?}",
+            p.links
+        );
+
+        // Trailing linked text next to an image after a display-math split
+        // must stay a paragraph and keep its carried link.
+        let doc = parse("[before $$x^2$$ ![alt](a.png) after](other.md)");
+        assert_eq!(doc.blocks.len(), 3, "{:?}", doc.blocks);
+        let Block::Paragraph(after) = &doc.blocks[2] else {
+            panic!("expected trailing paragraph, got {:?}", doc.blocks[2]);
+        };
+        assert_eq!(after.text, "[alt] after");
+        assert_eq!(after.links, [Link::Url("other.md".into())]);
     }
 }
