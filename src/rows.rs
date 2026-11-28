@@ -1291,6 +1291,8 @@ mod tests {
         assert_eq!(table(&["new", "a", "b", "c"]).remap(&old, 3), same(4));
         assert_eq!(table(&["new", "a", "b", "c"]).remap(&old, 0), same(0));
         assert_eq!(table(&["b", "c"]).remap(&old, 2), same(1));
+        // Edited: its row, keeping the offset.
+        assert_eq!(table(&["a", "B", "c"]).remap(&old, 2), same(2));
         // Removed: the row that followed it, from its top.
         assert_eq!(
             table(&["a", "c"]).remap(&old, 2),
