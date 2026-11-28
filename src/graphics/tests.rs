@@ -1186,6 +1186,147 @@ fn fallback_skips_excluded_faces_and_needs_a_base() {
 }
 
 #[test]
+fn fallback_avoids_mismatched_style_latin_takeover_and_preserves_italics_end_to_end() {
+    // When an upright symbol face (lacking Latin) and an upright full-Latin
+    // face in the same family both have `→`, prefer the symbol face so usvg
+    // only replaces `→` and keeps the italic base face for the Latin text.
+    let mut db = Database::new();
+    let base = face(
+        &mut db,
+        "Main-Italic",
+        "Test Sans",
+        Style::Italic,
+        400,
+        false,
+    );
+    // Same family group as `base`, upright and oblique, both cover Latin + `→`.
+    face(
+        &mut db,
+        "Main-Regular",
+        "Test Sans",
+        Style::Normal,
+        400,
+        false,
+    );
+    face(
+        &mut db,
+        "Main-Regular",
+        "Test Sans",
+        Style::Oblique,
+        400,
+        false,
+    );
+    // Different family group, no "Symbol" in its name, upright, no Latin `'a'`.
+    let gap_filler = face(
+        &mut db,
+        "AMS-Regular",
+        "Other Math",
+        Style::Normal,
+        400,
+        false,
+    );
+    assert_eq!(fallback(db, ARROW, base), Some(gap_filler));
+
+    // A matching-style face still beats an upright gap-filler.
+    let mut db = Database::new();
+    let base = face(
+        &mut db,
+        "Main-Italic",
+        "Test Sans",
+        Style::Italic,
+        400,
+        false,
+    );
+    face(
+        &mut db,
+        "AMS-Regular",
+        "Other Math",
+        Style::Normal,
+        400,
+        false,
+    );
+    let same_style = face(
+        &mut db,
+        "Main-Regular",
+        "Other Sans",
+        Style::Italic,
+        400,
+        false,
+    );
+    assert_eq!(fallback(db, ARROW, base), Some(same_style));
+
+    // End-to-end through usvg/resvg: italic `"abc →"` renders `"abc"` with the
+    // italic base face (identical to italic `"abc"` and distinct from upright)
+    // while drawing `→` from the upright symbol fallback.
+    let mut db = Database::new();
+    face(
+        &mut db,
+        "Main-Italic",
+        "Test Sans",
+        Style::Italic,
+        400,
+        false,
+    );
+    face(
+        &mut db,
+        "Main-Regular",
+        "Test Sans",
+        Style::Normal,
+        400,
+        false,
+    );
+    face(
+        &mut db,
+        "AMS-Regular",
+        "Other Math",
+        Style::Normal,
+        400,
+        false,
+    );
+    let fonts = Arc::new(db);
+    let svg = |style: &str, text: &str| {
+        format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="160" height="40">
+                <text x="10" y="30" font-family="Test Sans" font-style="{style}" font-size="24" fill="#000000">{text}</text>
+            </svg>"##
+        )
+    };
+    let italic_arrow = rgba(&rasterize(&svg("italic", "abc →"), 1., &fonts).unwrap());
+    let italic_only = rgba(&rasterize(&svg("italic", "abc"), 1., &fonts).unwrap());
+    let upright_arrow = rgba(&rasterize(&svg("normal", "abc →"), 1., &fonts).unwrap());
+
+    let abc_right = (0..italic_only.width())
+        .filter(|&x| (0..italic_only.height()).any(|y| italic_only.get_pixel(x, y)[3] > 0))
+        .max()
+        .expect("italic abc rendered");
+    let mut differs_from_upright = 0;
+    for y in 0..italic_only.height() {
+        for x in 0..=abc_right {
+            assert_eq!(
+                italic_arrow.get_pixel(x, y),
+                italic_only.get_pixel(x, y),
+                "italic base face lost at ({x}, {y})"
+            );
+            if italic_arrow.get_pixel(x, y) != upright_arrow.get_pixel(x, y) {
+                differs_from_upright += 1;
+            }
+        }
+    }
+    assert!(
+        differs_from_upright > 20,
+        "italic and upright abc should look different ({differs_from_upright} px)"
+    );
+    let arrow_pixels = (abc_right + 1..italic_arrow.width())
+        .flat_map(|x| (0..italic_arrow.height()).map(move |y| (x, y)))
+        .filter(|&(x, y)| italic_arrow.get_pixel(x, y)[3] > 0)
+        .count();
+    assert!(
+        arrow_pixels > 10,
+        "arrow should render from the upright fallback ({arrow_pixels} px)"
+    );
+}
+
+#[test]
 fn style_distances() {
     use Style::*;
     for s in [Normal, Italic, Oblique] {
@@ -1471,6 +1612,24 @@ fn pair_up_matches_unchanged_ends_then_the_middle_one_to_one() {
         ("a", "ax", &[(0, 0)]),
         // Edited and inserted: unclear which is which.
         ("aBc", "axYc", &[(0, 0), (2, 3)]),
+        // Deleted one and inserted another: keep the unchanged block, leave
+        // the inserted one unmatched instead of pairing it with another block.
+        ("ab", "bc", &[(1, 0)]),
+        ("ab", "ca", &[(0, 1)]),
+        ("AB", "BC", &[(1, 0)]),
+        // Unchanged middle block splits edits and insertions into separate gaps.
+        ("abc", "xby", &[(0, 0), (1, 1), (2, 2)]),
+        ("abc", "axcy", &[(0, 0), (1, 1), (2, 2)]),
+        ("abcd", "bxc", &[(1, 0), (2, 2)]),
+        // Longer middle LCS wins whether advancing old or new first, and
+        // consecutive identical anchors advance both indices without reusing
+        // one new element for repeated old elements.
+        ("xbc", "bcx", &[(1, 0), (2, 1)]),
+        ("bcx", "xbc", &[(0, 1), (1, 2)]),
+        ("abbc", "dbbe", &[(0, 0), (1, 1), (2, 2), (3, 3)]),
+        ("aaabc", "bcxay", &[(3, 0), (4, 1)]),
+        // Reordered blocks match an unchanged one without cross-pairing.
+        ("ab", "ba", &[(1, 0)]),
         // Duplicates aren't counted twice.
         ("aa", "a", &[(0, 0)]),
         ("a", "aa", &[(0, 0)]),
@@ -1478,6 +1637,42 @@ fn pair_up_matches_unchanged_ends_then_the_middle_one_to_one() {
     ];
     for (old, new, want) in cases {
         assert_eq!(pairs(old, new), *want, "{old:?} → {new:?}");
+    }
+}
+
+#[test]
+fn pair_up_caps_middle_diff_table_size() {
+    // At the exact cap (255 + 1) * (255 + 1) == 65_536, the middle pairs;
+    // one block larger on either side skips the middle (even with a shared
+    // middle element) and keeps only the unchanged ends.
+    let make = |prefix: &str, count: usize, mid: bool| -> Vec<(Kind, Arc<str>)> {
+        let mut v = vec![(Kind::Math, "head".into())];
+        for i in 0..count {
+            let s = if mid && i == 1 {
+                "mid".into()
+            } else {
+                format!("{prefix}{i}").into()
+            };
+            v.push((Kind::Math, s));
+        }
+        v.push((Kind::Math, "tail".into()));
+        v
+    };
+    let old_fit = make("a", 255, false);
+    let new_fit = make("b", 255, false);
+    assert_eq!(
+        pair_up(&as_refs(&old_fit), &as_refs(&new_fit)).len(),
+        257,
+        "exact cap pairs the middle"
+    );
+    for (m, n) in [(256, 255), (255, 256)] {
+        let old_big = make("a", m, true);
+        let new_big = make("b", n, true);
+        assert_eq!(
+            pair_up(&as_refs(&old_big), &as_refs(&new_big)),
+            vec![(0, 0), (m + 1, n + 1)],
+            "{m}×{n}: above cap keeps only the unchanged ends"
+        );
     }
 }
 

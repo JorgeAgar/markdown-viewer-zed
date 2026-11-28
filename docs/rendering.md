@@ -210,9 +210,11 @@ diagram families are enabled except the ELK layout engine.
   a background thread, the first time a diagram is drawn (~10–15 ms), with
   `sans-serif` mapped to the UI font. Missing characters (say `→` in Noto
   Sans) fall back to a proportional font (`fallback_font`), not to whatever
-  face comes first. A face of the label's style is preferred, but an italic
-  label still takes an upright face when only one has the character, as
-  with most symbol, emoji and CJK fonts.
+  face comes first. A face of the label's style is preferred, and when only a
+  mismatched-style face has the character (as with most symbol, emoji and CJK
+  fonts), a gap-filling face that does not cover Latin letters is preferred
+  ahead of full upright fonts so usvg keeps the italic base face for the rest
+  of the label.
 - **Size.** Diagrams are shown at their natural size, centered, and scaled
   down to the column width when wider, like on GitHub.
 
@@ -255,10 +257,11 @@ the placeholder, so a save doesn't flash or move the page:
   last. A block is identified by its source `Arc<str>` (by address, holding
   the `Arc`), so nested blocks in quotes, lists and footnotes work the same.
 - `Tab::replace` calls `Shown::carry_over` to hand those keys to the blocks
-  of the new document: blocks are matched in document order, the unchanged
-  ones at both ends, then the changed ones in between one to one, if both
-  sides have as many (of the same kind). A block that was inserted, or that
-  can't be told apart, starts with the placeholder.
+  of the new document: unchanged blocks (same kind and source) are matched in
+  document order first — at both ends, then by longest common subsequence in
+  between — and each remaining gap between unchanged blocks is paired one to
+  one when both sides have as many (of the same kind). A block that was
+  inserted, or that can't be told apart, starts with the placeholder.
 - Only the key is kept, never the image: the cache stays the only owner of
   the pixels and textures, so memory stays within the 128 MB budget however
   often a file is reloaded, and closing a tab just drops its `Shown`. The

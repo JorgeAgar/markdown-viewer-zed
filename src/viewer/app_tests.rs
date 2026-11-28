@@ -2090,6 +2090,37 @@ fn an_edited_diagram_keeps_its_previous_image_while_it_renders() {
     assert!(after > before, "{after} vs {before}");
 }
 
+#[test]
+fn deleting_one_graphic_and_appending_another_shows_a_placeholder_for_the_new_one() {
+    use graphics::Drawn::{Image, Placeholder};
+    let dir = TempDir::new("graphic-insert");
+    let path = normalize(&dir.join("a.md"));
+    std::fs::write(&path, "# Doc\n\n$$\nx\n$$\n\n$$\n\\frac{a}{b}\n$$\n").unwrap();
+    let (v, cx) = open(vec![load(path.clone())]);
+
+    // Delete the first formula and append a new one in the same save:
+    // the surviving second formula keeps its cached image, and the new
+    // formula starts with a placeholder instead of borrowing the other's image.
+    graphics::take_drawn();
+    edit_and_draw(
+        &v,
+        cx,
+        &path,
+        "# Doc\n\n$$\n\\frac{a}{b}\n$$\n\n$$\n\\sum_i x_i\n$$\n",
+    );
+    let pending = graphics::take_drawn();
+    assert!(
+        matches!(pending[..], [Image(_), Placeholder]),
+        "expected [Image, Placeholder], got {pending:?}"
+    );
+    cx.run_until_parked();
+    let ready = graphics::take_drawn();
+    assert!(
+        ready.len() >= 2 && matches!(ready[ready.len() - 2..], [Image(_), Image(_)]),
+        "expected both ready, got {ready:?}"
+    );
+}
+
 /// Live-reloading an edited formula again and again: one previous image per
 /// block, the cache stays within its budget (evicted images get their
 /// textures dropped), and closing the tab lets go of its previous images.

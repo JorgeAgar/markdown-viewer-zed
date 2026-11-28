@@ -221,11 +221,12 @@ pub type ShownMap = Rc<RefCell<Shown>>;
 
 impl Shown {
     /// After a reload: what each block of `old` showed now belongs to the
-    /// block of `new` that replaces it. Blocks are matched in document
-    /// order (nested ones included): the unchanged ones at the start and
-    /// at the end, then the ones in between one to one, if there are as
-    /// many on both sides. Otherwise it's unclear which edited block is
-    /// which, and they start over with a placeholder.
+    /// block of `new` that replaces it. Unchanged blocks (same kind and
+    /// source) are matched in document order first — at both ends, then by
+    /// longest common subsequence in between — and each remaining gap between
+    /// unchanged blocks is paired one to one when both sides have as many
+    /// (of the same kind). Otherwise it's unclear which edited block is
+    /// which, and inserted or ambiguous blocks start over with a placeholder.
     pub fn carry_over(&mut self, old: &Document, new: &Document) {
         let (old, new) = (graphics_in(&old.blocks), graphics_in(&new.blocks));
         let mut next = HashMap::new();
@@ -266,6 +267,10 @@ fn graphics_in(blocks: &[Block]) -> Vec<(Kind, &Arc<str>)> {
     out
 }
 
+/// Maximum DP table cells for matching unchanged middle blocks in [`pair_up`].
+/// Larger middle spans only match the unchanged prefix and suffix.
+const MAX_PAIR_DIFF_CELLS: usize = 65_536;
+
 /// Which block of `old` each block of `new` replaces, as index pairs (see
 /// [`Shown::carry_over`]). Only blocks of the same kind are paired.
 fn pair_up(old: &[(Kind, &Arc<str>)], new: &[(Kind, &Arc<str>)]) -> Vec<(usize, usize)> {
@@ -276,12 +281,53 @@ fn pair_up(old: &[(Kind, &Arc<str>)], new: &[(Kind, &Arc<str>)]) -> Vec<(usize, 
         .take_while(|&i| same(old.len() - 1 - i, new.len() - 1 - i))
         .count();
     let mut pairs: Vec<(usize, usize)> = (0..start).map(|i| (i, i)).collect();
-    if old.len() == new.len() {
-        pairs.extend(
-            (start..old.len() - end)
-                .filter(|&i| old[i].0 == new[i].0)
-                .map(|i| (i, i)),
-        );
+    let old_end = old.len() - end;
+    let new_end = new.len() - end;
+    let m = old_end - start;
+    let n = new_end - start;
+    if (m + 1).saturating_mul(n + 1) <= MAX_PAIR_DIFF_CELLS {
+        let mut dp = vec![vec![0u32; n + 1]; m + 1];
+        for i in (0..m).rev() {
+            for j in (0..n).rev() {
+                dp[i][j] = if same(start + i, start + j) {
+                    dp[i + 1][j + 1] + 1
+                } else {
+                    dp[i + 1][j].max(dp[i][j + 1])
+                };
+            }
+        }
+        let mut anchors = Vec::new();
+        let (mut i, mut j) = (0, 0);
+        while i < m && j < n {
+            if same(start + i, start + j) {
+                anchors.push((start + i, start + j));
+                i += 1;
+                j += 1;
+            } else if dp[i][j] == dp[i + 1][j] {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+        let mut prev_o = start;
+        let mut prev_n = start;
+        for (ao, an) in anchors
+            .into_iter()
+            .chain(std::iter::once((old_end, new_end)))
+        {
+            if ao - prev_o == an - prev_n {
+                pairs.extend(
+                    (0..ao - prev_o)
+                        .filter(|&k| old[prev_o + k].0 == new[prev_n + k].0)
+                        .map(|k| (prev_o + k, prev_n + k)),
+                );
+            }
+            if ao < old_end {
+                pairs.push((ao, an));
+            }
+            prev_o = ao + 1;
+            prev_n = an + 1;
+        }
     }
     pairs.extend((0..end).map(|i| (old.len() - 1 - i, new.len() - 1 - i)));
     pairs
@@ -609,17 +655,20 @@ static EMPTY_FONTS: LazyLock<Arc<usvg::fontdb::Database>> =
 /// Picks a font for a character the label's font lacks (e.g. `→` in Noto
 /// Sans). usvg's default takes the first face that has it, often a monospace
 /// one, and when that face covers the whole label usvg draws the whole label
-/// with it. So prefer, in order: a non-monospace face, the label's style
-/// (see [`style_distance`]), one from the same family group ("Noto Sans
-/// Symbols" for "Noto Sans"), a symbols face (it only fills the gaps), and
-/// the closest weight.
+/// with it. So prefer, in order: a non-monospace face, not a mismatched-style
+/// face that also covers Latin letters (when a fallback covers every character
+/// of the run, usvg replaces the whole run with it, which would strip italics
+/// from the label; a symbol, emoji or CJK face that only fills the gaps keeps
+/// the base face for the rest of the label), the label's style (see
+/// [`style_distance`]), one from the same family group ("Noto Sans Symbols"
+/// for "Noto Sans"), a symbol face (it only fills the gaps), and the closest
+/// weight.
 ///
 /// The style is a preference, not a filter: symbol, emoji and CJK fonts
 /// usually have upright faces only, and an upright `→` in an italic label
-/// beats a missing glyph box (issue #55). It ranks below monospace, the
-/// worst choice (it can take over the whole label), and above the family
-/// group, so an italic label keeps an italic fallback when there is one,
-/// as it did when only faces of the same style were considered.
+/// beats a missing glyph box (issue #55). When only a full-coverage upright
+/// face has the glyph, usvg still uses it rather than drawing a missing-glyph
+/// box.
 fn fallback_font(
     c: char,
     exclude: &[usvg::fontdb::ID],
@@ -628,25 +677,27 @@ fn fallback_font(
     let db = &**db;
     let base = db.face(*exclude.first()?)?;
     let base_group = base.families.first()?.0.split(' ').next()?.to_string();
-    let has_char = |id| {
+    let has_char = |id, ch| {
         db.with_face_data(id, |data, index| {
             ttf_parser::Face::parse(data, index)
                 .ok()
-                .and_then(|f| f.glyph_index(c))
+                .and_then(|f| f.glyph_index(ch))
                 .is_some()
         })
         .unwrap_or(false)
     };
     db.faces()
         .filter(|f| !exclude.contains(&f.id))
-        .filter(|f| has_char(f.id))
+        .filter(|f| has_char(f.id, c))
         .min_by_key(|f| {
             let family = f.families.first().map_or("", |f| f.0.as_str());
+            let style = style_distance(f.style, base.style);
             (
                 f.monospaced || family.contains("Mono"),
-                style_distance(f.style, base.style),
+                style > 0 && has_char(f.id, 'a'),
+                style,
                 !family.starts_with(&base_group),
-                !family.contains("Symbols"),
+                !family.contains("Symbol"),
                 f.weight.0.abs_diff(base.weight.0),
             )
         })
