@@ -433,9 +433,17 @@ static EMPTY_FONTS: LazyLock<Arc<usvg::fontdb::Database>> =
 /// Picks a font for a character the label's font lacks (e.g. `→` in Noto
 /// Sans). usvg's default takes the first face that has it, often a monospace
 /// one, and when that face covers the whole label usvg draws the whole label
-/// with it. So prefer, in order: a non-monospace face, one from the same
-/// family group ("Noto Sans Symbols" for "Noto Sans"), a symbols face (it
-/// only fills the gaps), and the closest weight.
+/// with it. So prefer, in order: a non-monospace face, the label's style
+/// (see [`style_distance`]), one from the same family group ("Noto Sans
+/// Symbols" for "Noto Sans"), a symbols face (it only fills the gaps), and
+/// the closest weight.
+///
+/// The style is a preference, not a filter: symbol, emoji and CJK fonts
+/// usually have upright faces only, and an upright `→` in an italic label
+/// beats a missing glyph box (issue #55). It ranks below monospace, the
+/// worst choice (it can take over the whole label), and above the family
+/// group, so an italic label keeps an italic fallback when there is one,
+/// as it did when only faces of the same style were considered.
 fn fallback_font(
     c: char,
     exclude: &[usvg::fontdb::ID],
@@ -454,18 +462,30 @@ fn fallback_font(
         .unwrap_or(false)
     };
     db.faces()
-        .filter(|f| !exclude.contains(&f.id) && f.style == base.style)
+        .filter(|f| !exclude.contains(&f.id))
         .filter(|f| has_char(f.id))
         .min_by_key(|f| {
             let family = f.families.first().map_or("", |f| f.0.as_str());
             (
                 f.monospaced || family.contains("Mono"),
+                style_distance(f.style, base.style),
                 !family.starts_with(&base_group),
                 !family.contains("Symbols"),
                 f.weight.0.abs_diff(base.weight.0),
             )
         })
         .map(|f| f.id)
+}
+
+/// How far a fallback face's style is from the label's: 0 for the same
+/// style, 1 for italic and oblique (both slanted), 2 for upright and slanted.
+fn style_distance(face: usvg::fontdb::Style, label: usvg::fontdb::Style) -> u8 {
+    use usvg::fontdb::Style;
+    match (face, label) {
+        _ if face == label => 0,
+        (Style::Normal, _) | (_, Style::Normal) => 2,
+        _ => 1,
+    }
 }
 
 fn rasterize(

@@ -208,8 +208,10 @@ diagram families are enabled except the ELK layout engine.
   overflow their boxes. The system font database for resvg is loaded once, on
   a background thread, the first time a diagram is drawn (~10–15 ms), with
   `sans-serif` mapped to the UI font. Missing characters (say `→` in Noto
-  Sans) fall back to a proportional font of the same style
-  (`fallback_font`), not to whatever face comes first.
+  Sans) fall back to a proportional font (`fallback_font`), not to whatever
+  face comes first. A face of the label's style is preferred, but an italic
+  label still takes an upright face when only one has the character, as
+  with most symbol, emoji and CJK fonts.
 - **Size.** Diagrams are shown at their natural size, centered, and scaled
   down to the column width when wider, like on GitHub.
 

@@ -3446,6 +3446,7 @@ dependencies = [
  "libc",
  "mdview-core",
  "merman",
+ "ratex-katex-fonts",
  "ratex-layout",
  "ratex-parser",
  "ratex-svg",

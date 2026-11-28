@@ -902,3 +902,299 @@ fn aspect_ratio_of_bad_sizes_is_none() {
         assert_eq!(aspect_ratio(size(px(w), px(h))), None, "{w}×{h}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Fallback fonts for diagram labels.
+
+use usvg::fontdb::{Database, FaceInfo, ID, Language, Source, Stretch, Style, Weight};
+
+/// A face backed by one of the KaTeX fonts (for its glyphs), described with
+/// the given family, style, weight and pitch, so each test controls exactly
+/// what `fallback_font` ranks.
+fn face(db: &mut Database, data: &str, family: &str, style: Style, weight: u16, mono: bool) -> ID {
+    let bytes = ratex_katex_fonts::ttf_bytes(&format!("KaTeX_{data}.ttf"))
+        .unwrap()
+        .into_owned();
+    db.push_face_info(FaceInfo {
+        id: ID::dummy(),
+        source: Source::Binary(Arc::new(bytes)),
+        index: 0,
+        families: vec![(family.into(), Language::English_UnitedStates)],
+        post_script_name: family.replace(' ', ""),
+        style,
+        weight: Weight(weight),
+        stretch: Stretch::Normal,
+        monospaced: mono,
+    })
+}
+
+fn fallback(db: Database, c: char, base: ID) -> Option<ID> {
+    fallback_font(c, &[base], &mut Arc::new(db))
+}
+
+// What the KaTeX fonts used below cover.
+const ARROW: char = '→'; // Main-Regular and AMS-Regular, no italic face
+const CHECK: char = '✓'; // AMS-Regular only
+const BANG: char = '!'; // Main-*, Typewriter; not AMS-Regular
+
+#[test]
+fn katex_fonts_cover_what_the_fallback_tests_assume() {
+    let has = |file: &str, c: char| {
+        let data = ratex_katex_fonts::ttf_bytes(&format!("KaTeX_{file}.ttf")).unwrap();
+        ttf_parser::Face::parse(&data, 0)
+            .unwrap()
+            .glyph_index(c)
+            .is_some()
+    };
+    for (file, arrow, check, bang) in [
+        ("Main-Italic", false, false, true),
+        ("Main-Regular", true, false, true),
+        ("AMS-Regular", true, true, false),
+        ("Typewriter-Regular", false, false, true),
+    ] {
+        assert_eq!(has(file, ARROW), arrow, "{file} {ARROW}");
+        assert_eq!(has(file, CHECK), check, "{file} {CHECK}");
+        assert_eq!(has(file, BANG), bang, "{file} {BANG}");
+    }
+}
+
+/// Issue #55: symbol, emoji and CJK fonts are mostly upright only, so an
+/// italic label found no fallback at all and drew a missing glyph box.
+#[test]
+fn fallback_for_italic_text_takes_an_upright_face_when_no_italic_one_has_it() {
+    let mut db = Database::new();
+    let base = face(
+        &mut db,
+        "Main-Italic",
+        "Test Sans",
+        Style::Italic,
+        400,
+        false,
+    );
+    face(
+        &mut db,
+        "Main-Italic",
+        "Other Serif",
+        Style::Italic,
+        400,
+        false,
+    );
+    let symbols = face(
+        &mut db,
+        "AMS-Regular",
+        "Test Sans Symbols",
+        Style::Normal,
+        400,
+        false,
+    );
+    assert_eq!(fallback(db, CHECK, base), Some(symbols));
+
+    for style in [Style::Italic, Style::Oblique] {
+        let mut db = Database::new();
+        let base = face(&mut db, "Main-Italic", "Test Sans", style, 400, false);
+        let upright = face(
+            &mut db,
+            "Main-Regular",
+            "Other Sans",
+            Style::Normal,
+            400,
+            false,
+        );
+        assert_eq!(fallback(db, ARROW, base), Some(upright), "{style:?}");
+    }
+}
+
+#[test]
+fn fallback_prefers_the_label_style_when_several_faces_have_it() {
+    // The matching face comes last: a tie would pick the first one.
+    for style in [Style::Italic, Style::Oblique, Style::Normal] {
+        let mut db = Database::new();
+        let base = face(&mut db, "AMS-Regular", "Test Sans", style, 400, false);
+        let mut others = Vec::new();
+        for s in [Style::Normal, Style::Italic, Style::Oblique] {
+            if s != style {
+                others.push(face(&mut db, "Main-Regular", "Other", s, 400, false));
+            }
+        }
+        let same = face(&mut db, "Main-Regular", "Other", style, 400, false);
+        assert_eq!(fallback(db, BANG, base), Some(same), "{style:?}");
+    }
+
+    // Italic and oblique are closer to each other than to upright.
+    for (label, slanted) in [
+        (Style::Italic, Style::Oblique),
+        (Style::Oblique, Style::Italic),
+    ] {
+        let mut db = Database::new();
+        let base = face(&mut db, "AMS-Regular", "Test Sans", label, 400, false);
+        face(&mut db, "Main-Regular", "Other", Style::Normal, 400, false);
+        let close = face(&mut db, "Main-Regular", "Other", slanted, 400, false);
+        assert_eq!(fallback(db, BANG, base), Some(close), "{label:?}");
+    }
+}
+
+#[test]
+fn fallback_ranks_monospace_first_then_style_then_family_group() {
+    // A proportional upright face beats a monospace italic one.
+    let mut db = Database::new();
+    let base = face(
+        &mut db,
+        "AMS-Regular",
+        "Test Sans",
+        Style::Italic,
+        400,
+        false,
+    );
+    let upright = face(&mut db, "Main-Regular", "Other", Style::Normal, 400, false);
+    face(
+        &mut db,
+        "Typewriter-Regular",
+        "Other",
+        Style::Italic,
+        400,
+        true,
+    );
+    face(
+        &mut db,
+        "Typewriter-Regular",
+        "Other Mono",
+        Style::Italic,
+        400,
+        false,
+    );
+    assert_eq!(fallback(db, BANG, base), Some(upright));
+
+    // An italic face of another family group beats an upright one of the
+    // label's group.
+    let mut db = Database::new();
+    let base = face(
+        &mut db,
+        "AMS-Regular",
+        "Test Sans",
+        Style::Italic,
+        400,
+        false,
+    );
+    face(
+        &mut db,
+        "Main-Regular",
+        "Test Serif",
+        Style::Normal,
+        400,
+        false,
+    );
+    let italic = face(&mut db, "Main-Regular", "Other", Style::Italic, 400, false);
+    assert_eq!(fallback(db, BANG, base), Some(italic));
+}
+
+#[test]
+fn fallback_then_prefers_the_family_group_symbols_and_weight() {
+    let pick = |faces: &[(&str, &str, u16)], c: char| {
+        let mut db = Database::new();
+        let base = face(
+            &mut db,
+            "Main-Italic",
+            "Test Sans",
+            Style::Italic,
+            400,
+            false,
+        );
+        let ids: Vec<ID> = faces
+            .iter()
+            .map(|(data, family, weight)| {
+                face(&mut db, data, family, Style::Italic, *weight, false)
+            })
+            .collect();
+        let got = fallback(db, c, base)?;
+        ids.iter().position(|id| *id == got)
+    };
+    // The same family group.
+    assert_eq!(
+        pick(
+            &[
+                ("AMS-Regular", "Other", 400),
+                ("AMS-Regular", "Test Serif", 400)
+            ],
+            CHECK
+        ),
+        Some(1)
+    );
+    // A symbols face.
+    assert_eq!(
+        pick(
+            &[
+                ("AMS-Regular", "Other", 400),
+                ("AMS-Regular", "Other Symbols", 400)
+            ],
+            CHECK
+        ),
+        Some(1)
+    );
+    // The closest weight, lighter or heavier.
+    assert_eq!(
+        pick(
+            &[("AMS-Regular", "Other", 700), ("AMS-Regular", "Other", 300)],
+            CHECK
+        ),
+        Some(1)
+    );
+    assert_eq!(
+        pick(
+            &[("AMS-Regular", "Other", 100), ("AMS-Regular", "Other", 500)],
+            CHECK
+        ),
+        Some(1)
+    );
+    // Only faces that have the character, never the label's own.
+    assert_eq!(
+        pick(
+            &[
+                ("Main-Regular", "Test Sans", 400),
+                ("AMS-Regular", "Other", 900)
+            ],
+            CHECK
+        ),
+        Some(1)
+    );
+    assert_eq!(pick(&[("Typewriter-Regular", "Other", 400)], CHECK), None);
+}
+
+#[test]
+fn fallback_skips_excluded_faces_and_needs_a_base() {
+    let mut db = Database::new();
+    let base = face(
+        &mut db,
+        "Main-Italic",
+        "Test Sans",
+        Style::Italic,
+        400,
+        false,
+    );
+    let tried = face(
+        &mut db,
+        "AMS-Regular",
+        "Test Sans Symbols",
+        Style::Normal,
+        400,
+        false,
+    );
+    let other = face(&mut db, "AMS-Regular", "Other", Style::Normal, 400, false);
+    let mut db = Arc::new(db);
+    assert_eq!(fallback_font(CHECK, &[base, tried], &mut db), Some(other));
+    assert_eq!(fallback_font(CHECK, &[base, tried, other], &mut db), None);
+    assert_eq!(fallback_font(CHECK, &[], &mut db), None);
+}
+
+#[test]
+fn style_distances() {
+    use Style::*;
+    for s in [Normal, Italic, Oblique] {
+        assert_eq!(style_distance(s, s), 0);
+    }
+    assert_eq!(style_distance(Italic, Oblique), 1);
+    assert_eq!(style_distance(Oblique, Italic), 1);
+    for s in [Italic, Oblique] {
+        assert_eq!(style_distance(Normal, s), 2);
+        assert_eq!(style_distance(s, Normal), 2);
+    }
+}
