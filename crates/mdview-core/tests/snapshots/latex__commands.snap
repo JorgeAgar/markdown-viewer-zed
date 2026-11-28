@@ -48,7 +48,7 @@ a \\ b \newline c \cr d ⇒ ⟦I|a⟧; ⟦I|b⟧; ⟦I|c⟧; ⟦I|d⟧
 \underbrace{a+b}_{n} \overbrace{c}^{m} \boxed{x} \fbox{y} \smash{z} \cancel{a} \bcancel{b} \xcancel{c} \sout{d} ⇒ ⟦I|a⟧ + ⟦I|b⟧ₙ⟦I|c⟧ᵐ⟦I|x⟧⟦I|y⟧⟦I|z⟧⟦I|a⟧⟦I|b⟧⟦I|c⟧⟦I|d⟧
 \color{red} x \textcolor{blue}{y} \colorbox{yellow}{z} ⇒ ⟦I|x⟧⟦I|y⟧⟦I|z⟧
 \overset{!}{=} \stackrel{def}{=} \underset{x}{\arg\min} ⇒ = ^!= ᵈᵉᶠarg⟨U+2009⟩minₓ
-a \not= b \not\in C \not\subset D \not\subseteq E \not\equiv f \not\sim g \not< h \not\le i ⇒ ⟦I|a⟧ ≠ ⟦I|b⟧ ∉ ⟦I|C⟧ ⊄ ⟦I|D⟧ ⊈ ⟦I|E⟧ ≢ ⟦I|f⟧ ≁ ⟦I|g⟧ <⟨U+0338⟩ ⟦I|h⟧ ≤⟨U+0338⟩ ⟦I|i⟧
+a \not= b \not\in C \not\subset D \not\subseteq E \not\equiv f \not\sim g \not< h \not\le i ⇒ ⟦I|a⟧ ≠ ⟦I|b⟧ ∉ ⟦I|C⟧ ⊄ ⟦I|D⟧ ⊈ ⟦I|E⟧ ≢ ⟦I|f⟧ ≁ ⟦I|g⟧ ≮ ⟦I|h⟧ ≰ ⟦I|i⟧
 x \tag{1} y \tag*{A} ⇒ ⟦I|x⟧⟨U+2003⟩(1)⟦I|y⟧⟨U+2003⟩(A)
 \begin{pmatrix} a & b \\ c & d \end{pmatrix} ⇒ (a  b; c  d)
 \begin{bmatrix}1&2\end{bmatrix} \begin{Bmatrix}x\end{Bmatrix} \begin{vmatrix}a\end{vmatrix} \begin{Vmatrix}b\end{Vmatrix} \begin{matrix}m\end{matrix} ⇒ [1  2]{x}|a|‖b‖m

@@ -300,7 +300,10 @@ impl Parser<'_> {
         }
     }
 
+    /// `[…]`, as in `\sqrt[3]{x}`. Spaces before the `[` are skipped, as
+    /// LaTeX does: `\sqrt [3]{x}` is a cube root too.
     fn optional_arg(&mut self, w: &W) -> Option<W> {
+        self.skip_spaces();
         if self.peek() == Some(&T::Ch('[')) {
             self.i += 1;
             let mut out = w.sub();
@@ -408,9 +411,12 @@ impl Parser<'_> {
             | "Bigl" | "Bigr" | "biggl" | "biggr" | "Biggl" | "Biggr" | "displaystyle"
             | "textstyle" | "scriptstyle" | "scriptscriptstyle" | "limits" | "nolimits"
             | "nonumber" | "notag" | "mathstrut" | "strut" | "relax" | "allowbreak" => {
-                // `\left.` is an invisible delimiter.
-                if matches!(name, "left" | "right" | "middle") && self.peek() == Some(&T::Ch('.')) {
-                    self.i += 1;
+                // `\left.` (or `\left .`) is an invisible delimiter.
+                if matches!(name, "left" | "right" | "middle") {
+                    self.skip_spaces();
+                    if self.peek() == Some(&T::Ch('.')) {
+                        self.i += 1;
+                    }
                 }
             }
             "label" | "hspace" | "vspace" | "kern" | "mkern" | "hskip" | "phantom" => {
@@ -519,16 +525,20 @@ impl Parser<'_> {
             }
             "not" => {
                 // `\not=` → ≠, `\not\in` → ∉, otherwise a combining slash.
+                // Spaces don't separate `\not` from what it negates
+                // (`\not =` is ≠), but the end of a group or a cell does:
+                // that token isn't consumed.
+                self.skip_spaces();
                 let mut g = w.sub();
-                self.item(&mut g);
-                let s = match g.s.trim() {
-                    "=" => "≠".to_string(),
-                    "∈" => "∉".to_string(),
-                    "⊂" => "⊄".to_string(),
-                    "⊆" => "⊈".to_string(),
-                    "≡" => "≢".to_string(),
-                    "∼" => "≁".to_string(),
-                    other => format!("{other}\u{338}"),
+                if !matches!(self.peek(), None | Some(T::Close | T::Amp))
+                    && !matches!(self.peek(), Some(T::Cmd(c)) if c == "end")
+                {
+                    self.item(&mut g);
+                }
+                let target = g.s.trim();
+                let s = match negated(target) {
+                    Some(n) => n.to_string(),
+                    None => format!("{target}\u{338}"),
                 };
                 w.sym(&s, Class::Rel);
             }
@@ -685,6 +695,36 @@ fn enclosed_in_parens(t: &str) -> bool {
         }
     }
     depth == 0
+}
+
+/// The precomposed negation of a relation, for `\not`. Each is what the
+/// relation plus U+0338 normalizes to (NFC), but drawn as one glyph.
+fn negated(rel: &str) -> Option<&'static str> {
+    Some(match rel {
+        "=" => "≠",
+        "<" => "≮",
+        ">" => "≯",
+        "≤" => "≰",
+        "≥" => "≱",
+        "∈" => "∉",
+        "∋" => "∌",
+        "⊂" => "⊄",
+        "⊃" => "⊅",
+        "⊆" => "⊈",
+        "⊇" => "⊉",
+        "≡" => "≢",
+        "∼" => "≁",
+        "≃" => "≄",
+        "≅" => "≇",
+        "≈" => "≉",
+        "≺" => "⊀",
+        "≻" => "⊁",
+        "∣" => "∤",
+        "∥" => "∦",
+        "⊢" => "⊬",
+        "⊨" => "⊭",
+        _ => return None,
+    })
 }
 
 fn add_accent(w: &mut W, g: W, mark: char, name: &str) {
@@ -1238,6 +1278,98 @@ mod tests {
         ] {
             assert!(!enclosed_in_parens(t), "{t:?}");
         }
+    }
+
+    #[test]
+    fn whitespace_after_not_does_not_change_its_target() {
+        // #32: the space used to be negated instead of the relation.
+        for (spaced, tight, want) in [
+            (r"a \not = b", r"a \not= b", "a ≠ b"),
+            (r"x \not \in S", r"x \not\in S", "x ∉ S"),
+            (r"A \not \subset B", r"A \not\subset B", "A ⊄ B"),
+            ("a \\not\n\t= b", r"a \not= b", "a ≠ b"),
+            ("a \\not % comment\n = b", r"a \not= b", "a ≠ b"),
+            (r"a \not {=} b", r"a \not{=} b", "a ≠ b"),
+            (r"a \not \approx b", r"a \not\approx b", "a ≉ b"),
+        ] {
+            assert_eq!(u(spaced), want, "{spaced:?}");
+            assert_eq!(u(tight), want, "{tight:?}");
+        }
+    }
+
+    #[test]
+    fn not_uses_precomposed_negations() {
+        for (rel, want) in [
+            ("=", "≠"),
+            ("<", "≮"),
+            (">", "≯"),
+            (r"\le", "≰"),
+            (r"\geq", "≱"),
+            (r"\in", "∉"),
+            (r"\ni", "∌"),
+            (r"\subset", "⊄"),
+            (r"\supset", "⊅"),
+            (r"\subseteq", "⊈"),
+            (r"\supseteq", "⊉"),
+            (r"\equiv", "≢"),
+            (r"\sim", "≁"),
+            (r"\simeq", "≄"),
+            (r"\cong", "≇"),
+            (r"\approx", "≉"),
+            (r"\prec", "⊀"),
+            (r"\succ", "⊁"),
+            (r"\mid", "∤"),
+            (r"\parallel", "∦"),
+            (r"\vdash", "⊬"),
+            (r"\models", "⊭"),
+        ] {
+            assert_eq!(
+                u(&format!(r"a \not {rel} b")),
+                format!("a {want} b"),
+                "{rel}"
+            );
+        }
+        // No precomposed form: a combining slash on the symbol.
+        assert_eq!(u(r"a \not\preceq b"), "a ⪯\u{338} b");
+        assert_eq!(u(r"a \not \to b"), "a →\u{338} b");
+    }
+
+    #[test]
+    fn not_without_a_target_keeps_the_rest() {
+        assert_eq!(u(r"\not"), "\u{338}");
+        assert_eq!(u(r"\not   "), "\u{338}");
+        // The group's `}` still closes it: `b` stays outside the fraction.
+        assert_eq!(u(r"\frac{a \not}{c} b"), u(r"\frac{a \not{}}{c} b"));
+        assert!(
+            u(r"\frac{a \not }{c}").ends_with("/c"),
+            "{}",
+            u(r"\frac{a \not }{c}")
+        );
+        // `&` and `\end` belong to the environment, not to `\not`.
+        assert_eq!(
+            u(r"\begin{pmatrix} a \not & b \end{pmatrix} c"),
+            "(a \u{338}   b)c"
+        );
+        assert_eq!(u(r"\begin{pmatrix} a \not \end{pmatrix} c"), "(a \u{338})c");
+    }
+
+    #[test]
+    fn whitespace_before_an_optional_argument() {
+        // #32: `\sqrt [3]{x}` is a cube root, as in LaTeX.
+        assert_eq!(u(r"\sqrt [3]{x}"), "∛x");
+        assert_eq!(u("\\sqrt\n[4]{x}"), "∜x");
+        assert_eq!(u(r"\sqrt [n] {x+1}"), "ⁿ√(x + 1)");
+        assert_eq!(u(r"\sqrt {x}"), "√x");
+        assert_eq!(u(r"\sqrt x"), "√x");
+    }
+
+    #[test]
+    fn whitespace_before_an_invisible_delimiter() {
+        assert_eq!(u(r"\left . x \right |"), "x|");
+        assert_eq!(u(r"\left( x \right ."), "(x");
+        assert_eq!(u(r"\left. x \middle . y \right."), "xy");
+        // Spaces after a delimiter command never matter elsewhere either.
+        assert_eq!(u(r"\left ( x \right )"), "(x)");
     }
 
     #[test]
