@@ -742,7 +742,11 @@ fn open_without_a_window_prompts_and_feeds_the_tracked_window() {
             options.prompt.as_ref().map(|p| p.as_ref()),
             Some("Open Markdown")
         );
-        assert_eq!(options.directory, default_open_directory());
+        assert_eq!(
+            options.directory,
+            std::env::current_dir().ok(),
+            "starts in cwd"
+        );
         Some(vec![a.clone()])
     });
     cx.run_until_parked();
@@ -789,7 +793,11 @@ fn open_without_a_key_window_reuses_the_open_one() {
     cx.run_until_parked();
     assert_eq!(cx.pending_paths_prompts(), 1);
     cx.simulate_paths_selection(|options| {
-        assert_eq!(options.directory, default_open_directory());
+        assert_eq!(
+            options.directory,
+            std::env::current_dir().ok(),
+            "starts in cwd"
+        );
         Some(vec![a.clone()])
     });
     cx.run_until_parked();
