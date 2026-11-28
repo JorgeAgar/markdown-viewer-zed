@@ -300,7 +300,10 @@ impl Parser<'_> {
         }
     }
 
+    /// `[…]`, as in `\sqrt[3]{x}`. Spaces before the `[` are skipped, as
+    /// LaTeX does: `\sqrt [3]{x}` is a cube root too.
     fn optional_arg(&mut self, w: &W) -> Option<W> {
+        self.skip_spaces();
         if self.peek() == Some(&T::Ch('[')) {
             self.i += 1;
             let mut out = w.sub();
@@ -347,13 +350,13 @@ impl Parser<'_> {
         match c {
             c if c.is_whitespace() => {}
             '\'' => {
-                // Primes: f', f''.
+                // Primes: f', f'', f'''', ...
                 let mut n = 1;
                 while self.peek() == Some(&T::Ch('\'')) {
                     self.i += 1;
                     n += 1;
                 }
-                w.ord(["′", "″", "‴"][(n - 1).min(2)], false);
+                w.ord(&primes(n), false);
             }
             '~' => w.space("\u{a0}"),
             '-' => w.sym("−", Class::Bin),
@@ -408,9 +411,12 @@ impl Parser<'_> {
             | "Bigl" | "Bigr" | "biggl" | "biggr" | "Biggl" | "Biggr" | "displaystyle"
             | "textstyle" | "scriptstyle" | "scriptscriptstyle" | "limits" | "nolimits"
             | "nonumber" | "notag" | "mathstrut" | "strut" | "relax" | "allowbreak" => {
-                // `\left.` is an invisible delimiter.
-                if matches!(name, "left" | "right" | "middle") && self.peek() == Some(&T::Ch('.')) {
-                    self.i += 1;
+                // `\left.` (or `\left .`) is an invisible delimiter.
+                if matches!(name, "left" | "right" | "middle") {
+                    self.skip_spaces();
+                    if self.peek() == Some(&T::Ch('.')) {
+                        self.i += 1;
+                    }
                 }
             }
             "label" | "hspace" | "vspace" | "kern" | "mkern" | "hskip" | "phantom" => {
@@ -519,18 +525,43 @@ impl Parser<'_> {
             }
             "not" => {
                 // `\not=` → ≠, `\not\in` → ∉, otherwise a combining slash.
+                // Spaces don't separate `\not` from what it negates
+                // (`\not =` is ≠), but structural delimiters (`}`, `]`, `&`,
+                // `\\`, `\cr`, `\newline`, `\end`) do: those aren't consumed.
+                self.skip_spaces();
                 let mut g = w.sub();
-                self.item(&mut g);
-                let s = match g.s.trim() {
-                    "=" => "≠".to_string(),
-                    "∈" => "∉".to_string(),
-                    "⊂" => "⊄".to_string(),
-                    "⊆" => "⊈".to_string(),
-                    "≡" => "≢".to_string(),
-                    "∼" => "≁".to_string(),
-                    other => format!("{other}\u{338}"),
-                };
-                w.sym(&s, Class::Rel);
+                if !matches!(self.peek(), None | Some(T::Close | T::Amp | T::Ch(']')))
+                    && !matches!(
+                        self.peek(),
+                        Some(T::Cmd(c)) if matches!(c.as_str(), "end" | "\\" | "cr" | "newline")
+                    )
+                {
+                    self.item(&mut g);
+                }
+                let target = g.s.trim();
+                if let Some(n) = negated(target) {
+                    w.sym(n, Class::Rel);
+                } else {
+                    if !w.script && !w.s.ends_with(' ') && !w.s.is_empty() {
+                        w.s.push(' ');
+                    }
+                    let lead = g.s.len() - g.s.trim_start().len();
+                    let base = w.s.len();
+                    w.s.push_str(target);
+                    w.s.push('\u{338}');
+                    let max = target.len();
+                    for r in g.italic {
+                        let start = r.start.saturating_sub(lead).min(max);
+                        let end = r.end.saturating_sub(lead).min(max);
+                        if start < end {
+                            w.italic.push(base + start..base + end);
+                        }
+                    }
+                    if !w.script {
+                        w.s.push(' ');
+                    }
+                    w.last = Some(Class::Rel);
+                }
             }
             "tag" => {
                 let s = self.raw_arg();
@@ -604,6 +635,16 @@ impl Parser<'_> {
     }
 }
 
+/// `n` primes, exactly: ′ ″ ‴ ⁗ for one to four (U+2032–U+2034, U+2057,
+/// all in General Punctuation and the common text fonts), then as many ⁗
+/// as fit plus the rest, so `f'''''` is `f⁗′`. Repeating ′ would also
+/// keep the count, but the multi-prime glyphs are spaced as one mark.
+fn primes(n: usize) -> String {
+    let mut s = "⁗".repeat(n / 4);
+    s.push_str(["", "′", "″", "‴"][n % 4]);
+    s
+}
+
 fn script(w: &mut W, arg: W, sup: bool) {
     if arg.s.is_empty() {
         return;
@@ -651,10 +692,12 @@ fn fraction(w: &mut W, a: W, b: W) {
 fn wrap(w: &mut W, g: W) {
     let t = g.s.trim();
     let simple = t.chars().count() <= 1
-        || !t.chars().any(|c| {
-            c.is_whitespace() || matches!(c, '+' | '−' | '/' | '=' | '·' | '⋅' | '×' | '±' | ',')
-        })
-        || (t.starts_with('(') && t.ends_with(')'));
+        || enclosed_in_parens(t)
+        || (!t.starts_with('(')
+            && !t.chars().any(|c| {
+                c.is_whitespace()
+                    || matches!(c, '+' | '−' | '/' | '=' | '·' | '⋅' | '×' | '±' | ',')
+            }));
     if simple {
         w.append(g);
     } else {
@@ -663,6 +706,58 @@ fn wrap(w: &mut W, g: W) {
         w.s.push(')');
         w.last = Some(Class::Ord);
     }
+}
+
+/// Whether one pair of parentheses encloses all of `t`: `(a + b)` and
+/// `((a) + (b))` do, `(a) + (b)` and `(a + b)(c + d)` don't, because their
+/// first `(` closes before the end.
+fn enclosed_in_parens(t: &str) -> bool {
+    let Some(inner) = t.strip_prefix('(').and_then(|t| t.strip_suffix(')')) else {
+        return false;
+    };
+    let mut depth = 0usize;
+    for c in inner.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => match depth.checked_sub(1) {
+                Some(d) => depth = d,
+                // This `)` closes the first `(`.
+                None => return false,
+            },
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+/// The precomposed negation of a relation, for `\not`. Each is what the
+/// relation plus U+0338 normalizes to (NFC), but drawn as one glyph.
+fn negated(rel: &str) -> Option<&'static str> {
+    Some(match rel {
+        "=" => "≠",
+        "<" => "≮",
+        ">" => "≯",
+        "≤" => "≰",
+        "≥" => "≱",
+        "∈" => "∉",
+        "∋" => "∌",
+        "⊂" => "⊄",
+        "⊃" => "⊅",
+        "⊆" => "⊈",
+        "⊇" => "⊉",
+        "≡" => "≢",
+        "∼" => "≁",
+        "≃" => "≄",
+        "≅" => "≇",
+        "≈" => "≉",
+        "≺" => "⊀",
+        "≻" => "⊁",
+        "∣" => "∤",
+        "∥" => "∦",
+        "⊢" => "⊬",
+        "⊨" => "⊭",
+        _ => return None,
+    })
 }
 
 fn add_accent(w: &mut W, g: W, mark: char, name: &str) {
@@ -775,8 +870,11 @@ fn superscript(c: char) -> Option<char> {
         'φ' => 'ᵠ',
         'χ' => 'ᵡ',
         '∗' | '*' => '*',
+        // Primes are already raised.
         '′' => '′',
         '″' => '″',
+        '‴' => '‴',
+        '⁗' => '⁗',
         '∘' => '°',
         _ => return None,
     })
@@ -1181,6 +1279,173 @@ mod tests {
     }
 
     #[test]
+    fn wraps_terms_whose_outer_parentheses_do_not_match() {
+        // #47: the first `(` closes before the end, so these are not one
+        // parenthesized term and need their own parentheses.
+        assert_eq!(u(r"\frac{(a+b) + (c+d)}{2}"), "((a + b) + (c + d))/2");
+        assert_eq!(u(r"\frac{1}{(a+b)(c+d)}"), "1/((a + b)(c + d))");
+        assert_eq!(u(r"\sqrt{(a) + (b)}"), "√((a) + (b))");
+        assert_eq!(u(r"\sqrt[3]{(a)-(b)}"), "∛((a) − (b))");
+        // Already enclosed: no second pair.
+        assert_eq!(u(r"\frac{(a+b)}{2}"), "(a + b)/2");
+        assert_eq!(u(r"\frac{((a+b))}{2}"), "((a + b))/2");
+        assert_eq!(u(r"\frac{((a) + (b))}{2}"), "((a) + (b))/2");
+        assert_eq!(u(r"\sqrt{(x+1)}"), "√(x + 1)");
+    }
+
+    #[test]
+    fn enclosed_in_parens_matches_the_first_parenthesis() {
+        for t in ["()", "(a)", "(a + b)", "((a))", "((a) + (b))", "(f(x))"] {
+            assert!(enclosed_in_parens(t), "{t:?}");
+        }
+        for t in [
+            "",
+            "(",
+            ")",
+            "a",
+            "(a",
+            "a)",
+            "(a) + (b)",
+            "(a)(b)",
+            "(a))",
+            "((a)",
+            ")a(",
+            "(a)) + ((b)",
+        ] {
+            assert!(!enclosed_in_parens(t), "{t:?}");
+        }
+    }
+
+    #[test]
+    fn whitespace_after_not_does_not_change_its_target() {
+        // #32: the space used to be negated instead of the relation.
+        for (spaced, tight, want) in [
+            (r"a \not = b", r"a \not= b", "a ≠ b"),
+            (r"x \not \in S", r"x \not\in S", "x ∉ S"),
+            (r"A \not \subset B", r"A \not\subset B", "A ⊄ B"),
+            ("a \\not\n\t= b", r"a \not= b", "a ≠ b"),
+            ("a \\not % comment\n = b", r"a \not= b", "a ≠ b"),
+            (r"a \not {=} b", r"a \not{=} b", "a ≠ b"),
+            (r"a \not \approx b", r"a \not\approx b", "a ≉ b"),
+        ] {
+            assert_eq!(u(spaced), want, "{spaced:?}");
+            assert_eq!(u(tight), want, "{tight:?}");
+        }
+    }
+
+    #[test]
+    fn not_uses_precomposed_negations() {
+        for (rel, want) in [
+            ("=", "≠"),
+            ("<", "≮"),
+            (">", "≯"),
+            (r"\le", "≰"),
+            (r"\geq", "≱"),
+            (r"\in", "∉"),
+            (r"\ni", "∌"),
+            (r"\subset", "⊄"),
+            (r"\supset", "⊅"),
+            (r"\subseteq", "⊈"),
+            (r"\supseteq", "⊉"),
+            (r"\equiv", "≢"),
+            (r"\sim", "≁"),
+            (r"\simeq", "≄"),
+            (r"\cong", "≇"),
+            (r"\approx", "≉"),
+            (r"\prec", "⊀"),
+            (r"\succ", "⊁"),
+            (r"\mid", "∤"),
+            (r"\parallel", "∦"),
+            (r"\vdash", "⊬"),
+            (r"\models", "⊭"),
+        ] {
+            assert_eq!(
+                u(&format!(r"a \not {rel} b")),
+                format!("a {want} b"),
+                "{rel}"
+            );
+        }
+        // No precomposed form: a combining slash on the symbol.
+        assert_eq!(u(r"a \not\preceq b"), "a ⪯\u{338} b");
+        assert_eq!(u(r"a \not \to b"), "a →\u{338} b");
+    }
+
+    #[test]
+    fn not_without_a_target_keeps_the_rest() {
+        assert_eq!(u(r"\not"), "\u{338}");
+        assert_eq!(u(r"\not   "), "\u{338}");
+        // The group's `}` still closes it: `b` stays outside the fraction.
+        assert_eq!(u(r"\frac{a \not}{c} b"), u(r"\frac{a \not{}}{c} b"));
+        assert!(
+            u(r"\frac{a \not }{c}").ends_with("/c"),
+            "{}",
+            u(r"\frac{a \not }{c}")
+        );
+        // `&` and `\end` belong to the environment, not to `\not`.
+        assert_eq!(
+            u(r"\begin{pmatrix} a \not & b \end{pmatrix} c"),
+            "(a \u{338}   b)c"
+        );
+        assert_eq!(u(r"\begin{pmatrix} a \not \end{pmatrix} c"), "(a \u{338})c");
+    }
+
+    #[test]
+    fn whitespace_before_an_optional_argument() {
+        // #32: `\sqrt [3]{x}` is a cube root, as in LaTeX.
+        assert_eq!(u(r"\sqrt [3]{x}"), "∛x");
+        assert_eq!(u("\\sqrt\n[4]{x}"), "∜x");
+        assert_eq!(u(r"\sqrt [n] {x+1}"), "ⁿ√(x + 1)");
+        assert_eq!(u(r"\sqrt {x}"), "√x");
+        assert_eq!(u(r"\sqrt x"), "√x");
+    }
+
+    #[test]
+    fn whitespace_before_an_invisible_delimiter() {
+        assert_eq!(u(r"\left . x \right |"), "x|");
+        assert_eq!(u(r"\left( x \right ."), "(x");
+        assert_eq!(u(r"\left. x \middle . y \right."), "xy");
+        // Spaces after a delimiter command never matter elsewhere either.
+        assert_eq!(u(r"\left ( x \right )"), "(x)");
+    }
+
+    #[test]
+    fn keeps_the_number_of_primes() {
+        // #33: four or more primes used to show as three.
+        assert_eq!(u(r"f'(x)"), "f′(x)");
+        assert_eq!(u(r"f''(x)"), "f″(x)");
+        assert_eq!(u(r"f'''(x)"), "f‴(x)");
+        assert_eq!(u(r"f''''(x)"), "f⁗(x)");
+        assert_eq!(u(r"f'''''(x)"), "f⁗′(x)");
+        assert_eq!(u(r"f''''''(x)"), "f⁗″(x)");
+        assert_eq!(u(r"f'''''''(x)"), "f⁗‴(x)");
+        assert_eq!(u(r"f''''''''(x)"), "f⁗⁗(x)");
+        // In a superscript, primes stay primes.
+        assert_eq!(u(r"x^{'''}"), "x‴");
+        assert_eq!(u(r"x^{''''}"), "x⁗");
+    }
+
+    #[test]
+    fn primes_spell_out_exactly_n() {
+        let count = |s: &str| -> usize {
+            s.chars()
+                .map(|c| match c {
+                    '′' => 1,
+                    '″' => 2,
+                    '‴' => 3,
+                    '⁗' => 4,
+                    c => panic!("not a prime: {c:?}"),
+                })
+                .sum()
+        };
+        for n in 1..=20 {
+            let p = primes(n);
+            assert_eq!(count(&p), n, "{p:?}");
+            // Fewest glyphs: every one is ⁗ but the last.
+            assert_eq!(p.chars().count(), n.div_ceil(4), "{p:?}");
+        }
+    }
+
+    #[test]
     fn whitespace_in_text_is_one_space() {
         assert_eq!(u("\\text{a\r\n b\t\tc  d}"), "a b c d");
         assert_eq!(u("x \\text{ if\n} y"), "x if y");
@@ -1234,5 +1499,30 @@ mod tests {
         let m = to_unicode(r"\mathit{xy} + \mathit{\alpha 1}");
         assert_eq!(m.text, "xy + α1");
         assert_eq!(m.italic, [0..2, 5..8]);
+    }
+
+    #[test]
+    fn wrap_parenthesizes_compact_parenthesized_products() {
+        assert_eq!(u(r"\frac{1}{(a)(b)}"), "1/((a)(b))");
+        assert_eq!(u(r"\frac{1}{(a)b}"), "1/((a)b)");
+        assert_eq!(u(r"\frac{f(x)}{g(x)}"), "f(x)/g(x)");
+    }
+
+    #[test]
+    fn not_preserves_delimiters_and_target_italics() {
+        // Optional-arg bracket and matrix row breaks must not be consumed.
+        assert_eq!(u(r"\sqrt[3\not ]{x}"), "(3 \u{338})√x");
+        assert_eq!(
+            u(r"\begin{pmatrix}a \not \\ b\end{pmatrix}"),
+            "(a \u{338} ; b)"
+        );
+
+        // Negating a variable keeps its italic range intact.
+        for tex in [r"\not a", r"\not {a}"] {
+            let m = to_unicode(tex);
+            assert_eq!(m.text, "a\u{338}", "{tex}");
+            let it: Vec<&str> = m.italic.iter().map(|r| &m.text[r.clone()]).collect();
+            assert_eq!(it, ["a"], "{tex}");
+        }
     }
 }
