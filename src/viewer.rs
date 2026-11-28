@@ -467,27 +467,32 @@ impl Viewer {
 
     fn add_loaded(&mut self, loaded: Vec<Loaded>) {
         for (path, res) in loaded {
-            self.record_dir(&path);
-            if !self.tabs.activate_first(|t| t.path == path) {
-                self.tabs.push(Tab::new(path, res));
-            }
+            self.show_path(path, |path| (path, res));
         }
     }
 
+    /// Switches to `path`'s tab if it's open, or else gives it a new tab with
+    /// what `load` returns. Startup and `open_paths` both go through here, so
+    /// the last path of a batch ends up active either way.
+    fn show_path(&mut self, path: PathBuf, load: impl FnOnce(PathBuf) -> Loaded) {
+        self.record_dir(&path);
+        if !self.tabs.activate_first(|t| t.path == path) {
+            let (path, res) = load(path);
+            self.tabs.push(Tab::new(path, res));
+        }
+    }
+
+    /// Opens `paths` in order, skipping directories: an open file switches
+    /// to its tab, a new one gets a tab. The last path ends up active, as at
+    /// startup, whether it was open already or not.
     pub fn open_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        let mut loaded = Vec::new();
         for p in paths {
             let p = normalize(&p);
             if p.is_dir() {
                 continue;
             }
-            if self.tabs.activate_first(|t| t.path == p) {
-                self.record_dir(&p);
-            } else {
-                loaded.push(load(p));
-            }
+            self.show_path(p, load);
         }
-        self.add_loaded(loaded);
         cx.notify();
     }
 

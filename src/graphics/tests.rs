@@ -868,3 +868,37 @@ fn cache_with_the_real_budget() {
     assert!(!is_ready(&mut cache, "0"), "the oldest goes");
     assert_eq!(cache.bytes, CACHE_BYTES);
 }
+
+#[test]
+fn rasterize_never_gives_an_empty_size() {
+    // Issue #54: a side that rounds to 0 pixels (here an extreme aspect
+    // ratio, scaled down to `MAX_SIDE`) got a 1-pixel image but a 0px
+    // logical size, so the aspect ratio was `inf` or `NaN`.
+    for (w, h) in [("1e30", "1e-30"), ("1e-30", "1e30"), ("1e20", "1e-20")] {
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}"><rect width="1" height="1"/></svg>"#
+        );
+        for scale in [1., 2.] {
+            let g = raster(&svg, scale).unwrap();
+            let (lw, lh) = (f32::from(g.size.width), f32::from(g.size.height));
+            assert!(lw.is_finite() && lw > 0., "{w}×{h} @{scale}: width {lw}");
+            assert!(lh.is_finite() && lh > 0., "{w}×{h} @{scale}: height {lh}");
+            let ratio = aspect_ratio(g.size).unwrap();
+            assert!(ratio.is_finite() && ratio > 0., "{w}×{h} @{scale}: {ratio}");
+        }
+    }
+}
+
+#[test]
+fn aspect_ratio_of_bad_sizes_is_none() {
+    assert_eq!(aspect_ratio(size(px(10.), px(4.))), Some(2.5));
+    for (w, h) in [
+        (10., 0.),
+        (0., 10.),
+        (0., 0.),
+        (f32::INFINITY, 1.),
+        (1., f32::NAN),
+    ] {
+        assert_eq!(aspect_ratio(size(px(w), px(h))), None, "{w}×{h}");
+    }
+}

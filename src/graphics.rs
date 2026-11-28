@@ -185,7 +185,7 @@ pub fn element(
                 .max_w_full()
                 .flex_none();
             // Keep the aspect ratio when a wide image is scaled down.
-            image.style().aspect_ratio = Some(f32::from(g.size.width) / f32::from(g.size.height));
+            image.style().aspect_ratio = aspect_ratio(g.size);
             div()
                 .w_full()
                 .flex()
@@ -486,8 +486,14 @@ fn rasterize(
     let (w, h) = (logical.width(), logical.height());
     // Large diagrams are rasterized at a lower scale instead of failing.
     let scale = scale.max(1.).min(MAX_SIDE / w.max(h).max(1.));
-    let (pw, ph) = ((w * scale).ceil() as u32, (h * scale).ceil() as u32);
-    let mut pixmap = tiny_skia::Pixmap::new(pw.max(1), ph.max(1)).ok_or("empty image")?;
+    // At least one pixel per side, also for the logical size below: a side
+    // that rounds to 0 (an extreme aspect ratio) would give a 0px size and
+    // an infinite aspect ratio (issue #54).
+    let (pw, ph) = (
+        ((w * scale).ceil() as u32).max(1),
+        ((h * scale).ceil() as u32).max(1),
+    );
+    let mut pixmap = tiny_skia::Pixmap::new(pw, ph).ok_or("empty image")?;
     resvg::render(
         &tree,
         tiny_skia::Transform::from_scale(scale, scale),
@@ -505,11 +511,18 @@ fn rasterize(
             }
         }
     }
-    let buffer = image::RgbaImage::from_raw(pw.max(1), ph.max(1), data).ok_or("bad image")?;
+    let buffer = image::RgbaImage::from_raw(pw, ph, data).ok_or("bad image")?;
     Ok(Graphic {
         image: Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])),
         size: size(px(pw as f32 / scale), px(ph as f32 / scale)),
     })
+}
+
+/// Width over height, or `None` (no fixed ratio) for a size that has no
+/// finite, positive ratio, which taffy can't lay out.
+fn aspect_ratio(size: Size<Pixels>) -> Option<f32> {
+    let ratio = f32::from(size.width) / f32::from(size.height);
+    (ratio.is_finite() && ratio > 0.).then_some(ratio)
 }
 
 /// Number of (ready, failed, pending) cache entries for each kind, for tests.
