@@ -1018,14 +1018,11 @@ fn markup(code: &str, out: &mut Out) {
             while j < b.len() && b[j] != b'>' {
                 let a = b[j];
                 if a == b'"' || a == b'\'' {
-                    let end = string_end(b, j, a, false);
-                    // Attribute values may span lines.
-                    let end = if end < b.len() && b[end - 1] != a {
-                        find(b, j + 1, if a == b'"' { "\"" } else { "'" })
-                            .map_or(b.len(), |e| e + 1)
-                    } else {
-                        end
-                    };
+                    // Values have no escapes and may span lines.
+                    let end = b[j + 1..]
+                        .iter()
+                        .position(|&c| c == a)
+                        .map_or(b.len(), |p| j + p + 2);
                     out.push(j..end, Tok::String);
                     j = end;
                 } else if is_ident_start(a) {

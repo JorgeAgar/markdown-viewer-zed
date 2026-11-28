@@ -457,6 +457,48 @@ fn markup_details() {
             t("p", Tok::Tag),
         ]
     );
+    // A value that starts with a newline (#42) used to end at its opening
+    // quote, which inverted the quotes for the rest of the tag.
+    for q in ['"', '\''] {
+        assert_eq!(
+            toks(
+                "html",
+                &format!("<p title={q}\nhello\n{q} a={q}x{q}>t</p>\n<b c={q}{q}>")
+            ),
+            [
+                t("p", Tok::Tag),
+                t("title", Tok::Property),
+                t(&format!("{q}\nhello\n{q}"), Tok::String),
+                t("a", Tok::Property),
+                t(&format!("{q}x{q}"), Tok::String),
+                t("p", Tok::Tag),
+                t("b", Tok::Tag),
+                t("c", Tok::Property),
+                t(&format!("{q}{q}"), Tok::String),
+            ],
+            "{q}"
+        );
+    }
+    // Values have no escapes; the other quote doesn't close them.
+    assert_eq!(
+        toks("xml", "<a b=\"x\\\" c='\" d\"'>"),
+        [
+            t("a", Tok::Tag),
+            t("b", Tok::Property),
+            t("\"x\\\"", Tok::String),
+            t("c", Tok::Property),
+            t("'\" d\"'", Tok::String),
+        ]
+    );
+    // Unclosed after a newline: the rest of the code.
+    assert_eq!(
+        toks("html", "<a b=\"\nc>d"),
+        [
+            t("a", Tok::Tag),
+            t("b", Tok::Property),
+            t("\"\nc>d", Tok::String)
+        ]
+    );
 }
 
 #[test]

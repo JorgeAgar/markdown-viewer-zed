@@ -49,28 +49,21 @@ exclude_re = [
     # is unchanged.
     '''^crates/mdview-core/src/highlight\.rs:1000:23: replace \+ with \* in markup$''',
 
-    # Re-searching from the opening quote finds the same closing quote (or EOF). A
-    # newline terminator always needs the search; / 1 only changes whether that
-    # redundant search happens for a closed string.
-    '''^crates/mdview-core/src/highlight\.rs:1023:48: replace && with \|\| in markup$''',
-    '''^crates/mdview-core/src/highlight\.rs:1023:38: replace < with <= in markup$''',
-    '''^crates/mdview-core/src/highlight\.rs:1023:57: replace - with / in markup$''',
-
     # Resuming at > or the preceding byte adds only ignored text outside the tag
     # (including an already consumed closing quote); no new construct can start
     # there.
-    '''^crates/mdview-core/src/highlight\.rs:1041:20: replace \+ with - in markup$''',
-    '''^crates/mdview-core/src/highlight\.rs:1041:20: replace \+ with \* in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1038:20: replace \+ with - in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1038:20: replace \+ with \* in markup$''',
 
     # An empty key emits no Property (Out drops empty ranges). value skips the : or
     # = delimiter either way.
-    '''^crates/mdview-core/src/highlight\.rs:1110:24: replace match guard k > i with true in config$''',
-    '''^crates/mdview-core/src/highlight\.rs:1110:26: replace > with >= in config$''',
-    '''^crates/mdview-core/src/highlight\.rs:1113:31: replace \+ with \* in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1107:24: replace match guard k > i with true in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1107:26: replace > with >= in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1110:31: replace \+ with \* in config$''',
 
     # A scalar word starts with a byte accepted by its scan, so j > i; max(i + 1)
     # and max(i * 1) both return j.
-    '''^crates/mdview-core/src/highlight\.rs:1194:25: replace \+ with \* in value$''',
+    '''^crates/mdview-core/src/highlight\.rs:1191:25: replace \+ with \* in value$''',
 
     # Upright is only enabled inside font commands, which replace all italic ranges
     # before appending. W::sub already resets every other field; script inheritance
