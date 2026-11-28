@@ -2000,6 +2000,18 @@ impl App {
         self.loading_assets.remove(&asset_id);
     }
 
+    /// mdview: Remove an asset from GPUI's cache, like [`Self::remove_asset`],
+    /// and return it if it had finished loading, so the caller can free what
+    /// it holds (an image's texture, with [`Self::drop_image`]). Unlike
+    /// [`Self::fetch_asset`], never starts loading it.
+    pub fn take_asset<A: Asset>(&mut self, source: &A::Source) -> Option<A::Output> {
+        let asset_id = (TypeId::of::<A>(), hash(source));
+        let task = self.loading_assets.remove(&asset_id)?;
+        task.downcast::<Shared<Task<A::Output>>>()
+            .ok()?
+            .now_or_never()
+    }
+
     /// Asynchronously load an asset, if the asset hasn't finished loading this will return None.
     ///
     /// Note that the multiple calls to this method will only result in one `Asset::load` call at a

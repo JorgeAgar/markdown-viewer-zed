@@ -60,7 +60,7 @@ flowchart TD
 | Image HTTP | `src/http.rs`, `src/viewer/app_tests.rs` | Loopback downloads, redirects, HTTP errors, and the viewer requesting URL images |
 | Theme | `src/theme.rs` | Contrast of every color on its background in both themes (see [Theme contrast](#theme-contrast)) |
 | Graphics | `src/graphics/tests.rs`, `tests/golden/math/` | Display math against golden images; Mermaid diagrams render, aren't blank and stay under the size limit; bad input gives an error, not a panic |
-| Viewer | `src/viewer.rs`, `src/viewer/app_tests.rs` | Tabs, actions, live reload (on a fake clock), scrolling (PageUp steps after a jump, split code blocks scrolling sideways together, a vertical wheel over code, wheel glides and flings, dragging the scrollbar), anchors, link clicks, and drawing every example document in light and dark |
+| Viewer | `src/viewer.rs`, `src/viewer/app_tests.rs` | Tabs, actions, live reload (on a fake clock) and what it keeps (the section in view, a shortened paragraph shown, local images read again), scrolling (PageUp steps after a jump, split code blocks scrolling sideways together, a vertical wheel over code, wheel glides and flings, dragging the scrollbar), anchors, link clicks, and drawing every example document in light and dark |
 | Binary | `tests/cli.rs` | `--help`, the warm path (paths sent to a running instance), stale sockets; with `MDVIEW_E2E=1`, real windows for every example and odd inputs |
 | Docs | `tests/docs_sync.rs` | Key bindings missing from the README or `--help`, broken links and anchors, paths that no longer exist |
 | Guards | `scripts/guards/` | New runtime dependencies, binary growth over 3%, `crates/gpui` out of sync with its patch |

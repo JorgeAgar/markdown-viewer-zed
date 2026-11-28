@@ -327,6 +327,60 @@ fn reload_keeps_the_scroll_position() {
     assert_eq!(scroll_top(&v, cx), before);
 }
 
+/// The heading of the top row of the active tab.
+fn top_heading(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> String {
+    cx.update(|_, cx| {
+        let tab = v.read(cx).tabs.active().unwrap();
+        let row = tab.list.logical_scroll_top().item_ix;
+        match &tab.doc.blocks[tab.rows[row].block()] {
+            markdown::Block::Heading { text, .. } => text.text.clone(),
+            b => panic!("row {row} is not a heading: {b:?}"),
+        }
+    })
+}
+
+#[test]
+fn reload_keeps_the_section_when_blocks_change_above_it() {
+    // Issue #24: the old block index was reused, so a block inserted above
+    // the viewport moved the reader to the block before.
+    let dir = TempDir::new("reload-insert-above");
+    let path = normalize(&dir.join("long.md"));
+    std::fs::write(&path, long_doc()).unwrap();
+    let (v, cx) = open(vec![load(path.clone())]);
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "section-30", cx));
+    with_tab(&v, cx, |tab| {
+        tab.list.scroll_to(ListOffset {
+            item_ix: 61,
+            offset_in_item: px(7.),
+        })
+    });
+    redraw(&v, cx);
+    assert_eq!(top_heading(&v, cx), "Section 30");
+
+    // A heading and a paragraph inserted at the top.
+    let inserted = long_doc().replace("# Top\n\n", "# Top\n\n## New\n\nNew paragraph.\n\n");
+    std::fs::write(&path, &inserted).unwrap();
+    cx.dispatch_action(Reload);
+    assert_eq!(scroll_top(&v, cx), (63, 7.));
+    assert_eq!(top_heading(&v, cx), "Section 30");
+
+    // Two sections deleted, and an edit after the viewport.
+    let deleted = inserted
+        .replace(
+            "## Section 3\n\nSome text for paragraph 3, long enough to wrap maybe.\n\n",
+            "",
+        )
+        .replace(
+            "## Section 4\n\nSome text for paragraph 4, long enough to wrap maybe.\n\n",
+            "",
+        )
+        .replace("paragraph 50,", "paragraph fifty,");
+    std::fs::write(&path, &deleted).unwrap();
+    cx.dispatch_action(Reload);
+    assert_eq!(scroll_top(&v, cx), (59, 7.));
+    assert_eq!(top_heading(&v, cx), "Section 30");
+}
+
 #[test]
 fn anchors_scroll_to_headings() {
     let (v, cx) = open(vec![
@@ -599,6 +653,156 @@ fn standalone_remote_image_is_requested_by_the_viewer() {
         requests,
         ["http://example.com/a.svg", "https://example.com/a%20b.svg"]
     );
+}
+
+/// A 20×20 SVG filled with `color`.
+fn square_svg(color: &str) -> String {
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="{color}"/></svg>"#
+    )
+}
+
+/// What GPUI's image cache holds for `path`: `None` if it isn't loaded (an
+/// entry nothing asked for is only started here, so it's still `None`),
+/// else the error or the center pixel (BGRA) and the image's id.
+fn cached_image(cx: &mut VisualTestContext, path: &Path) -> Option<Result<([u8; 4], usize), ()>> {
+    let resource = gpui::Resource::Path(Arc::from(path));
+    let cached =
+        cx.update(|window, cx| window.get_asset::<gpui::ImgResourceLoader>(&resource, cx))?;
+    Some(cached.map_err(|_| ()).map(|image| {
+        let size = image.size(0);
+        let (w, h) = (size.width.0 as usize, size.height.0 as usize);
+        let at = ((h / 2) * w + w / 2) * 4;
+        let px = image.as_bytes(0).unwrap()[at..at + 4].try_into().unwrap();
+        // Ids are unique: a new one means the image was decoded again.
+        (px, image.id.0)
+    }))
+}
+
+const RED: [u8; 4] = [0, 0, 255, 255];
+const BLUE: [u8; 4] = [255, 0, 0, 255];
+
+#[test]
+fn reload_reads_local_images_again() {
+    // Issue #31: GPUI caches images by path for the whole app, errors
+    // included, so `Ctrl+R` kept showing a missing image's fallback after
+    // the file was created, and the old pixels after it was replaced.
+    let dir = TempDir::new("reload-image");
+    let doc = normalize(&dir.join("a.md"));
+    let image = doc.parent().unwrap().join("image.svg");
+    std::fs::write(&doc, "# Images\n\n![local](image.svg)\n").unwrap();
+    let (_v, cx) = open(vec![load(doc.clone())]);
+    cx.run_until_parked();
+    assert_eq!(cached_image(cx, &image), Some(Err(())), "missing at first");
+
+    // Created: the next reload shows it.
+    std::fs::write(&image, square_svg("red")).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    let Some(Ok((px, _))) = cached_image(cx, &image) else {
+        panic!("the viewer loads the new image");
+    };
+    assert_eq!(px, RED);
+
+    // Replaced at the same path: the next reload shows the new pixels.
+    std::fs::write(&image, square_svg("blue")).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert!(matches!(cached_image(cx, &image), Some(Ok((BLUE, _)))));
+
+    // Images in quotes, lists and footnotes count too; so do images the
+    // new version no longer shows.
+    let nested = doc.parent().unwrap().join("nested.svg");
+    std::fs::write(&nested, square_svg("red")).unwrap();
+    std::fs::write(
+        &doc,
+        "> ![q](nested.svg)\n\n- item\n\n  ![l](image.svg)\n\nNote[^1].\n\n[^1]: ![f](nested.svg)\n",
+    )
+    .unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert!(matches!(cached_image(cx, &nested), Some(Ok((RED, _)))));
+    std::fs::write(&nested, square_svg("blue")).unwrap();
+    std::fs::write(&image, square_svg("red")).unwrap();
+    std::fs::write(&doc, "# No images\n").unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    // Not drawn any more, so nothing loads them again.
+    assert_eq!(cached_image(cx, &nested), None);
+    assert_eq!(cached_image(cx, &image), None);
+}
+
+#[test]
+fn live_reload_reads_only_changed_local_images_again() {
+    // Reading every image again on each save would make them blink
+    // while the document is edited: live reload keeps the ones whose file
+    // didn't change since the document was loaded.
+    let dir = TempDir::new("live-image");
+    let doc = normalize(&dir.join("a.md"));
+    let base = doc.parent().unwrap();
+    let (same, changed, missing, removed, backdated) = (
+        base.join("same.svg"),
+        base.join("changed.svg"),
+        base.join("missing.svg"),
+        base.join("removed.svg"),
+        base.join("backdated.svg"),
+    );
+    std::fs::write(&same, square_svg("red")).unwrap();
+    std::fs::write(&changed, square_svg("red")).unwrap();
+    std::fs::write(&removed, square_svg("red")).unwrap();
+    std::fs::write(&backdated, square_svg("red")).unwrap();
+    set_mtime(&same, 1_000);
+    set_mtime(&changed, 1_000);
+    set_mtime(&removed, 1_000);
+    set_mtime(&backdated, 1_000);
+    let src = "![s](same.svg) ![c](changed.svg) ![m](missing.svg) ![r](removed.svg) ![b](backdated.svg)\n";
+    std::fs::write(&doc, src).unwrap();
+    set_mtime(&doc, 1_000);
+    let (_v, cx) = open(vec![load(doc.clone())]);
+    cx.run_until_parked();
+    let Some(Ok((RED, same_id))) = cached_image(cx, &same) else {
+        panic!("loaded");
+    };
+    assert!(matches!(cached_image(cx, &changed), Some(Ok((RED, _)))));
+    assert_eq!(cached_image(cx, &missing), Some(Err(())));
+    assert!(matches!(cached_image(cx, &removed), Some(Ok((RED, _)))));
+    assert!(matches!(cached_image(cx, &backdated), Some(Ok((RED, _)))));
+
+    // Saved: `changed.svg` updated, `missing.svg` created, `removed.svg`
+    // deleted, `backdated.svg` replaced with an older mtime; the document too.
+    std::fs::write(&changed, square_svg("blue")).unwrap();
+    std::fs::write(&missing, square_svg("blue")).unwrap();
+    std::fs::remove_file(&removed).unwrap();
+    std::fs::write(&backdated, square_svg("blue")).unwrap();
+    set_mtime(&backdated, 500);
+    std::fs::write(&doc, format!("{src}\nEdited.\n")).unwrap();
+    set_mtime(&doc, 2_000);
+    cx.executor().advance_clock(Duration::from_millis(800));
+    cx.run_until_parked();
+    assert_eq!(
+        cached_image(cx, &same),
+        Some(Ok((RED, same_id))),
+        "unchanged: not decoded again"
+    );
+    assert!(matches!(cached_image(cx, &changed), Some(Ok((BLUE, _)))));
+    assert!(matches!(cached_image(cx, &missing), Some(Ok((BLUE, _)))));
+    assert_eq!(
+        cached_image(cx, &removed),
+        Some(Err(())),
+        "deleted image must not keep stale pixels"
+    );
+    assert!(
+        matches!(cached_image(cx, &backdated), Some(Ok((BLUE, _)))),
+        "backdated replacement must be reloaded"
+    );
+
+    // `Ctrl+R` reads every image again, changed or not.
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    let Some(Ok((RED, id))) = cached_image(cx, &same) else {
+        panic!("loaded");
+    };
+    assert_ne!(id, same_id);
 }
 
 #[test]
@@ -1197,6 +1401,116 @@ fn reload_keeps_shrunk_code_block_visible_instead_of_hiding_above_viewport() {
     assert!(
         bounds.bottom() > viewport.top() && bounds.top() >= viewport.top(),
         "shrunk code block must stay visible in viewport: bounds={bounds:?}, viewport={viewport:?}"
+    );
+}
+
+/// A 30 px tall list of five 20 px rows.
+struct FixedRows(ListState);
+
+impl Render for FixedRows {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        list(self.0.clone(), |_, _, _| {
+            div().h(px(20.)).w_full().into_any_element()
+        })
+        .w(px(100.))
+        .h(px(30.))
+    }
+}
+
+/// The GPUI fork's list (`layout_items`, fix 7 in `crates/gpui/MDVIEW.md`):
+/// an offset at or past the end of the scroll-top item starts at its top.
+#[test]
+fn list_starts_at_the_top_of_an_item_shorter_than_the_offset() {
+    let state = ListState::new(5, ListAlignment::Top, px(10.));
+    let cx = Box::leak(Box::new(TestAppContext::single()));
+    let (view, cx) = cx.add_window_view(|_, _| FixedRows(state.clone()));
+    let mut draw = |offset: f32| {
+        state.scroll_to(ListOffset {
+            item_ix: 1,
+            offset_in_item: px(offset),
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(100.)),
+                AvailableSpace::Definite(px(30.)),
+            ),
+            |_, _| AnyView::from(view.clone()),
+        );
+        let top = state.logical_scroll_top();
+        let row = state.bounds_for_item(1).unwrap();
+        (
+            top.item_ix,
+            f32::from(top.offset_in_item),
+            f32::from(row.top()),
+        )
+    };
+    // Inside the item: kept, and the item is drawn that far up.
+    assert_eq!(draw(15.), (1, 15., -15.));
+    // At or past its end: the item's top.
+    assert_eq!(draw(20.), (1, 0., 0.));
+    assert_eq!(draw(500.), (1, 0., 0.));
+}
+
+/// Issue #34: a heading, a tall paragraph and many short ones.
+fn tall_paragraph_doc(paragraph: &str) -> String {
+    let mut s = format!("# Heading\n\n{paragraph}\n\n");
+    for i in 0..40 {
+        s.push_str(&format!("Short paragraph {i}.\n\n"));
+    }
+    s
+}
+
+/// The bounds of row `ix` and of the list's viewport, as last drawn.
+fn row_and_viewport(
+    v: &Entity<Viewer>,
+    cx: &mut VisualTestContext,
+    ix: usize,
+) -> (gpui::Bounds<Pixels>, gpui::Bounds<Pixels>) {
+    cx.update(|_, cx| {
+        let list = v.read(cx).active_list().unwrap();
+        (list.bounds_for_item(ix).unwrap(), list.viewport_bounds())
+    })
+}
+
+#[test]
+fn reload_shows_a_shortened_paragraph_at_the_top_instead_of_above_it() {
+    // Issue #34: scrolled 500 px into a tall paragraph, which is then cut
+    // to one line. The row kept the 500 px offset, so the list drew the
+    // paragraph (and the text after it) above the viewport.
+    let tall = "Long paragraph text that wraps over many lines. ".repeat(80);
+    let dir = TempDir::new("reload-shortened-paragraph");
+    let path = normalize(&dir.join("tall.md"));
+    std::fs::write(&path, tall_paragraph_doc(&tall)).unwrap();
+    let (v, cx) = open(vec![load(path.clone())]);
+    cx.run_until_parked();
+    with_tab(&v, cx, |tab| {
+        tab.list.scroll_to(ListOffset {
+            item_ix: 1,
+            offset_in_item: px(500.),
+        })
+    });
+    redraw(&v, cx);
+    assert_eq!(scroll_top(&v, cx), (1, 500.));
+    let (tall_row, _) = row_and_viewport(&v, cx, 1);
+    assert!(tall_row.size.height > px(1000.), "{tall_row:?}");
+
+    // A typo fixed: the paragraph keeps its height, and the reader their place.
+    let fixed = tall.replacen("Long", "Lung", 1);
+    std::fs::write(&path, tall_paragraph_doc(&fixed)).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (1, 500.));
+
+    // Cut to one line: it's shown at the top of the viewport.
+    std::fs::write(&path, tall_paragraph_doc("Now one short line.")).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (1, 0.));
+    let (row, viewport) = row_and_viewport(&v, cx, 1);
+    assert!(
+        row.size.height < px(100.) && row.top() == viewport.top(),
+        "the shortened paragraph is at the top: row={row:?}, viewport={viewport:?}"
     );
 }
 
@@ -1967,4 +2281,43 @@ fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
     wheel_lines(cx, -1.);
     settle(&v, cx);
     assert!(gap(&v, cx).abs() < 0.01, "{}", gap(&v, cx));
+}
+
+#[test]
+fn scroll_to_reveal_item_on_exact_row_boundary_keeps_target_visible() {
+    // 10 items of 50 px each inside a 100 px viewport: revealing item 2 sets
+    // goal_top = 150 - 100 = 50 px (exact boundary between item 0 and item 1).
+    // With Bias::Right this normalizes to (item 1, 0 px) instead of (item 0,
+    // 50 px), which the stale-offset clamp would rewind to (item 0, 0 px) and
+    // clip item 2.
+    struct FixedList(ListState);
+    impl Render for FixedList {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().w(px(200.)).h(px(100.)).child(
+                list(self.0.clone(), |_, _, _| {
+                    div().h(px(50.)).into_any_element()
+                })
+                .size_full(),
+            )
+        }
+    }
+
+    let mut cx = TestAppContext::single();
+    let state = ListState::new(10, ListAlignment::Top, px(200.));
+    let (view, cx) = cx.add_window_view(|_, _| FixedList(state.clone()));
+    cx.run_until_parked();
+
+    state.scroll_to_reveal_item(2);
+    cx.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+
+    let top = state.logical_scroll_top();
+    assert_eq!(top.item_ix, 1, "expected item 1 at exact boundary: {top:?}");
+    assert_eq!(top.offset_in_item, px(0.), "{top:?}");
+    let b2 = state.bounds_for_item(2).expect("item 2 visible");
+    assert!(
+        b2.bottom() <= state.viewport_bounds().bottom() + px(0.5),
+        "item 2 clipped: {b2:?} vs {:?}",
+        state.viewport_bounds()
+    );
 }

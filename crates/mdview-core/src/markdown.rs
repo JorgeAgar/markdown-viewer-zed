@@ -23,7 +23,7 @@ pub const STRIKE: u8 = 1 << 2;
 pub const CODE: u8 = 1 << 3;
 pub const LINK: u8 = 1 << 4;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Span {
     pub range: Range<usize>,
     pub style: u8,
@@ -32,7 +32,7 @@ pub struct Span {
 }
 
 /// A run of styled text (paragraph, heading, table cell...).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct RichText {
     pub text: String,
     pub spans: Vec<Span>,
@@ -111,13 +111,13 @@ impl RichText {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Image {
     pub url: String,
     pub alt: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Align {
     None,
     Left,
@@ -125,7 +125,7 @@ pub enum Align {
     Right,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Callout {
     Note,
     Tip,
@@ -134,13 +134,15 @@ pub enum Callout {
     Caution,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ListItem {
     pub checked: Option<bool>,
     pub blocks: Vec<Block>,
 }
 
-#[derive(Clone, Debug)]
+/// Equality and hashing compare content, so a reload can find the same
+/// block in the new document (see `rows.rs`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Block {
     Heading {
         level: u8,

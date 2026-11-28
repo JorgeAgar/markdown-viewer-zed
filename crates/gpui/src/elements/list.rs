@@ -385,7 +385,10 @@ impl ListState {
             let bottom = cursor.start().height + padding.top;
             let goal_top = px(0.).max(bottom - height + padding.bottom);
 
-            cursor.seek(&Height(goal_top), Bias::Left);
+            // mdview: Bias::Right normalizes exact row boundaries to the next
+            // item at offset 0 rather than the previous item at offset == height,
+            // matching `StateInner::scroll` and the stale-offset clamp below.
+            cursor.seek(&Height(goal_top), Bias::Right);
             let start_ix = cursor.start().count;
             let start_item_top = cursor.start().height;
 
@@ -691,6 +694,17 @@ impl StateInner {
             }
 
             let size = size.unwrap();
+            // mdview: an offset past the end of the item at the scroll top
+            // (kept from before a reset, or from before the item shrank)
+            // would draw it above the viewport while it's still the scroll
+            // top. Start at the item's top instead.
+            if ix == 0
+                && scroll_top.offset_in_item > px(0.)
+                && scroll_top.offset_in_item >= size.height
+            {
+                scroll_top.offset_in_item = px(0.);
+                self.logical_scroll_top = Some(scroll_top);
+            }
             rendered_height += size.height;
             max_item_width = max_item_width.max(size.width);
             measured_items.push_back(ListItem::Measured {

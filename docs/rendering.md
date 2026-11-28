@@ -116,10 +116,45 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   thumb freezes that estimate for the drag and jumps to the row at the
   matching position (`scroll::locate`). A drag ends if its tab stops being
   the active one, even if it comes back. A click on the track glides one page toward it.
-- When a file is reloaded, `Tab::replace` remaps the top visible row through
-  `(block_ix, offset_within_block)` before calling `ListState::reset` (resetting
-  `offset_in_item` to 0 when the target row was clamped or shrank), so growing
-  or shrinking an earlier or current block keeps the reader on a visible block.
+- When a file is reloaded, `Tab::replace` remaps the top visible row
+  (`Rows::remap_row`) before calling `ListState::reset`, so the reader stays
+  on the block they were reading:
+  - The row's top-level block is found in the new document by content, not
+    by index (`rows::find_moved`), so blocks inserted or deleted above it
+    don't move the reader to another section. It's linear: the unchanged
+    prefix and suffix are compared, and only the blocks between them are
+    hashed (`Block` derives `Hash` and `Eq`). There, blocks that occur once
+    in both versions are anchors. A repeated block (`### Added` in every
+    release of a changelog) is looked for between the nearest anchors around
+    it, nearest to where it would be. A block that isn't found there was
+    edited, and the row stays on what stands in its place; one with nothing
+    left between the anchors was removed, and the row moves to what followed.
+
+    ```mermaid
+    flowchart TD
+        A["old block ix"] --> B{"in the common<br/>prefix or suffix?"}
+        B -->|yes| S["same block, shifted"]
+        B -->|no| C{"unique in both<br/>changed parts?"}
+        C -->|yes| S
+        C -->|no| D["window between the nearest<br/>anchors before and after"]
+        D --> E{"a copy in the window?"}
+        E -->|yes| S2["the copy nearest the guess"]
+        E -->|no, window not empty| ED["edited: the block at the guess"]
+        E -->|no, window empty| R["removed: what followed it"]
+    ```
+
+  - Inside a table, list or multi-block quote that was edited, the same
+    matching runs over its body rows, items or child blocks, so a list item
+    added above keeps the reader on the same item. Code chunks keep their
+    index.
+  - `offset_in_item` is reset to 0 when the row was removed, clamped (the
+    block has fewer rows), changed kind, or is a code chunk that lost lines.
+    Otherwise it's kept, also for an edited block: fixing a typo in a tall
+    paragraph leaves the reader where they were. Whether a kept offset still
+    fits is only known once the row is laid out, so the GPUI fork's list
+    checks it then: an offset at or past the end of the scroll-top row
+    starts the row at the top of the viewport instead of drawing it above
+    (a paragraph cut from 50 lines to one stays in view).
 
 ## 3. Elements (`src/render.rs`)
 
@@ -177,6 +212,22 @@ GPUI's existing reqwest dependency, with TLS verification, redirects (up to
 blocking pool only when requested; startup never waits for the network.
 Images scale down to fit the column and show alt text on failure. Other URI
 schemes remain links. Images mixed into a text paragraph remain alt-text links.
+
+GPUI caches images by path for the whole app, failed loads included, so a
+reload removes local ones from that cache (`forget_images` in `viewer.rs`,
+over every image of the old and new document, found by
+`render::local_images` in lists, quotes and footnotes too) and frees their
+GPU textures; the next frame reads them from disk again:
+
+- `Ctrl+R` / `F5` forgets every local image of the document, so a missing
+  image that was created since, or one replaced at the same path, shows up.
+- Live reload compares each local image's on-disk state (existence, mtime, and
+  byte length) against what the tab saw on its previous load, forgetting only
+  images that changed, appeared, or disappeared so unchanged images don't blink
+  on every save. An image replaced in place with identical mtime and byte length
+  still needs `Ctrl+R`.
+
+Remote images stay cached.
 
 ### Math
 

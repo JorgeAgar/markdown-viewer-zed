@@ -8,7 +8,7 @@
 
 use std::ops::Range;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tok {
     Keyword,
     Type,
@@ -34,7 +34,7 @@ pub enum Tok {
     Meta,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Highlight {
     pub range: Range<usize>,
     pub tok: Tok,

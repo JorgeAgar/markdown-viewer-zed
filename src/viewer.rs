@@ -1,6 +1,7 @@
 //! The single window: a tab bar plus the rendered document of the active tab.
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime},
@@ -121,6 +122,10 @@ struct Tab {
     rows: Arc<Rows>,
     code_scroll: CodeScrollMap,
     mtime: Option<SystemTime>,
+    /// File state (`(mtime, byte_len)`, or `None` when missing) of each local
+    /// image when `doc` was last loaded, so live reload only evicts images
+    /// whose file changed, appeared, or disappeared (see `forget_images`).
+    image_stamps: HashMap<PathBuf, ImageStamp>,
     list: ListState,
     /// True while every row before `list.logical_scroll_top().item_ix` is
     /// guaranteed measured in `list` (no jump, reset, or width resize skipped
@@ -185,6 +190,7 @@ impl Tab {
         let (doc, mtime) = res.unwrap_or_else(|e| (error_doc(&path, &e), None));
         let rows = Arc::new(Rows::from_document(&doc));
         let list = ListState::new(rows.len(), ListAlignment::Top, px(LIST_OVERDRAW));
+        let image_stamps = snapshot_image_stamps(&doc, &base_dir);
         Self {
             id: NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             path,
@@ -194,6 +200,7 @@ impl Tab {
             rows,
             code_scroll: CodeScrollMap::default(),
             mtime,
+            image_stamps,
             list,
             leading_measured: true,
             last_viewport_width: None,
@@ -331,11 +338,16 @@ impl Tab {
         }
     }
 
-    fn replace(&mut self, res: Result<(Document, Option<SystemTime>), String>) {
+    /// Swaps in a newly loaded document, keeping the scroll position on the
+    /// same block. Returns the previous document and its local image stamps.
+    fn replace(
+        &mut self,
+        res: Result<(Document, Option<SystemTime>), String>,
+    ) -> (Arc<Document>, HashMap<PathBuf, ImageStamp>) {
         let (doc, mtime) = res.unwrap_or_else(|e| (error_doc(&self.path, &e), None));
         let rows = Arc::new(Rows::from_document(&doc));
         let top = self.list.logical_scroll_top();
-        let mapped = rows.remap_row(&self.rows, top.item_ix);
+        let mapped = rows.remap_row(&doc.blocks, &self.rows, &self.doc.blocks, top.item_ix);
         self.list.reset(rows.len());
         self.list.scroll_to(ListOffset {
             item_ix: mapped.item_ix,
@@ -350,9 +362,74 @@ impl Tab {
         // A glide would move before the new rows are laid out (all 0 px).
         self.motion.stop();
         self.code_scroll.borrow_mut().clear();
-        self.doc = Arc::new(doc);
         self.rows = rows;
         self.mtime = mtime;
+        let next_stamps = snapshot_image_stamps(&doc, &self.base_dir);
+        let prev_stamps = std::mem::replace(&mut self.image_stamps, next_stamps);
+        let old_doc = std::mem::replace(&mut self.doc, Arc::new(doc));
+        (old_doc, prev_stamps)
+    }
+}
+
+/// On-disk state of a local image file: `Some((mtime, byte_len))` when
+/// readable via `stat`, `None` when missing/unreadable.
+type ImageStamp = Option<(Option<SystemTime>, u64)>;
+
+fn file_stamp(path: &Path) -> ImageStamp {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok(), meta.len()))
+}
+
+fn snapshot_image_stamps(doc: &Document, base_dir: &Path) -> HashMap<PathBuf, ImageStamp> {
+    let mut images = Vec::new();
+    render::local_images(&doc.blocks, base_dir, &mut images);
+    let mut stamps = HashMap::new();
+    for resource in images {
+        if let gpui::Resource::Path(path) = resource {
+            stamps
+                .entry(path.to_path_buf())
+                .or_insert_with(|| file_stamp(&path));
+        }
+    }
+    stamps
+}
+
+/// Removes the local images `docs` show from GPUI's image cache, which
+/// holds them for the whole app by path (load errors included), and frees
+/// their textures: the next frame reads them from disk again. With
+/// `prev_stamps`, only images whose file state changed (appeared, vanished,
+/// or changed mtime/size) since the previous load are forgotten, so unchanged
+/// ones don't blink.
+///
+/// Another tab showing the same image just loads it again when drawn, and
+/// a texture dropped while still drawn somewhere is uploaded again.
+fn forget_images(
+    docs: [&Document; 2],
+    base_dir: &Path,
+    prev_stamps: Option<&HashMap<PathBuf, ImageStamp>>,
+    mut window: Option<&mut Window>,
+    cx: &mut App,
+) {
+    let mut images = Vec::new();
+    for doc in docs {
+        render::local_images(&doc.blocks, base_dir, &mut images);
+    }
+    let mut seen = std::collections::HashSet::new();
+    for resource in images {
+        if !seen.insert(resource.clone()) {
+            continue;
+        }
+        if let Some(prev) = prev_stamps {
+            let gpui::Resource::Path(path) = &resource else {
+                continue;
+            };
+            if prev.get(path.as_ref()) == Some(&file_stamp(path)) {
+                continue;
+            }
+        }
+        if let Some(Ok(image)) = cx.take_asset::<gpui::ImgResourceLoader>(&resource) {
+            cx.drop_image(image, window.as_deref_mut());
+        }
     }
 }
 
@@ -524,7 +601,14 @@ impl Viewer {
         for tab in self.tabs.iter_mut() {
             if needs_reload(tab.mtime, modified(&tab.path)) {
                 let (_, res) = load(tab.path.clone());
-                tab.replace(res);
+                let (old, prev_stamps) = tab.replace(res);
+                forget_images(
+                    [&old, &tab.doc],
+                    &tab.base_dir,
+                    Some(&prev_stamps),
+                    None,
+                    cx,
+                );
                 changed = true;
             }
         }
@@ -984,10 +1068,12 @@ impl Render for Viewer {
                     cx.notify();
                 }
             }))
-            .on_action(cx.listener(|this, _: &Reload, _, cx| {
+            .on_action(cx.listener(|this, _: &Reload, window, cx| {
                 if let Some(tab) = this.tabs.active_mut() {
                     let (_, res) = load(tab.path.clone());
-                    tab.replace(res);
+                    let (old, _) = tab.replace(res);
+                    // An explicit reload reads every image again.
+                    forget_images([&old, &tab.doc], &tab.base_dir, None, Some(window), cx);
                     cx.notify();
                 }
             }))
