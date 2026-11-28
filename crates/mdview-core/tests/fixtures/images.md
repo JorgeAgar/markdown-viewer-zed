@@ -20,3 +20,11 @@ Text and a [![badge](badge.svg)](https://ci) inside.
 ![alt with *emphasis* and `code`](styled-alt.png)
 
 ![remote](https://example.com/remote.png)
+
+[Docs](https://example.com) ![logo](logo.png)
+
+![icon](icon.png) [Click here](page.md)
+
+![fig](fig.png)[^fig]
+
+[^fig]: A footnote.

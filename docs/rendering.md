@@ -33,8 +33,10 @@ small recursive-descent parser (`struct P`):
 - Task-list markers are lifted onto `ListItem::checked`. That works for tight
   items (`Item, TaskListMarker`) and loose items
   (`Item, Paragraph, TaskListMarker`).
-- A paragraph made only of images becomes `Block::Images`. In any other
-  paragraph, an image appears inline as `[alt]` and links to the image.
+- A paragraph made only of images (and whitespace) becomes `Block::Images`.
+  Any other visible content, such as text, a text link or a footnote
+  reference, keeps it a paragraph, so nothing is dropped. There, an image
+  appears inline as `[alt]` and links to the image.
 - HTML blocks and front matter (YAML `---` or TOML `+++`) are skipped.
 - Fenced code blocks are highlighted here, once, by `highlight::highlight`
   (see [Syntax highlighting](#syntax-highlighting)).

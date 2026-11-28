@@ -27,3 +27,17 @@ images
   image styled-alt.png alt="alt with emphasis and code"
 images
   image https://example.com/remote.png alt="remote"
+paragraph
+  "⟦L0|Docs⟧ ⟦L1|[logo]⟧"
+  link 0: https://example.com
+  link 1: logo.png
+paragraph
+  "⟦L0|[icon]⟧ ⟦L1|Click here⟧"
+  link 0: icon.png
+  link 1: page.md
+paragraph
+  "⟦L0|[fig]⟧⟦L|[fig]⟧"
+  link 0: fig.png
+footnote [^fig]
+  paragraph
+    "A footnote."
