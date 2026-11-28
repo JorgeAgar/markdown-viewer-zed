@@ -119,10 +119,38 @@ impl Motion {
     /// to the document's edges. A destination past an edge would otherwise
     /// absorb a following step back (5 px from the top, one step up and one
     /// down must end 20 px down, not 5). A fling ends at the edge anyway.
+    ///
+    /// The carry a capped `tick` held back counts too, also once the glide
+    /// itself is over. What's kept of the glide is scaled down, not cut off
+    /// at the end, so it never turns back on its way. It only ever shrinks:
+    /// the room always includes where it is now (`min <= 0 <= max`).
     pub fn limit(&mut self, min: f32, max: f32) {
+        let left = match self.anim {
+            Some(Anim::Fling { .. }) => return,
+            Some(Anim::Glide { distance, done, .. }) => distance - done,
+            None => 0.,
+        };
+        let rest = left + self.carry;
+        let target = rest.clamp(min.min(0.), max.max(0.));
+        if target == rest {
+            return;
+        }
+        // The glide keeps what fits of it, the carry the rest.
+        let keep = if left * target > 0. {
+            left.abs().min(target.abs()).copysign(left)
+        } else {
+            0.
+        };
+        self.carry = target - keep;
         if let Some(Anim::Glide { distance, done, .. }) = &mut self.anim {
-            let rest = *distance - *done + self.carry;
-            *distance += rest.clamp(min, max) - rest;
+            if keep == 0. {
+                self.anim = None;
+            } else {
+                // Each later step shrinks by the same factor.
+                let k = keep / left;
+                *distance *= k;
+                *done *= k;
+            }
         }
     }
 
@@ -134,10 +162,11 @@ impl Motion {
         self.anim.is_some() || self.carry != 0.
     }
 
-    /// Which way the motion goes: -1, 0 or 1.
+    /// Which way the motion goes from here: -1, 0 or 1. For a glide, that's
+    /// the way of what's left of it, carry included, not of its start.
     pub fn direction(&self) -> f32 {
         let d = match self.anim {
-            Some(Anim::Glide { distance, .. }) => distance,
+            Some(Anim::Glide { distance, done, .. }) => distance - done + self.carry,
             Some(Anim::Fling { velocity, .. }) => velocity,
             None => self.carry,
         };
@@ -487,6 +516,153 @@ mod tests {
         m.touch_end(ms(t0, 92));
         m.limit(0., 0.);
         assert!(run(&mut m, t0, 92) > 600.);
+    }
+
+    /// Ticks every 16 ms from `from` until the motion stops; returns each step.
+    fn steps(m: &mut Motion, t0: Instant, from: u64, max_step: f32) -> Vec<f32> {
+        let mut steps = Vec::new();
+        let mut t = from;
+        while m.is_active() {
+            t += 16;
+            steps.push(m.tick(ms(t0, t), max_step));
+            assert!(t < 60_000, "motion never stops");
+        }
+        steps
+    }
+
+    #[test]
+    fn limit_trims_the_carry_of_a_finished_glide() {
+        let t0 = Instant::now();
+        // The glide is over, but a capped tick held back 1240 px.
+        let mut m = Motion::default();
+        m.wheel(-2000., t0);
+        assert_eq!(m.tick(ms(t0, 150), 760.), -760.);
+        assert_eq!(m.anim, None);
+        assert_eq!(m.carry, -1240.);
+        // Only 100 px are left to the top.
+        m.limit(-100., 500.);
+        assert_eq!(m.carry, -100.);
+        assert_eq!(m.direction(), -1.);
+        assert_eq!(run(&mut m, t0, 150), -100.);
+        // Down too, and a step back isn't absorbed by the unreachable rest.
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 150), 760.);
+        m.limit(-500., 40.);
+        m.wheel(-60., ms(t0, 160));
+        assert!((run(&mut m, t0, 160) + 20.).abs() < 1e-3);
+        // At the edge: nothing is left, and the motion is over.
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 150), 760.);
+        m.limit(-500., 0.);
+        assert!(!m.is_active());
+        assert_eq!(m.direction(), 0.);
+        // A carry within the room is untouched.
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 150), 760.);
+        m.limit(-500., 5000.);
+        assert_eq!(m.carry, 1240.);
+    }
+
+    #[test]
+    fn a_limited_glide_never_turns_back() {
+        let t0 = Instant::now();
+        for dir in [1., -1.] {
+            // Mid-glide and capped: 1307 px carried, 593 px of glide left.
+            let mut m = Motion::default();
+            m.wheel(2000. * dir, t0);
+            assert_eq!(m.tick(ms(t0, 50), 100.), 100. * dir);
+            m.limit(-5., 5.);
+            assert_eq!(m.direction(), dir);
+            let steps = steps(&mut m, t0, 50, f32::INFINITY);
+            assert!(
+                steps.iter().all(|s| s * dir >= 0.),
+                "a step goes the wrong way: {steps:?}"
+            );
+            assert!((steps.iter().sum::<f32>() - 5. * dir).abs() < 1e-3);
+        }
+        // With little carry, the glide keeps easing out to the edge.
+        let mut m = Motion::default();
+        m.wheel(300., t0);
+        let a = m.tick(ms(t0, 16), f32::INFINITY);
+        m.limit(-10., 40.);
+        assert_eq!(m.carry, 0.);
+        let steps = steps(&mut m, t0, 16, f32::INFINITY);
+        assert!(steps.len() > 3, "{steps:?}");
+        assert!(steps.windows(2).all(|w| w[0] >= w[1]), "{steps:?}");
+        assert!(
+            (steps.iter().sum::<f32>() - 40.).abs() < 1e-3,
+            "{a} {steps:?}"
+        );
+    }
+
+    #[test]
+    fn a_limited_glide_and_carry_keep_their_direction() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 50), 100.);
+        m.limit(-5., 5.);
+        // What's left goes down, whatever the glide started with.
+        let (left, carry) = match m.anim {
+            Some(Anim::Glide { distance, done, .. }) => (distance - done, m.carry),
+            a => panic!("{a:?}"),
+        };
+        assert!(left >= 0. && carry >= 0., "{left} {carry}");
+        assert!((left + carry - 5.).abs() < 1e-3);
+    }
+
+    #[test]
+    fn direction_is_that_of_the_rest() {
+        let t0 = Instant::now();
+        // A glide that started down but has 30 px left to go up.
+        let m = Motion {
+            anim: Some(Anim::Glide {
+                distance: 100.,
+                start: t0,
+                done: 30.,
+            }),
+            carry: -100.,
+            ..Default::default()
+        };
+        assert_eq!(m.direction(), -1.);
+        // Nothing left of it at all.
+        let m = Motion {
+            anim: Some(Anim::Glide {
+                distance: 100.,
+                start: t0,
+                done: 100.,
+            }),
+            carry: 0.,
+            ..Default::default()
+        };
+        assert_eq!(m.direction(), 0.);
+        // Only a carry.
+        let m = Motion {
+            carry: 12.,
+            ..Default::default()
+        };
+        assert_eq!(m.direction(), 1.);
+    }
+
+    #[test]
+    fn limit_with_no_motion_does_nothing() {
+        let mut m = Motion::default();
+        m.limit(-10., 10.);
+        assert!(!m.is_active());
+        m.limit(5., 10.);
+        assert!(!m.is_active(), "no motion to stretch");
+        // A room that leaves out where it is now just stops the motion,
+        // never turns it around.
+        let t0 = Instant::now();
+        m.wheel(-100., t0);
+        m.limit(5., 10.);
+        assert!(!m.is_active());
+        m.wheel(100., t0);
+        m.limit(-10., -5.);
+        assert!(!m.is_active());
     }
 
     #[test]

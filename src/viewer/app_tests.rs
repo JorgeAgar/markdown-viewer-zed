@@ -1905,3 +1905,32 @@ fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
     settle(&v, cx);
     assert!(gap(&v, cx).abs() < 0.01, "{}", gap(&v, cx));
 }
+
+#[test]
+fn a_step_back_is_not_absorbed_by_a_carried_rest() {
+    let (v, cx) = tall_doc();
+    let vh = viewport_height(cx);
+    for _ in 0..3 {
+        with_tab(&v, cx, |tab| tab.scroll_measured(400.));
+        redraw(&v, cx);
+    }
+    assert!((scrolled_px(&v, cx) - 1200.).abs() < 0.01);
+    // 100 lines up: the glide is over by the next frame, which only moves
+    // a measured step and carries the rest.
+    let t0 = Instant::now();
+    let going = with_tab(&v, cx, |tab| {
+        tab.motion.wheel(-2000., t0);
+        tab.advance_motion(at(t0, 200), vh)
+    });
+    assert!(going);
+    assert!((scrolled_px(&v, cx) - (1200. - MEASURED_STEP)).abs() < 0.01);
+    // Three lines down before the next frame: the carry past the top is
+    // dropped first, so this ends three lines below the top.
+    wheel_now(&v, cx, -3.);
+    settle(&v, cx);
+    assert!(
+        (scrolled_px(&v, cx) - 60.).abs() < 0.01,
+        "{}",
+        scrolled_px(&v, cx)
+    );
+}
