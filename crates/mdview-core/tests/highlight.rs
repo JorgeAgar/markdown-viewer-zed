@@ -278,6 +278,254 @@ fn rust_details() {
     assert!(!got.iter().any(|(s, _)| s.starts_with("a!")), "{got:#?}");
 }
 
+/// An attribute is `#[...]` or `#![...]` and ends at the `]` that balances
+/// its first `[` (#43). Brackets in strings, character literals and
+/// comments don't count; `#!` without `[` is only a shebang at the start.
+#[test]
+fn rust_attributes() {
+    for attr in [
+        "#[doc = \"[\"]",
+        "#[doc = \"]\"]",
+        "#[doc = \"\\\"]\"]",
+        "#[doc = \"\\\\\"]",
+        "#[doc = \"a\n]b\"]",
+        "#[doc = r\"]\"]",
+        "#[doc = r#\"[\"#]",
+        "#[doc = r#\"]\"]\"#]",
+        "#[x = br\"]\"]",
+        "#[x = b\"[\"]",
+        "#[x = '[']",
+        "#[x = ']']",
+        "#[x = '\\'']",
+        "#[x('a, ']')]",
+        "#[derive(\n    Debug, // ]\n)]",
+        "#[cfg(/* ] */ unix)]",
+        "#[cfg(/* /* ] */ ] */ unix)]",
+        "#[x(a / b)]",
+        // A `/` or `*` after a comment or operator doesn't start a comment.
+        "#[x(/* a *//b)]",
+        "#[x(a */ b)]",
+        "#[a[b][c]]",
+        "#![doc = \"[\"]",
+    ] {
+        assert_eq!(
+            toks("rust", &format!("{attr}\nfn main() {{}}")),
+            [
+                t(attr, Tok::Attr),
+                t("fn", Tok::Keyword),
+                t("main", Tok::Function)
+            ],
+            "{attr}"
+        );
+        // Not at the start of the code, and right after another token.
+        assert_eq!(
+            toks("rust", &format!("x;{attr} fn")),
+            [t(attr, Tok::Attr), t("fn", Tok::Keyword)],
+            "{attr}"
+        );
+    }
+    // `#!` without `[` isn't an attribute (it used to take the `]` as
+    // depth -1 and swallow the rest of the code).
+    for code in [
+        "let x = [a#!];\nfn main() {}",
+        "let x = [a#!]; fn main() {}",
+    ] {
+        assert_eq!(
+            toks("rust", code),
+            [
+                t("let", Tok::Keyword),
+                t("fn", Tok::Keyword),
+                t("main", Tok::Function)
+            ],
+            "{code:?}"
+        );
+    }
+    assert_eq!(toks("rust", "x #!] fn"), [t("fn", Tok::Keyword)]);
+    // A shebang line, only at the very start.
+    assert_eq!(
+        toks("rust", "#!/usr/bin/env -S cargo -Zscript [x]\nfn main() {}"),
+        [
+            t("#!/usr/bin/env -S cargo -Zscript [x]", Tok::Attr),
+            t("fn", Tok::Keyword),
+            t("main", Tok::Function),
+        ]
+    );
+    assert_eq!(
+        toks("rust", "#!/bin/x\nlet a = b #!c;"),
+        [t("#!/bin/x", Tok::Attr), t("let", Tok::Keyword)]
+    );
+    // An inner attribute at the start isn't a shebang.
+    assert_eq!(
+        toks("rust", "#![no_std] fn"),
+        [t("#![no_std]", Tok::Attr), t("fn", Tok::Keyword)]
+    );
+    // Unbalanced: the rest of the code.
+    assert_eq!(
+        toks("rust", "#[a(\"]\"\nfn x() {}"),
+        [t("#[a(\"]\"\nfn x() {}", Tok::Attr)]
+    );
+    // `r"` only starts a raw string after a non-identifier: in `ar"\")]`
+    // the `\"` is an escaped quote, so the string (and attribute) is open.
+    assert_eq!(
+        toks("rust", "#[x(r\"\\\")]\nfn"),
+        [t("#[x(r\"\\\")]", Tok::Attr), t("fn", Tok::Keyword)]
+    );
+    assert_eq!(
+        toks("rust", "#[x(ar\"\\\")]\nfn"),
+        [t("#[x(ar\"\\\")]\nfn", Tok::Attr)]
+    );
+}
+
+/// A character literal is one character (or an escape) and a closing quote;
+/// anything else after `'` is a lifetime or label, including non-ASCII
+/// ones (#26: `'é>(s: &'` used to be one character literal).
+#[test]
+fn rust_unicode_lifetimes_and_char_literals() {
+    assert_eq!(
+        toks("rust", "fn f<'é>(s: &'é str) {}\nfn next() {}"),
+        [
+            t("fn", Tok::Keyword),
+            t("f", Tok::Function),
+            t("'é", Tok::Attr),
+            t("'é", Tok::Attr),
+            t("str", Tok::Type),
+            t("fn", Tok::Keyword),
+            t("next", Tok::Function),
+        ]
+    );
+    for lit in [
+        "'a'",
+        "'é'",
+        "'日'",
+        "'😀'",
+        "'\\n'",
+        "'\\''",
+        "'\\\\'",
+        "'\\x7f'",
+        "'\\u{1F600}'",
+    ] {
+        assert_eq!(
+            toks("rust", &format!("x({lit}, 'b);")),
+            [
+                t("x", Tok::Function),
+                t(lit, Tok::String),
+                t("'b", Tok::Attr)
+            ],
+            "{lit}"
+        );
+    }
+    for life in ["'a", "'é", "'éa", "'日本", "'static", "'_", "'outer"] {
+        assert_eq!(
+            toks("rust", &format!("&{life} T; 'c'")),
+            [t(life, Tok::Attr), t("T", Tok::Type), t("'c'", Tok::String)],
+            "{life}"
+        );
+    }
+}
+
+/// Block comments nest in some languages (#27: Rust used to end the
+/// comment at the inner `*/`), and not in others.
+#[test]
+fn nested_block_comments() {
+    assert_eq!(
+        toks(
+            "rust",
+            "/* outer /* inner */ let hidden = 1; */\nfn main() {}"
+        ),
+        [
+            t("/* outer /* inner */ let hidden = 1; */", Tok::Comment),
+            t("fn", Tok::Keyword),
+            t("main", Tok::Function),
+        ]
+    );
+    let nesting = ["rust", "swift", "kotlin", "scala", "dart", "haskell"];
+    let mut checked = BTreeSet::new();
+    for group in LANG_GROUPS {
+        let lang = group[0];
+        let (open, close) = match lang {
+            "haskell" => ("{-", "-}"),
+            "lua" => ("--[[", "]]"),
+            _ => ("/*", "*/"),
+        };
+        let code = format!("{open} a {open} b {close} 1 {close} 2");
+        if highlight(lang, &code).first().map(|h| h.tok) != Some(Tok::Comment) {
+            continue; // no block comments
+        }
+        checked.insert(lang);
+        let want = if nesting.contains(&lang) {
+            vec![
+                t(
+                    &format!("{open} a {open} b {close} 1 {close}"),
+                    Tok::Comment,
+                ),
+                t("2", Tok::Number),
+            ]
+        } else {
+            vec![
+                t(&format!("{open} a {open} b {close}"), Tok::Comment),
+                t("1", Tok::Number),
+                t("2", Tok::Number),
+            ]
+        };
+        assert_eq!(toks(lang, &code), want, "{lang}");
+    }
+    assert_eq!(
+        checked.into_iter().collect::<Vec<_>>(),
+        [
+            "c",
+            "cpp",
+            "csharp",
+            "css",
+            "dart",
+            "go",
+            "haskell",
+            "java",
+            "javascript",
+            "json",
+            "kotlin",
+            "lua",
+            "nix",
+            "php",
+            "rust",
+            "scala",
+            "sql",
+            "swift",
+            "typescript"
+        ]
+    );
+    for lang in nesting {
+        let (open, close) = if lang == "haskell" {
+            ("{-", "-}")
+        } else {
+            ("/*", "*/")
+        };
+        // Three levels, then an unclosed inner comment: the rest of the code.
+        let deep = format!("{open}{open}{open} a {close}{close}{close} 1");
+        let unclosed = format!("{open} a {open} b {close} 1");
+        assert_eq!(
+            toks(lang, &deep),
+            [
+                t(
+                    &format!("{open}{open}{open} a {close}{close}{close}"),
+                    Tok::Comment
+                ),
+                t("1", Tok::Number),
+            ],
+            "{lang}"
+        );
+        assert_eq!(
+            toks(lang, &unclosed),
+            [t(&unclosed, Tok::Comment)],
+            "{lang}"
+        );
+    }
+    // `/*/` opens a comment and doesn't close it; `*/*` closes it.
+    assert_eq!(
+        toks("rust", "/*/ a */* 1"),
+        [t("/*/ a */", Tok::Comment), t("1", Tok::Number)]
+    );
+}
+
 #[test]
 fn shell_details() {
     assert_eq!(
@@ -328,6 +576,51 @@ fn shell_details() {
             t("\"$y\"", Tok::String),
         ]
     );
+}
+
+/// An unclosed `${` / `$(` stops before the newline (#45): the newline
+/// still starts a new command, and the variable doesn't include it.
+#[test]
+fn unclosed_dollar_group_stops_at_the_newline() {
+    for open in ["${", "$("] {
+        assert_eq!(
+            toks("sh", &format!("echo {open}FOO\nls -la\n$ pwd")),
+            [
+                t("echo", Tok::Function),
+                t(&format!("{open}FOO"), Tok::Variable),
+                t("ls", Tok::Function),
+                t("-la", Tok::Attr),
+                t("$", Tok::Comment),
+                t("pwd", Tok::Function),
+            ],
+            "{open}"
+        );
+        // The generic lexer's `$vars` (PHP, Make, Dockerfile).
+        assert_eq!(
+            toks("php", &format!("{open}a\n$b")),
+            [
+                t(&format!("{open}a"), Tok::Variable),
+                t("$b", Tok::Variable)
+            ],
+            "{open}"
+        );
+        assert_eq!(
+            toks("make", &format!("{open}A\n#x")),
+            [t(&format!("{open}A"), Tok::Variable), t("#x", Tok::Comment)],
+            "{open}"
+        );
+    }
+    // Closed groups still include the closing bracket.
+    assert_eq!(
+        toks("sh", "a ${B}c $(d)\ne"),
+        [
+            t("a", Tok::Function),
+            t("${B}", Tok::Variable),
+            t("$(d)", Tok::Variable),
+            t("e", Tok::Function),
+        ]
+    );
+    assert_eq!(toks("php", "${b}c"), [t("${b}", Tok::Variable)]);
 }
 
 #[test]
@@ -412,6 +705,48 @@ fn markup_details() {
             t("p", Tok::Tag),
         ]
     );
+    // A value that starts with a newline (#42) used to end at its opening
+    // quote, which inverted the quotes for the rest of the tag.
+    for q in ['"', '\''] {
+        assert_eq!(
+            toks(
+                "html",
+                &format!("<p title={q}\nhello\n{q} a={q}x{q}>t</p>\n<b c={q}{q}>")
+            ),
+            [
+                t("p", Tok::Tag),
+                t("title", Tok::Property),
+                t(&format!("{q}\nhello\n{q}"), Tok::String),
+                t("a", Tok::Property),
+                t(&format!("{q}x{q}"), Tok::String),
+                t("p", Tok::Tag),
+                t("b", Tok::Tag),
+                t("c", Tok::Property),
+                t(&format!("{q}{q}"), Tok::String),
+            ],
+            "{q}"
+        );
+    }
+    // Values have no escapes; the other quote doesn't close them.
+    assert_eq!(
+        toks("xml", "<a b=\"x\\\" c='\" d\"'>"),
+        [
+            t("a", Tok::Tag),
+            t("b", Tok::Property),
+            t("\"x\\\"", Tok::String),
+            t("c", Tok::Property),
+            t("'\" d\"'", Tok::String),
+        ]
+    );
+    // Unclosed after a newline: the rest of the code.
+    assert_eq!(
+        toks("html", "<a b=\"\nc>d"),
+        [
+            t("a", Tok::Tag),
+            t("b", Tok::Property),
+            t("\"\nc>d", Tok::String)
+        ]
+    );
 }
 
 #[test]
@@ -459,6 +794,124 @@ fn config_details() {
             t("1", Tok::Number),
         ]
     );
+}
+
+/// A section header ends at its own `]`, not the last `]` on the line
+/// (#44): a trailing comment may contain brackets, and quoted keys may too.
+#[test]
+fn config_section_header_ends_at_its_bracket() {
+    for (code, header, comment) in [
+        ("[package] # see [section]", "[package]", "# see [section]"),
+        ("[[bin]] # [[x]]", "[[bin]]", "# [[x]]"),
+    ] {
+        for lang in ["toml", "ini"] {
+            assert_eq!(
+                toks(lang, &format!("  {code}\nk = 1")),
+                [
+                    t(header, Tok::Type),
+                    t(comment, Tok::Comment),
+                    t("k", Tok::Property),
+                    t("1", Tok::Number),
+                ],
+                "{lang}: {code}"
+            );
+        }
+    }
+    // TOML quoted keys (basic strings have escapes, literal strings don't).
+    for (code, header, comment) in [
+        ("[a.\"b]c\"] # ]", "[a.\"b]c\"]", "# ]"),
+        ("[a.'b]c'] # ]", "[a.'b]c']", "# ]"),
+        ("[a.\"b\\\"]\"] # ]", "[a.\"b\\\"]\"]", "# ]"),
+        ("[a.'b\\'] # ]", "[a.'b\\']", "# ]"),
+    ] {
+        assert_eq!(
+            toks("toml", &format!("  {code}\nk = 1")),
+            [
+                t(header, Tok::Type),
+                t(comment, Tok::Comment),
+                t("k", Tok::Property),
+                t("1", Tok::Number),
+            ],
+            "toml: {code}"
+        );
+    }
+    // Unclosed headers (or quotes) run to the end of the line.
+    for code in ["[a # b", "[[a] # b", "[a.\"b] # c", "[a.\"b\\\"] # c"] {
+        assert_eq!(
+            toks("toml", &format!("{code}\nk")),
+            [t(code, Tok::Type)],
+            "{code}"
+        );
+    }
+    // Text after the header is still a value.
+    assert_eq!(
+        toks("ini", "[a] 1 [b]"),
+        [t("[a]", Tok::Type), t("1", Tok::Number)]
+    );
+}
+
+/// A backslash escapes the next character in a triple-quoted string (#28),
+/// so `\"""` doesn't close it, while `\\"""` does. Python raw strings
+/// (`r"""`) follow the same rule. Kotlin and Scala `"""` strings are raw:
+/// a backslash is just a character.
+#[test]
+fn triple_quote_escapes() {
+    for q in ["\"", "'"] {
+        let qqq = q.repeat(3);
+        assert_eq!(
+            toks("python", &format!("x = {qqq}a\\{qqq}b{qqq}\nprint(x)")),
+            [
+                t(&format!("{qqq}a\\{qqq}b{qqq}"), Tok::String),
+                t("print", Tok::Keyword),
+            ],
+            "{qqq}"
+        );
+        assert_eq!(
+            toks("python", &format!("x = {qqq}a\\\\{qqq} if\n{qqq}")),
+            [
+                t(&format!("{qqq}a\\\\{qqq}"), Tok::String),
+                t("if", Tok::Keyword),
+                t(&qqq, Tok::String),
+            ],
+            "{qqq}"
+        );
+        // An escaped quote right before the closing ones.
+        assert_eq!(
+            toks("python", &format!("r{qqq}a\\{q}{qqq} or")),
+            [
+                t(&format!("{qqq}a\\{q}{qqq}"), Tok::String),
+                t("or", Tok::Keyword),
+            ],
+            "{qqq}"
+        );
+        // A backslash at the very end.
+        assert_eq!(
+            toks("python", &format!("{qqq}a\\")),
+            [t(&format!("{qqq}a\\"), Tok::String)]
+        );
+    }
+    for (lang, kw) in [("swift", "let"), ("dart", "var"), ("elixir", "end")] {
+        assert_eq!(
+            toks(lang, &format!("\"\"\"a\\\"\"\"b\"\"\"\n{kw}")),
+            [
+                t("\"\"\"a\\\"\"\"b\"\"\"", Tok::String),
+                t(kw, Tok::Keyword)
+            ],
+            "{lang}"
+        );
+    }
+    for lang in ["kotlin", "scala"] {
+        assert_eq!(
+            toks(lang, "val p = \"\"\"C:\\\"\"\"\nval q = 1"),
+            [
+                t("val", Tok::Keyword),
+                t("\"\"\"C:\\\"\"\"", Tok::String),
+                t("val", Tok::Keyword),
+                t("1", Tok::Number),
+            ],
+            "{lang}"
+        );
+    }
 }
 
 #[test]
@@ -647,4 +1100,75 @@ fn probe_every_language() {
         dump::source(&mut out, &dump::tokens(PROBE, &hs), 0);
     }
     insta::assert_snapshot!(out);
+}
+
+#[test]
+fn review_edge_cases_rust_attrs_ini_toml_and_psql() {
+    // Raw C-string inside a Rust attribute must not close the attribute early.
+    assert_eq!(
+        toks("rust", " #[x(cr#\"\" ]\"#)] fn main() {}"),
+        [
+            t("#[x(cr#\"\" ]\"#)]", Tok::Attr),
+            t("fn", Tok::Keyword),
+            t("main", Tok::Function),
+        ]
+    );
+    // Whitespace and comments between `#`, `!`, and `[` still form attributes
+    // (including `#! /* keep */ [...]` at byte 0 instead of a shebang).
+    assert_eq!(
+        toks("rust", "# [doc = \"hello\"]\nfn f() {}"),
+        [
+            t("# [doc = \"hello\"]", Tok::Attr),
+            t("fn", Tok::Keyword),
+            t("f", Tok::Function),
+        ]
+    );
+    assert_eq!(
+        toks("rust", "#! /* keep */ [allow(dead_code)]\nfn f() {}"),
+        [
+            t("#! /* keep */ [allow(dead_code)]", Tok::Attr),
+            t("fn", Tok::Keyword),
+            t("f", Tok::Function),
+        ]
+    );
+    // INI section names with apostrophes must not trigger TOML quoted-key parsing.
+    assert_eq!(
+        toks("ini", "[owner's settings] # note\nk = 1"),
+        [
+            t("[owner's settings]", Tok::Type),
+            t("# note", Tok::Comment),
+            t("k", Tok::Property),
+            t("1", Tok::Number),
+        ]
+    );
+    // TOML comment directly after a section header without space.
+    assert_eq!(
+        toks("toml", "[a]# note [b]\nk = 1"),
+        [
+            t("[a]", Tok::Type),
+            t("# note [b]", Tok::Comment),
+            t("k", Tok::Property),
+            t("1", Tok::Number),
+        ]
+    );
+    // PostgreSQL supports nested block comments; generic SQL does not.
+    for pg in ["psql", "postgresql"] {
+        assert_eq!(
+            toks(pg, "/* outer /* inner */ SELECT 1; */\nSELECT 2;"),
+            [
+                t("/* outer /* inner */ SELECT 1; */", Tok::Comment),
+                t("SELECT", Tok::Keyword),
+                t("2", Tok::Number),
+            ],
+            "{pg}"
+        );
+    }
+    assert_eq!(
+        toks("sql", "/* outer /* inner */ SELECT 1;"),
+        [
+            t("/* outer /* inner */", Tok::Comment),
+            t("SELECT", Tok::Keyword),
+            t("1", Tok::Number),
+        ]
+    );
 }

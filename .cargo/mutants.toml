@@ -6,71 +6,64 @@ exclude_re = [
 
     # Rust handles single quotes as characters/lifetimes before consulting quotes;
     # BASE only adds single quotes.
-    '''^crates/mdview-core/src/highlight\.rs:162:9: delete field quotes from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:170:9: delete field quotes from struct Lang expression in lang_def$''',
 
     # C# and Dart inherit true/false/null unchanged; their extra `this` is already a
     # keyword.
-    '''^crates/mdview-core/src/highlight\.rs:264:9: delete field constants from struct Lang expression in lang_def$''',
-    '''^crates/mdview-core/src/highlight\.rs:196:9: delete field constants from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:275:9: delete field constants from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:204:9: delete field constants from struct Lang expression in lang_def$''',
 
     # SQL and Nix constants equal BASE exactly.
-    '''^crates/mdview-core/src/highlight\.rs:367:9: delete field constants from struct Lang expression in lang_def$''',
-    '''^crates/mdview-core/src/highlight\.rs:414:9: delete field constants from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:381:9: delete field constants from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:433:9: delete field constants from struct Lang expression in lang_def$''',
 
     # CSS takes its own identifier branch, which never consults keywords or
     # constants.
-    '''^crates/mdview-core/src/highlight\.rs:374:9: delete field keywords from struct Lang expression in lang_def$''',
-    '''^crates/mdview-core/src/highlight\.rs:375:9: delete field constants from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:392:9: delete field keywords from struct Lang expression in lang_def$''',
+    '''^crates/mdview-core/src/highlight\.rs:393:9: delete field constants from struct Lang expression in lang_def$''',
+
+    # At j == len the remaining slice is empty: neither delimiter matches, and
+    # j += 1 ends the loop with the same b.len().
+    '''^crates/mdview-core/src/highlight\.rs:589:13: replace < with <= in block_comment_end$''',
 
     # Every find caller supplies a nonempty delimiter and from <= len. At from ==
     # len, windows already returns None.
-    '''^crates/mdview-core/src/highlight\.rs:545:29: replace > with == in find$''',
-    '''^crates/mdview-core/src/highlight\.rs:545:21: replace \|\| with && in find$''',
-    '''^crates/mdview-core/src/highlight\.rs:545:29: replace > with >= in find$''',
+    '''^crates/mdview-core/src/highlight\.rs:608:29: replace > with == in find$''',
+    '''^crates/mdview-core/src/highlight\.rs:608:21: replace \|\| with && in find$''',
+    '''^crates/mdview-core/src/highlight\.rs:608:29: replace > with >= in find$''',
 
     # At j == i + 1 the preceding byte is #, never an identifier. Multiplying by 1
     # only relaxes the same impossible case.
-    '''^crates/mdview-core/src/highlight\.rs:611:38: replace > with >= in generic$''',
-    '''^crates/mdview-core/src/highlight\.rs:611:42: replace \+ with \* in generic$''',
-
-    # Starting the attribute scan at # adds one ignored byte before [ or !; all
-    # subsequent nesting is identical.
-    '''^crates/mdview-core/src/highlight\.rs:625:31: replace \+ with \* in generic$''',
+    '''^crates/mdview-core/src/highlight\.rs:674:38: replace > with >= in generic$''',
+    '''^crates/mdview-core/src/highlight\.rs:674:42: replace \+ with \* in generic$''',
 
     # Starting an identifier scan at i instead of i + 1 scans one extra byte already
     # known to satisfy the loop predicate.
-    '''^crates/mdview-core/src/highlight\.rs:759:27: replace \+ with \* in generic$''',
+    '''^crates/mdview-core/src/highlight\.rs:789:27: replace \+ with \* in generic$''',
 
     # Without the shell whitespace fast path, the word scan has length zero and
     # advances one byte; cmd_pos is unchanged.
-    '''^crates/mdview-core/src/highlight\.rs:883:22: replace \|\| with && in shell$''',
+    '''^crates/mdview-core/src/highlight\.rs:1027:22: replace \|\| with && in shell$''',
 
     # Resuming on the entity semicolon only rescans ignored text; the entity token
     # is unchanged.
-    '''^crates/mdview-core/src/highlight\.rs:994:23: replace \+ with \* in markup$''',
-
-    # Re-searching from the opening quote finds the same closing quote (or EOF). A
-    # newline terminator always needs the search; / 1 only changes whether that
-    # redundant search happens for a closed string.
-    '''^crates/mdview-core/src/highlight\.rs:1017:48: replace && with \|\| in markup$''',
-    '''^crates/mdview-core/src/highlight\.rs:1017:38: replace < with <= in markup$''',
-    '''^crates/mdview-core/src/highlight\.rs:1017:57: replace - with / in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1141:23: replace \+ with \* in markup$''',
 
     # Resuming at > or the preceding byte adds only ignored text outside the tag
     # (including an already consumed closing quote); no new construct can start
     # there.
-    '''^crates/mdview-core/src/highlight\.rs:1035:20: replace \+ with - in markup$''',
-    '''^crates/mdview-core/src/highlight\.rs:1035:20: replace \+ with \* in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1179:20: replace \+ with - in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1179:20: replace \+ with \* in markup$''',
 
     # An empty key emits no Property (Out drops empty ranges). value skips the : or
     # = delimiter either way.
-    '''^crates/mdview-core/src/highlight\.rs:1104:24: replace match guard k > i with true in config$''',
-    '''^crates/mdview-core/src/highlight\.rs:1104:26: replace > with >= in config$''',
-    '''^crates/mdview-core/src/highlight\.rs:1107:31: replace \+ with \* in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1252:24: replace match guard k > i with true in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1252:26: replace > with >= in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1255:31: replace \+ with \* in config$''',
 
     # A scalar word starts with a byte accepted by its scan, so j > i; max(i + 1)
     # and max(i * 1) both return j.
-    '''^crates/mdview-core/src/highlight\.rs:1161:25: replace \+ with \* in value$''',
+    '''^crates/mdview-core/src/highlight\.rs:1336:25: replace \+ with \* in value$''',
 
     # Upright is only enabled inside font commands, which replace all italic ranges
     # before appending. W::sub already resets every other field; script inheritance

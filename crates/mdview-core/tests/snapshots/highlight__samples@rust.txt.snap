@@ -46,7 +46,7 @@ input_file: crates/mdview-core/tests/code/rust.txt
 |    cfg(test)
 |]⟧
 |⟦kw|fn⟧ ⟦fn|gated⟧() {}
-|⟦attr|#!⟧
+|#!
 |⟦kw|let⟧ after_incomplete_attribute = ⟦const|true⟧;
 |
 |⟦kw|let⟧ empty_bytes = b⟦str|""⟧;

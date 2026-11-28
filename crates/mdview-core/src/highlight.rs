@@ -50,7 +50,7 @@ pub fn highlight(lang: &str, code: &str) -> Vec<Highlight> {
         | "terminal" => shell(code, &mut out),
         "html" | "xml" | "svg" | "xhtml" | "vue" | "plist" => markup(code, &mut out),
         "yaml" | "yml" | "toml" | "ini" | "cfg" | "conf" | "properties" | "editorconfig"
-        | "gitconfig" | "desktop" => config(code, &mut out),
+        | "gitconfig" | "desktop" => config(code, lang == "toml", &mut out),
         _ => {
             if let Some(def) = lang_def(&lang) {
                 generic(code, def, &mut out)
@@ -86,10 +86,15 @@ struct Lang {
     constants: &'static str,
     line_comments: &'static [&'static str],
     block_comment: Option<(&'static str, &'static str)>,
+    /// Block comments nest (Rust, Swift, Kotlin, Scala, Dart, Haskell).
+    nested_comments: bool,
     /// Quote characters that start a string.
     quotes: &'static [u8],
     /// `"""` / `'''` strings (Python, Kotlin, Swift...).
     triple_quotes: bool,
+    /// Backslashes don't escape anything in triple-quoted strings (Kotlin,
+    /// Scala).
+    raw_triple_quotes: bool,
     /// Identifiers starting with an uppercase letter are types.
     caps_are_types: bool,
     /// Keywords match case-insensitively (SQL).
@@ -116,8 +121,10 @@ const BASE: Lang = Lang {
     constants: "true false null",
     line_comments: &[],
     block_comment: None,
+    nested_comments: false,
     quotes: b"\"'",
     triple_quotes: false,
+    raw_triple_quotes: false,
     caps_are_types: false,
     ignore_case: false,
     at_attrs: false,
@@ -159,6 +166,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false self Self super None Some Ok Err",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         quotes: b"\"",
         caps_are_types: true,
         rust: true,
@@ -233,7 +241,9 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false null this it",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         triple_quotes: true,
+        raw_triple_quotes: true,
         caps_are_types: true,
         at_attrs: true,
         fn_keywords: "fun",
@@ -248,6 +258,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false nil self Self super",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         quotes: b"\"",
         triple_quotes: true,
         caps_are_types: true,
@@ -264,6 +275,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false null this",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         triple_quotes: true,
         caps_are_types: true,
         at_attrs: true,
@@ -276,7 +288,9 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false null this",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         triple_quotes: true,
+        raw_triple_quotes: true,
         caps_are_types: true,
         at_attrs: true,
         fn_keywords: "def",
@@ -370,6 +384,10 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         ignore_case: true,
         ..BASE
     };
+    static PSQL: Lang = Lang {
+        nested_comments: true,
+        ..SQL
+    };
     static CSS: Lang = Lang {
         keywords: "important",
         constants: "",
@@ -391,6 +409,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "True False Nothing Just",
         line_comments: &["--"],
         block_comment: Some(("{-", "-}")),
+        nested_comments: true,
         quotes: b"\"",
         caps_are_types: true,
         ..BASE
@@ -462,7 +481,8 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         "rb" | "ruby" => &RUBY,
         "php" => &PHP,
         "lua" => &LUA,
-        "sql" | "psql" | "mysql" | "sqlite" | "postgresql" | "plsql" => &SQL,
+        "sql" | "mysql" | "sqlite" | "plsql" => &SQL,
+        "psql" | "postgresql" => &PSQL,
         "css" | "scss" | "sass" | "less" => &CSS,
         "json" | "jsonc" | "json5" | "geojson" => &JSON,
         "haskell" | "hs" => &HASKELL,
@@ -540,6 +560,49 @@ fn string_end(b: &[u8], i: usize, q: u8, escapes: bool) -> usize {
     b.len()
 }
 
+/// End of a `"""` / `'''` string starting at `i`: after the closing
+/// quotes, or the end of the code. With `escapes`, a backslash escapes the
+/// next byte, so `\"""` doesn't close the string and `\\"""` does
+/// (Python's rule for raw strings too).
+fn triple_end(b: &[u8], i: usize, q: u8, escapes: bool) -> usize {
+    let mut j = i + 3;
+    while j < b.len() {
+        if escapes && b[j] == b'\\' {
+            j += 2;
+            continue;
+        }
+        if b[j..].starts_with(&[q, q, q]) {
+            return j + 3;
+        }
+        j += 1;
+    }
+    b.len()
+}
+
+/// End of a block comment whose opening delimiter ends at `from`: after
+/// its closing delimiter, or the end of the code. With `nested`, each inner
+/// opening delimiter needs its own closing one (`/* a /* b */ c */`).
+fn block_comment_end(b: &[u8], from: usize, delims: (&str, &str), nested: bool) -> usize {
+    let (open, close) = (delims.0.as_bytes(), delims.1.as_bytes());
+    let mut depth = 1;
+    let mut j = from;
+    while j < b.len() {
+        if b[j..].starts_with(close) {
+            depth -= 1;
+            j += close.len();
+            if depth == 0 {
+                return j;
+            }
+        } else if nested && b[j..].starts_with(open) {
+            depth += 1;
+            j += open.len();
+        } else {
+            j += 1;
+        }
+    }
+    b.len()
+}
+
 fn find(b: &[u8], from: usize, pat: &str) -> Option<usize> {
     let p = pat.as_bytes();
     if p.is_empty() || from > b.len() {
@@ -589,7 +652,7 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
         if let Some((open, close)) = l.block_comment
             && b[i..].starts_with(open.as_bytes())
         {
-            let end = find(b, i + open.len(), close).map_or(b.len(), |e| e + close.len());
+            let end = block_comment_end(b, i + open.len(), (open, close), l.nested_comments);
             out.push(i..end, Tok::Comment);
             i = end;
             continue;
@@ -620,63 +683,28 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
 
         // Rust specifics.
         if l.rust {
-            if c == b'#' && matches!(b.get(i + 1), Some(b'[') | Some(b'!')) {
-                // `#[...]` / `#![...]`, with nested brackets.
-                let mut j = i + 1;
-                let mut d = 0;
-                while j < b.len() {
-                    match b[j] {
-                        b'[' => d += 1,
-                        b']' => {
-                            d -= 1;
-                            if d == 0 {
-                                j += 1;
-                                break;
-                            }
-                        }
-                        b'\n' if d == 0 => break,
-                        _ => {}
-                    }
-                    j += 1;
-                }
-                out.push(i..j, Tok::Attr);
-                i = j;
-                continue;
-            }
-            // Raw strings: r"..", r#".."#, br"..".
-            let r = if c == b'b' && b.get(i + 1) == Some(&b'r') {
-                Some(i + 2)
-            } else if c == b'r' {
-                Some(i + 1)
-            } else {
-                None
-            };
-            if let Some(mut j) = r
-                && (i == 0 || !is_ident(b[i - 1]))
-            {
-                let mut hashes = 0;
-                while b.get(j) == Some(&b'#') {
-                    hashes += 1;
-                    j += 1;
-                }
-                if b.get(j) == Some(&b'"') {
-                    let close = format!("\"{}", "#".repeat(hashes));
-                    let end = find(b, j + 1, &close).map_or(b.len(), |e| e + close.len());
-                    out.push(i..end, Tok::String);
+            if c == b'#' {
+                let end = if let Some(open) = rust_attr_open(b, i) {
+                    Some(rust_attr_end(code, open))
+                } else if i == 0 && b.get(1) == Some(&b'!') {
+                    // A shebang line.
+                    Some(line_end(b, 0))
+                } else {
+                    None
+                };
+                if let Some(end) = end {
+                    out.push(i..end, Tok::Attr);
                     i = end;
                     continue;
                 }
             }
+            if let Some(end) = rust_raw_string_end(b, i) {
+                out.push(i..end, Tok::String);
+                i = end;
+                continue;
+            }
             if c == b'\'' {
-                // Char literal or lifetime?
-                let is_char = match b.get(i + 1) {
-                    Some(b'\\') => true,
-                    Some(&n) if n >= 0x80 => true,
-                    Some(_) => b.get(i + 2) == Some(&b'\''),
-                    None => false,
-                };
-                if is_char {
-                    let end = string_end(b, i, b'\'', true);
+                if let Some(end) = rust_char_end(code, i) {
                     out.push(i..end, Tok::String);
                     i = end;
                 } else {
@@ -695,8 +723,7 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
         if l.quotes.contains(&c) {
             let triple = [c, c, c];
             let end = if l.triple_quotes && b[i..].starts_with(&triple) {
-                let close = std::str::from_utf8(&triple).unwrap();
-                find(b, i + 3, close).map_or(b.len(), |e| e + 3)
+                triple_end(b, i, c, !l.raw_triple_quotes)
             } else {
                 string_end(b, i, c, true)
             };
@@ -729,7 +756,10 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
                 while j < b.len() && b[j] != close && b[j] != b'\n' {
                     j += 1;
                 }
-                j = (j + 1).min(b.len());
+                // Unclosed: leave the newline to the main loop.
+                if b.get(j) == Some(&close) {
+                    j += 1;
+                }
             } else {
                 while j < b.len() && (is_ident(b[j]) || b[j] == b'.' || b[j] == b'-') {
                     j += 1;
@@ -821,6 +851,120 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
     }
 }
 
+/// Skips ASCII whitespace and Rust line/block comments starting at `j`.
+fn skip_rust_trivia(b: &[u8], mut j: usize) -> usize {
+    while j < b.len() {
+        if b[j].is_ascii_whitespace() {
+            j += 1;
+        } else if b[j..].starts_with(b"//") {
+            j = line_end(b, j);
+        } else if b[j..].starts_with(b"/*") {
+            j = block_comment_end(b, j + 2, ("/*", "*/"), true);
+        } else {
+            break;
+        }
+    }
+    j
+}
+
+/// Position of the opening `[` if `b[i]` (`#`) starts a Rust outer (`#[...]`)
+/// or inner (`#![...]`) attribute, allowing whitespace and comments between
+/// `#`, `!`, and `[`.
+fn rust_attr_open(b: &[u8], i: usize) -> Option<usize> {
+    let mut j = skip_rust_trivia(b, i + 1);
+    if b.get(j) == Some(&b'!') {
+        j = skip_rust_trivia(b, j + 1);
+    }
+    (b.get(j) == Some(&b'[')).then_some(j)
+}
+
+/// End of the Rust attribute (`#[...]` / `#![...]`) whose opening `[` is at
+/// `i`: after the matching `]`, or the end of the code. Brackets in strings,
+/// character literals and comments don't count.
+fn rust_attr_end(code: &str, i: usize) -> usize {
+    let b = code.as_bytes();
+    let mut depth = 0;
+    let mut j = i;
+    while j < b.len() {
+        let skip = match b[j] {
+            b'"' => Some(rust_string_end(b, j)),
+            b'\'' => rust_char_end(code, j),
+            b'/' if b.get(j + 1) == Some(&b'/') => Some(line_end(b, j)),
+            b'/' if b.get(j + 1) == Some(&b'*') => {
+                Some(block_comment_end(b, j + 2, ("/*", "*/"), true))
+            }
+            _ => rust_raw_string_end(b, j),
+        };
+        if let Some(end) = skip {
+            j = end;
+            continue;
+        }
+        match b[j] {
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return j + 1;
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    b.len()
+}
+
+/// End of the Rust string starting at `i` (a `"`): after the closing quote,
+/// which may be on a later line, or the end of the code.
+fn rust_string_end(b: &[u8], i: usize) -> usize {
+    let mut j = i + 1;
+    while j < b.len() {
+        match b[j] {
+            b'\\' => j += 2,
+            b'"' => return j + 1,
+            _ => j += 1,
+        }
+    }
+    b.len()
+}
+
+/// End of the Rust raw string (`r".."`, `r#".."#`, `br".."`, `cr".."`)
+/// starting at `i`, if one starts there.
+fn rust_raw_string_end(b: &[u8], i: usize) -> Option<usize> {
+    let mut j = match b[i] {
+        b'b' | b'c' if b.get(i + 1) == Some(&b'r') => i + 2,
+        b'r' => i + 1,
+        _ => return None,
+    };
+    if i > 0 && is_ident(b[i - 1]) {
+        return None;
+    }
+    let mut hashes = 0;
+    while b.get(j) == Some(&b'#') {
+        hashes += 1;
+        j += 1;
+    }
+    if b.get(j) != Some(&b'"') {
+        return None;
+    }
+    let close = format!("\"{}", "#".repeat(hashes));
+    Some(find(b, j + 1, &close).map_or(b.len(), |e| e + close.len()))
+}
+
+/// End of the Rust character literal starting at `i` (a `'`), or `None`
+/// for a lifetime or label (`'a`, `'é`, `'static`). A literal is an escape
+/// (`'\n'`, `'\u{1F600}'`) or one character, which may be multi-byte, and
+/// a closing quote (`'é'`).
+fn rust_char_end(code: &str, i: usize) -> Option<usize> {
+    let b = code.as_bytes();
+    let is_char = match code[i + 1..].chars().next() {
+        Some('\\') => true,
+        Some(ch) => b.get(i + 1 + ch.len_utf8()) == Some(&b'\''),
+        None => false,
+    };
+    is_char.then(|| string_end(b, i, b'\'', true))
+}
+
 fn utf8_len(first: u8) -> usize {
     match first {
         0xF0..=0xFF => 4,
@@ -906,7 +1050,10 @@ fn shell(code: &str, out: &mut Out) {
                     while j < b.len() && b[j] != close && b[j] != b'\n' {
                         j += 1;
                     }
-                    j = (j + 1).min(b.len());
+                    // Unclosed: leave the newline to the main loop.
+                    if b.get(j) == Some(&close) {
+                        j += 1;
+                    }
                 }
                 _ => {
                     while j < b.len() && (is_ident(b[j]) || matches!(b[j], b'?' | b'@' | b'#')) {
@@ -1012,14 +1159,11 @@ fn markup(code: &str, out: &mut Out) {
             while j < b.len() && b[j] != b'>' {
                 let a = b[j];
                 if a == b'"' || a == b'\'' {
-                    let end = string_end(b, j, a, false);
-                    // Attribute values may span lines.
-                    let end = if end < b.len() && b[end - 1] != a {
-                        find(b, j + 1, if a == b'"' { "\"" } else { "'" })
-                            .map_or(b.len(), |e| e + 1)
-                    } else {
-                        end
-                    };
+                    // Values have no escapes and may span lines.
+                    let end = b[j + 1..]
+                        .iter()
+                        .position(|&c| c == a)
+                        .map_or(b.len(), |p| j + p + 2);
                     out.push(j..end, Tok::String);
                     j = end;
                 } else if is_ident_start(a) {
@@ -1041,7 +1185,7 @@ fn markup(code: &str, out: &mut Out) {
 
 /// YAML, TOML and INI: comments, `[sections]`, `key:` / `key =`, and
 /// scalar values.
-fn config(code: &str, out: &mut Out) {
+fn config(code: &str, quoted_sections: bool, out: &mut Out) {
     let mut pos = 0;
     for line in code.split_inclusive('\n') {
         let start = pos;
@@ -1061,9 +1205,13 @@ fn config(code: &str, out: &mut Out) {
         }
         if b[i] == b'[' {
             // TOML/INI section header.
-            let end = line.rfind(']').map_or(b.len(), |e| e + 1);
+            let end = section_end(b, i, quoted_sections);
             out.push(start + i..start + end, Tok::Type);
-            value(line, end, start, out);
+            if b.get(end) == Some(&b'#') {
+                out.push(start + end..start + b.len(), Tok::Comment);
+            } else {
+                value(line, end, start, out);
+            }
             continue;
         }
         if line[i..].starts_with("---") || line[i..].starts_with("...") {
@@ -1109,6 +1257,33 @@ fn config(code: &str, out: &mut Out) {
             _ => value(line, i, start, out),
         }
     }
+}
+
+/// End of the `[section]` or `[[array.of.tables]]` header opening at `i`:
+/// its matching `]`, skipping TOML quoted keys (`[a."b]"]`) when
+/// `quoted_sections` is set, or the end of the line if it's unclosed.
+fn section_end(b: &[u8], i: usize, quoted_sections: bool) -> usize {
+    let mut depth = 0;
+    let mut j = i;
+    while j < b.len() {
+        match b[j] {
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return j + 1;
+                }
+            }
+            // TOML basic strings have escapes, literal strings don't.
+            q @ (b'"' | b'\'') if quoted_sections => {
+                j = string_end(b, j, q, q == b'"');
+                continue;
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    b.len()
 }
 
 /// Highlights a scalar value (rest of a config line from `from`).
