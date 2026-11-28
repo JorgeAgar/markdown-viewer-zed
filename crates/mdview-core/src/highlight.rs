@@ -729,7 +729,10 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
                 while j < b.len() && b[j] != close && b[j] != b'\n' {
                     j += 1;
                 }
-                j = (j + 1).min(b.len());
+                // Unclosed: leave the newline to the main loop.
+                if b.get(j) == Some(&close) {
+                    j += 1;
+                }
             } else {
                 while j < b.len() && (is_ident(b[j]) || b[j] == b'.' || b[j] == b'-') {
                     j += 1;
@@ -906,7 +909,10 @@ fn shell(code: &str, out: &mut Out) {
                     while j < b.len() && b[j] != close && b[j] != b'\n' {
                         j += 1;
                     }
-                    j = (j + 1).min(b.len());
+                    // Unclosed: leave the newline to the main loop.
+                    if b.get(j) == Some(&close) {
+                        j += 1;
+                    }
                 }
                 _ => {
                     while j < b.len() && (is_ident(b[j]) || matches!(b[j], b'?' | b'@' | b'#')) {

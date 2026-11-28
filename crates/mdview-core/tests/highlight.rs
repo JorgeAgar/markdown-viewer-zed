@@ -330,6 +330,51 @@ fn shell_details() {
     );
 }
 
+/// An unclosed `${` / `$(` stops before the newline (#45): the newline
+/// still starts a new command, and the variable doesn't include it.
+#[test]
+fn unclosed_dollar_group_stops_at_the_newline() {
+    for open in ["${", "$("] {
+        assert_eq!(
+            toks("sh", &format!("echo {open}FOO\nls -la\n$ pwd")),
+            [
+                t("echo", Tok::Function),
+                t(&format!("{open}FOO"), Tok::Variable),
+                t("ls", Tok::Function),
+                t("-la", Tok::Attr),
+                t("$", Tok::Comment),
+                t("pwd", Tok::Function),
+            ],
+            "{open}"
+        );
+        // The generic lexer's `$vars` (PHP, Make, Dockerfile).
+        assert_eq!(
+            toks("php", &format!("{open}a\n$b")),
+            [
+                t(&format!("{open}a"), Tok::Variable),
+                t("$b", Tok::Variable)
+            ],
+            "{open}"
+        );
+        assert_eq!(
+            toks("make", &format!("{open}A\n#x")),
+            [t(&format!("{open}A"), Tok::Variable), t("#x", Tok::Comment)],
+            "{open}"
+        );
+    }
+    // Closed groups still include the closing bracket.
+    assert_eq!(
+        toks("sh", "a ${B}c $(d)\ne"),
+        [
+            t("a", Tok::Function),
+            t("${B}", Tok::Variable),
+            t("$(d)", Tok::Variable),
+            t("e", Tok::Function),
+        ]
+    );
+    assert_eq!(toks("php", "${b}c"), [t("${b}", Tok::Variable)]);
+}
+
 #[test]
 fn diff_details() {
     assert_eq!(
