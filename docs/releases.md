@@ -1,7 +1,7 @@
 # Releases
 
-Releases include Linux x86_64 tarballs, Windows x64 installers and an Apple
-Silicon (arm64) macOS DMG.
+Releases include Linux x86_64 tarballs, Windows x64 installers and portable
+executables, and an Apple Silicon (arm64) macOS DMG.
 The binary uses the existing release profile: full LTO, one codegen unit,
 and stripped symbols. Packaging adds no startup work.
 
@@ -62,6 +62,8 @@ flowchart LR
     version --> tests["Full headless tests and checks"]
     tests --> build["Build native Linux / Windows / macOS binaries"]
     build --> package["Package and smoke test tarball"]
+    build --> windows["Package and smoke test Windows installer + portable exe"]
+    windows --> collect
     mac["Build Apple Silicon app + DMG (notarized when secrets are set)"] --> collect
     package --> collect["Collect verified platform artifacts + checksums"]
     collect --> publish["Publish GitHub Release once"]
@@ -69,18 +71,31 @@ flowchart LR
 
 ## Windows
 
-Run the Windows x64 `setup.exe` asset. It installs for the current user without
-administrator privileges, creates a Start menu entry and supports uninstall
-through Windows Settings. Optional tasks add a desktop shortcut and Open with
+For portable use, download `mdview-v0.1.1-windows-x86_64-portable.exe` and run
+it from any folder, or pass a Markdown path in PowerShell:
+
+```powershell
+.\mdview-v0.1.1-windows-x86_64-portable.exe .\README.md
+```
+
+The portable executable requires no installation and creates no shortcuts or
+file associations. You can rename it to `mdview.exe`. Both Windows downloads
+use the same optimized application binary and are included in `SHA256SUMS`.
+
+For an installed copy, run the Windows x64 `setup.exe` asset. It installs for
+the current user without administrator privileges, creates a Start menu entry
+and supports uninstall through Windows Settings. Optional tasks add a desktop shortcut and Open with
 registration for Markdown extensions; they do not replace the default viewer.
 The application uses Direct3D 11 and requires Windows 10 version 1809 or newer
 and a compatible graphics driver. Native GPU testing on the minimum OS remains
 required before claiming that minimum as verified.
 
-The installer is currently unsigned; Windows may show an unknown-publisher or
-SmartScreen prompt. Authenticode credentials are needed to sign production
-Windows releases. Install/upgrade/uninstall and installed `--help` are smoke
-tested in native CI. This does not replace interactive GPU testing.
+The installer and portable executable are currently unsigned; Windows may show
+an unknown-publisher or SmartScreen prompt. Authenticode credentials are needed
+to sign production Windows releases. Install/upgrade/uninstall and installed `--help` are smoke
+tested in native CI. The portable executable's `--help` is also tested from a
+separate folder before installation. This does not replace interactive GPU
+testing.
 
 Local packaging (PowerShell, after building):
 

@@ -1,4 +1,4 @@
-name: Windows build and installer
+name: Windows build, installer and portable executable
 on:
   workflow_call:
 
@@ -32,7 +32,7 @@ jobs:
           name: native-gui-windows
           path: target/native-validation/
           if-no-files-found: warn
-      - name: Package installer
+      - name: Package installer and portable executable
         shell: pwsh
         run: |
           $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
@@ -41,6 +41,18 @@ jobs:
           $source = Join-Path $env:GITHUB_WORKSPACE 'target/x86_64-pc-windows-msvc/release'
           & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" "/DAppVersion=$version" "/DSourceDir=$source" packaging/windows/mdview.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+          Copy-Item (Join-Path $source 'mdview.exe') "packaging/windows/dist/mdview-v$version-windows-x86_64-portable.exe"
+      - name: Test portable executable without installation
+        shell: pwsh
+        run: |
+          $portable = Get-Item packaging/windows/dist/*-portable.exe
+          $testDir = Join-Path $env:RUNNER_TEMP 'mdview portable test'
+          New-Item -ItemType Directory -Path $testDir -Force | Out-Null
+          $exe = Join-Path $testDir $portable.Name
+          Copy-Item $portable.FullName $exe
+          $help = Join-Path $testDir 'help.txt'
+          $p = Start-Process -FilePath $exe -ArgumentList '--help' -WorkingDirectory $testDir -RedirectStandardOutput $help -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Select-String 'USAGE' $help -Quiet)) { throw 'Portable help smoke test failed' }
       - name: Test install, upgrade, help and uninstall
         shell: pwsh
         run: |
@@ -49,5 +61,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows
-          path: packaging/windows/dist/*-setup.exe
+          path: packaging/windows/dist/*.exe
           if-no-files-found: error
