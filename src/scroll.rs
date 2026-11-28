@@ -5,6 +5,7 @@
 
 use std::{
     collections::VecDeque,
+    ops::Range,
     time::{Duration, Instant},
 };
 
@@ -119,10 +120,35 @@ impl Motion {
     /// to the document's edges. A destination past an edge would otherwise
     /// absorb a following step back (5 px from the top, one step up and one
     /// down must end 20 px down, not 5). A fling ends at the edge anyway.
+    ///
+    /// The carry a capped `tick` held back counts too, also once the glide
+    /// itself is over. What's kept of the glide is scaled down, not cut off
+    /// at the end, so it never turns back on its way. It only ever shrinks:
+    /// the room always includes where it is now (`min <= 0 <= max`).
     pub fn limit(&mut self, min: f32, max: f32) {
+        let left = match self.anim {
+            Some(Anim::Fling { .. }) => return,
+            Some(Anim::Glide { distance, done, .. }) => distance - done,
+            None => 0.,
+        };
+        let rest = left + self.carry;
+        let target = rest.clamp(min.min(0.), max.max(0.));
+        if target == rest {
+            return;
+        }
+        // The glide keeps what fits of it (nothing if it goes the other
+        // way), the carry the rest.
+        let keep = left.clamp(target.min(0.), target.max(0.));
+        self.carry = target - keep;
         if let Some(Anim::Glide { distance, done, .. }) = &mut self.anim {
-            let rest = *distance - *done + self.carry;
-            *distance += rest.clamp(min, max) - rest;
+            if keep == 0. {
+                self.anim = None;
+            } else {
+                // Each later step shrinks by the same factor.
+                let k = keep / left;
+                *distance *= k;
+                *done *= k;
+            }
         }
     }
 
@@ -134,10 +160,11 @@ impl Motion {
         self.anim.is_some() || self.carry != 0.
     }
 
-    /// Which way the motion goes: -1, 0 or 1.
+    /// Which way the motion goes from here: -1, 0 or 1. For a glide, that's
+    /// the way of what's left of it, carry included, not of its start.
     pub fn direction(&self) -> f32 {
         let d = match self.anim {
-            Some(Anim::Glide { distance, .. }) => distance,
+            Some(Anim::Glide { distance, done, .. }) => distance - done + self.carry,
             Some(Anim::Fling { velocity, .. }) => velocity,
             None => self.carry,
         };
@@ -146,7 +173,14 @@ impl Motion {
 
     /// The pixels to scroll in the frame drawn at `now`, at most `max_step`
     /// either way; the rest waits for the next frame.
+    #[cfg(test)]
     pub fn tick(&mut self, now: Instant, max_step: f32) -> f32 {
+        self.tick_within(now, -max_step, max_step)
+    }
+
+    /// The pixels to scroll in the frame drawn at `now`, within
+    /// `min..=max` (`min <= 0 <= max`); the rest waits for the next frame.
+    pub fn tick_within(&mut self, now: Instant, min: f32, max: f32) -> f32 {
         let mut step = std::mem::take(&mut self.carry);
         match &mut self.anim {
             Some(Anim::Glide {
@@ -178,11 +212,9 @@ impl Motion {
             }
             None => {}
         }
-        if step.abs() > max_step {
-            self.carry = step - max_step.copysign(step);
-            step = max_step.copysign(step);
-        }
-        step
+        let capped = step.clamp(min, max);
+        self.carry = step - capped;
+        capped
     }
 }
 
@@ -253,6 +285,88 @@ pub fn position_for_thumb(
         0.
     };
     frac * (content - viewport).max(0.)
+}
+
+/// How far a list can scroll each way from its scroll top without
+/// crossing a row that isn't measured, and whether that's because the
+/// document ends there (rather than unmeasured rows that the next frame
+/// will measure).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Room {
+    pub up: f32,
+    pub down: f32,
+    /// Only measured rows up to the top of the document.
+    pub top: bool,
+    /// Only measured rows down to its end.
+    pub bottom: bool,
+}
+
+impl Room {
+    /// Already at the top (`dir < 0`) or the bottom (`dir > 0`).
+    pub fn at_edge(&self, dir: f32) -> bool {
+        if dir < 0. {
+            self.top && self.up <= 0.
+        } else {
+            dir > 0. && self.bottom && self.down <= 0.
+        }
+    }
+
+    /// Splits a scroll of `dy` px into what can go now and what must wait
+    /// for the next frame to measure more rows. Nothing waits to go past an
+    /// edge of the document.
+    pub fn split(&self, dy: f32) -> (f32, f32) {
+        let now = dy.clamp(-self.up, self.down);
+        let min = if self.top { 0. } else { f32::NEG_INFINITY };
+        let max = if self.bottom { 0. } else { f32::INFINITY };
+        (now, (dy - now).clamp(min, max))
+    }
+}
+
+/// The rows around row `ix` that are all measured: `start..end` with
+/// `start <= ix <= end`, as far as it goes both ways. `measured(i)` is how
+/// many of the first `i` rows are measured, for `i` in `0..=count`. It ends
+/// at `ix` when row `ix` itself isn't measured, or is past the end.
+pub fn measured_run(ix: usize, count: usize, measured: impl Fn(usize) -> usize) -> Range<usize> {
+    let ix = ix.min(count);
+    let all = |a: usize, b: usize| measured(b) - measured(a) == b - a;
+    // Smallest start with rows start..ix all measured.
+    let (mut lo, mut hi) = (0, ix);
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if all(mid, ix) { hi = mid } else { lo = mid + 1 }
+    }
+    let start = lo;
+    // Largest end with rows ix..end all measured.
+    let (mut lo, mut hi) = (ix, count);
+    while lo < hi {
+        let mid = hi - (hi - lo) / 2;
+        if all(ix, mid) { lo = mid } else { hi = mid - 1 }
+    }
+    start..lo
+}
+
+/// How close (px) a dragged thumb must come to an end of its track to
+/// scroll to that end of the document.
+const THUMB_END: f32 = 0.5;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum End {
+    Top,
+    Bottom,
+}
+
+/// Which end of its track a thumb at `thumb_top` is at, with `room` px to
+/// move in it, if any.
+pub fn thumb_end(thumb_top: f32, room: f32) -> Option<End> {
+    if room <= 0. {
+        None
+    } else if thumb_top >= room - THUMB_END {
+        Some(End::Bottom)
+    } else if thumb_top <= THUMB_END {
+        Some(End::Top)
+    } else {
+        None
+    }
 }
 
 /// The row containing position `pos` and the offset into it, given the
@@ -489,6 +603,182 @@ mod tests {
         assert!(run(&mut m, t0, 92) > 600.);
     }
 
+    /// Ticks every 16 ms from `from` until the motion stops; returns each step.
+    fn steps(m: &mut Motion, t0: Instant, from: u64, max_step: f32) -> Vec<f32> {
+        let mut steps = Vec::new();
+        let mut t = from;
+        while m.is_active() {
+            t += 16;
+            steps.push(m.tick(ms(t0, t), max_step));
+            assert!(t < 60_000, "motion never stops");
+        }
+        steps
+    }
+
+    #[test]
+    fn tick_within_caps_each_way_on_its_own() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.wheel(-500., t0);
+        // Room for 300 px up, none down: 300 now, the rest later.
+        assert_eq!(m.tick_within(ms(t0, 150), -300., 0.), -300.);
+        assert_eq!(m.carry, -200.);
+        // No room at all: everything waits.
+        assert_eq!(m.tick_within(ms(t0, 166), 0., 1000.), 0.);
+        assert_eq!(m.carry, -200.);
+        assert!(m.is_active());
+        assert_eq!(m.tick_within(ms(t0, 182), -1000., 0.), -200.);
+        assert!(!m.is_active());
+        // Down the same.
+        let mut m = Motion::default();
+        m.wheel(500., t0);
+        assert_eq!(m.tick_within(ms(t0, 150), -1000., 120.), 120.);
+        assert_eq!(m.carry, 380.);
+    }
+
+    #[test]
+    fn limit_trims_the_carry_of_a_finished_glide() {
+        let t0 = Instant::now();
+        // The glide is over, but a capped tick held back 1240 px.
+        let mut m = Motion::default();
+        m.wheel(-2000., t0);
+        assert_eq!(m.tick(ms(t0, 150), 760.), -760.);
+        assert_eq!(m.anim, None);
+        assert_eq!(m.carry, -1240.);
+        // Only 100 px are left to the top.
+        m.limit(-100., 500.);
+        assert_eq!(m.carry, -100.);
+        assert_eq!(m.direction(), -1.);
+        assert_eq!(run(&mut m, t0, 150), -100.);
+        // Down too, and a step back isn't absorbed by the unreachable rest.
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 150), 760.);
+        m.limit(-500., 40.);
+        m.wheel(-60., ms(t0, 160));
+        assert!((run(&mut m, t0, 160) + 20.).abs() < 1e-3);
+        // At the edge: nothing is left, and the motion is over.
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 150), 760.);
+        m.limit(-500., 0.);
+        assert!(!m.is_active());
+        assert_eq!(m.direction(), 0.);
+        // A carry within the room is untouched.
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 150), 760.);
+        m.limit(-500., 5000.);
+        assert_eq!(m.carry, 1240.);
+    }
+
+    #[test]
+    fn a_limited_glide_never_turns_back() {
+        let t0 = Instant::now();
+        for dir in [1., -1.] {
+            // Mid-glide and capped: 1307 px carried, 593 px of glide left.
+            let mut m = Motion::default();
+            m.wheel(2000. * dir, t0);
+            assert_eq!(m.tick(ms(t0, 50), 100.), 100. * dir);
+            m.limit(-5., 5.);
+            assert_eq!(m.direction(), dir);
+            let steps = steps(&mut m, t0, 50, f32::INFINITY);
+            assert!(
+                steps.iter().all(|s| s * dir >= 0.),
+                "a step goes the wrong way: {steps:?}"
+            );
+            assert!((steps.iter().sum::<f32>() - 5. * dir).abs() < 1e-3);
+        }
+        // With no carry, the glide keeps easing out to the edge.
+        for dir in [1., -1.] {
+            let mut m = Motion::default();
+            m.wheel(300. * dir, t0);
+            m.tick(ms(t0, 16), f32::INFINITY);
+            m.limit(-40., 40.);
+            assert_eq!(m.carry, 0.);
+            let steps = steps(&mut m, t0, 16, f32::INFINITY);
+            assert!(steps.len() > 3, "{steps:?}");
+            assert!(
+                steps.windows(2).all(|w| w[0] * dir >= w[1] * dir),
+                "{steps:?}"
+            );
+            assert!((steps.iter().sum::<f32>() - 40. * dir).abs() < 1e-3);
+        }
+        // Limited to nothing mid-glide: it's over at once.
+        let mut m = Motion::default();
+        m.wheel(300., t0);
+        m.tick(ms(t0, 16), f32::INFINITY);
+        m.limit(-40., 0.);
+        assert!(!m.is_active());
+    }
+
+    #[test]
+    fn a_limited_glide_and_carry_keep_their_direction() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.wheel(2000., t0);
+        m.tick(ms(t0, 50), 100.);
+        m.limit(-5., 5.);
+        // What's left goes down, whatever the glide started with.
+        let (left, carry) = match m.anim {
+            Some(Anim::Glide { distance, done, .. }) => (distance - done, m.carry),
+            a => panic!("{a:?}"),
+        };
+        assert!(left >= 0. && carry >= 0., "{left} {carry}");
+        assert!((left + carry - 5.).abs() < 1e-3);
+    }
+
+    #[test]
+    fn direction_is_that_of_the_rest() {
+        let t0 = Instant::now();
+        // A glide that started down but has 30 px left to go up.
+        let m = Motion {
+            anim: Some(Anim::Glide {
+                distance: 100.,
+                start: t0,
+                done: 30.,
+            }),
+            carry: -100.,
+            ..Default::default()
+        };
+        assert_eq!(m.direction(), -1.);
+        // Nothing left of it at all.
+        let m = Motion {
+            anim: Some(Anim::Glide {
+                distance: 100.,
+                start: t0,
+                done: 100.,
+            }),
+            carry: 0.,
+            ..Default::default()
+        };
+        assert_eq!(m.direction(), 0.);
+        // Only a carry.
+        let m = Motion {
+            carry: 12.,
+            ..Default::default()
+        };
+        assert_eq!(m.direction(), 1.);
+    }
+
+    #[test]
+    fn limit_with_no_motion_does_nothing() {
+        let mut m = Motion::default();
+        m.limit(-10., 10.);
+        assert!(!m.is_active());
+        m.limit(5., 10.);
+        assert!(!m.is_active(), "no motion to stretch");
+        // A room that leaves out where it is now just stops the motion,
+        // never turns it around.
+        let t0 = Instant::now();
+        m.wheel(-100., t0);
+        m.limit(5., 10.);
+        assert!(!m.is_active());
+        m.wheel(100., t0);
+        m.limit(-10., -5.);
+        assert!(!m.is_active());
+    }
+
     #[test]
     fn stop_ends_everything() {
         let t0 = Instant::now();
@@ -558,6 +848,129 @@ mod tests {
         assert_eq!(position_for_thumb(-5., 100., 2000., 500., 400.), 0.);
         assert_eq!(position_for_thumb(900., 100., 2000., 500., 400.), 1500.);
         assert_eq!(position_for_thumb(10., 400., 2000., 500., 400.), 0.);
+    }
+
+    #[test]
+    fn room_splits_a_scroll_at_unmeasured_rows() {
+        let room = Room {
+            up: 300.,
+            down: 500.,
+            top: false,
+            bottom: false,
+        };
+        assert_eq!(room.split(200.), (200., 0.));
+        assert_eq!(room.split(-200.), (-200., 0.));
+        assert_eq!(room.split(500.), (500., 0.));
+        assert_eq!(room.split(-300.), (-300., 0.));
+        // The rest waits for the rows past the measured ones.
+        assert_eq!(room.split(1400.), (500., 900.));
+        assert_eq!(room.split(-1400.), (-300., -1100.));
+        assert_eq!(room.split(0.), (0., 0.));
+        // Nothing measured at all yet: it all waits.
+        assert_eq!(Room::default().split(-60.), (0., -60.));
+        assert_eq!(Room::default().split(60.), (0., 60.));
+    }
+
+    #[test]
+    fn room_drops_what_goes_past_an_edge() {
+        let top = Room {
+            up: 300.,
+            down: 500.,
+            top: true,
+            bottom: false,
+        };
+        assert_eq!(top.split(-1400.), (-300., 0.));
+        assert_eq!(top.split(1400.), (500., 900.));
+        let bottom = Room {
+            top: false,
+            bottom: true,
+            ..top
+        };
+        assert_eq!(bottom.split(1400.), (500., 0.));
+        assert_eq!(bottom.split(-1400.), (-300., -1100.));
+    }
+
+    #[test]
+    fn room_knows_when_it_is_at_an_edge() {
+        let mut room = Room {
+            up: 0.,
+            down: 0.,
+            top: true,
+            bottom: true,
+        };
+        assert!(room.at_edge(-1.));
+        assert!(room.at_edge(1.));
+        assert!(!room.at_edge(0.));
+        // Room left, or unmeasured rows that the next frame measures.
+        room.up = 0.25;
+        room.down = 0.25;
+        assert!(!room.at_edge(-1.));
+        assert!(!room.at_edge(1.));
+        let gap = Room::default();
+        assert!(!gap.at_edge(-1.));
+        assert!(!gap.at_edge(1.));
+    }
+
+    /// `measured_run` over rows measured (`true`) or not.
+    fn run_of(rows: &[bool], ix: usize) -> Range<usize> {
+        measured_run(ix, rows.len(), |i| rows[..i].iter().filter(|&&m| m).count())
+    }
+
+    #[test]
+    fn measured_run_finds_the_measured_rows_around_a_row() {
+        let rows = [true, true, false, true, true, true, false, false, true];
+        assert_eq!(run_of(&rows, 0), 0..2);
+        assert_eq!(run_of(&rows, 1), 0..2);
+        assert_eq!(run_of(&rows, 3), 3..6);
+        assert_eq!(run_of(&rows, 4), 3..6);
+        assert_eq!(run_of(&rows, 5), 3..6);
+        assert_eq!(run_of(&rows, 8), 8..9);
+        // An unmeasured row: only the measured ones right above it.
+        assert_eq!(run_of(&rows, 2), 0..2);
+        assert_eq!(run_of(&rows, 6), 3..6);
+        assert_eq!(run_of(&rows, 7), 7..7);
+        // Past the end: the measured rows right above the end.
+        assert_eq!(run_of(&rows, 9), 8..9);
+        assert_eq!(run_of(&rows, 50), 8..9);
+        assert_eq!(run_of(&[false, false], 2), 2..2);
+        // All or nothing.
+        assert_eq!(run_of(&[true; 5], 2), 0..5);
+        assert_eq!(run_of(&[false; 5], 2), 2..2);
+        assert_eq!(run_of(&[], 0), 0..0);
+    }
+
+    #[test]
+    fn measured_run_matches_a_linear_scan() {
+        // Every pattern of 7 rows, from every row.
+        for bits in 0u32..128 {
+            let rows: Vec<bool> = (0..7).map(|i| bits & (1 << i) != 0).collect();
+            for ix in 0..=7 {
+                let mut start = ix;
+                while start > 0 && rows[start - 1] {
+                    start -= 1;
+                }
+                let mut end = ix;
+                while end < 7 && rows[end] {
+                    end += 1;
+                }
+                assert_eq!(run_of(&rows, ix), start..end, "{rows:?} from {ix}");
+            }
+        }
+    }
+
+    #[test]
+    fn thumb_ends_are_half_a_pixel_wide() {
+        assert_eq!(thumb_end(0., 100.), Some(End::Top));
+        assert_eq!(thumb_end(0.5, 100.), Some(End::Top));
+        assert_eq!(thumb_end(0.6, 100.), None);
+        assert_eq!(thumb_end(50., 100.), None);
+        assert_eq!(thumb_end(99.4, 100.), None);
+        assert_eq!(thumb_end(99.5, 100.), Some(End::Bottom));
+        assert_eq!(thumb_end(100., 100.), Some(End::Bottom));
+        // A track only as long as a pixel: the bottom wins.
+        assert_eq!(thumb_end(0.5, 1.), Some(End::Bottom));
+        // No room to move: no scrollbar to drag.
+        assert_eq!(thumb_end(0., 0.), None);
     }
 
     #[test]
