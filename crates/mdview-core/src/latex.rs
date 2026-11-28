@@ -350,13 +350,13 @@ impl Parser<'_> {
         match c {
             c if c.is_whitespace() => {}
             '\'' => {
-                // Primes: f', f''.
+                // Primes: f', f'', f'''', ...
                 let mut n = 1;
                 while self.peek() == Some(&T::Ch('\'')) {
                     self.i += 1;
                     n += 1;
                 }
-                w.ord(["′", "″", "‴"][(n - 1).min(2)], false);
+                w.ord(&primes(n), false);
             }
             '~' => w.space("\u{a0}"),
             '-' => w.sym("−", Class::Bin),
@@ -614,6 +614,16 @@ impl Parser<'_> {
     }
 }
 
+/// `n` primes, exactly: ′ ″ ‴ ⁗ for one to four (U+2032–U+2034, U+2057,
+/// all in General Punctuation and the common text fonts), then as many ⁗
+/// as fit plus the rest, so `f'''''` is `f⁗′`. Repeating ′ would also
+/// keep the count, but the multi-prime glyphs are spaced as one mark.
+fn primes(n: usize) -> String {
+    let mut s = "⁗".repeat(n / 4);
+    s.push_str(["", "′", "″", "‴"][n % 4]);
+    s
+}
+
 fn script(w: &mut W, arg: W, sup: bool) {
     if arg.s.is_empty() {
         return;
@@ -837,8 +847,11 @@ fn superscript(c: char) -> Option<char> {
         'φ' => 'ᵠ',
         'χ' => 'ᵡ',
         '∗' | '*' => '*',
+        // Primes are already raised.
         '′' => '′',
         '″' => '″',
+        '‴' => '‴',
+        '⁗' => '⁗',
         '∘' => '°',
         _ => return None,
     })
@@ -1370,6 +1383,43 @@ mod tests {
         assert_eq!(u(r"\left. x \middle . y \right."), "xy");
         // Spaces after a delimiter command never matter elsewhere either.
         assert_eq!(u(r"\left ( x \right )"), "(x)");
+    }
+
+    #[test]
+    fn keeps_the_number_of_primes() {
+        // #33: four or more primes used to show as three.
+        assert_eq!(u(r"f'(x)"), "f′(x)");
+        assert_eq!(u(r"f''(x)"), "f″(x)");
+        assert_eq!(u(r"f'''(x)"), "f‴(x)");
+        assert_eq!(u(r"f''''(x)"), "f⁗(x)");
+        assert_eq!(u(r"f'''''(x)"), "f⁗′(x)");
+        assert_eq!(u(r"f''''''(x)"), "f⁗″(x)");
+        assert_eq!(u(r"f'''''''(x)"), "f⁗‴(x)");
+        assert_eq!(u(r"f''''''''(x)"), "f⁗⁗(x)");
+        // In a superscript, primes stay primes.
+        assert_eq!(u(r"x^{'''}"), "x‴");
+        assert_eq!(u(r"x^{''''}"), "x⁗");
+    }
+
+    #[test]
+    fn primes_spell_out_exactly_n() {
+        let count = |s: &str| -> usize {
+            s.chars()
+                .map(|c| match c {
+                    '′' => 1,
+                    '″' => 2,
+                    '‴' => 3,
+                    '⁗' => 4,
+                    c => panic!("not a prime: {c:?}"),
+                })
+                .sum()
+        };
+        for n in 1..=20 {
+            let p = primes(n);
+            assert_eq!(count(&p), n, "{p:?}");
+            // Fewest glyphs: every one is ⁗ but the last.
+            assert_eq!(p.chars().count(), n.div_ceil(4), "{p:?}");
+        }
     }
 
     #[test]
