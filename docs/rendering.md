@@ -70,8 +70,10 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   - `Block::Quote` with multiple child blocks becomes an optional callout title
     row plus one row per child block, keeping a continuous left border.
   - All other top-level blocks stay a single row.
-- `Rows` keeps a `block_start` index so `#anchor` jumps (`links::heading_index`)
-  still resolve to the heading's list row in O(1).
+- `Rows` keeps a `block_start` index so `#anchor` jumps resolve to the
+  heading's list row in O(1). `links::heading_place` finds the heading at any
+  nesting depth and says which list item or quote child holds it;
+  `Rows::row_for_place` maps that to the item's or child's own row.
 - The list measures rows lazily and caches their heights. `800px` of overdraw
   keeps rows just outside the viewport ready, so scrolling stays smooth.
 - Unmeasured rows count as 0 px, so a pixel scroll that crosses them skips

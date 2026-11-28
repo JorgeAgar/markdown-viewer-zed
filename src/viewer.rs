@@ -505,8 +505,8 @@ impl Viewer {
             None => self.tabs.active_mut(),
         };
         let Some(tab) = tab else { return };
-        if let Some(block_ix) = links::heading_index(&tab.doc.blocks, anchor)
-            && let Some(row_ix) = tab.rows.row_for_block(block_ix)
+        if let Some(place) = links::heading_place(&tab.doc.blocks, anchor)
+            && let Some(row_ix) = tab.rows.row_for_place(place)
         {
             tab.list.scroll_to(ListOffset {
                 item_ix: row_ix,

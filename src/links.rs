@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::markdown::Block;
+use crate::{markdown::Block, rows::Place};
 
 /// Where clicking a link goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,17 +88,57 @@ pub fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Index of the top-level heading whose slug is `anchor`, compared
-/// case-insensitively (slugs are lowercase). A bare `#` (an empty anchor)
-/// matches nothing, not a heading without letters or digits.
-pub fn heading_index(blocks: &[Block], anchor: &str) -> Option<usize> {
+/// Where the heading whose slug is `anchor` is drawn, compared
+/// case-insensitively (slugs are lowercase). Headings nested in quotes, list
+/// items and footnotes count too (slugs are unique, nested ones included).
+/// A bare `#` (an empty anchor) matches nothing, not a heading without
+/// letters or digits.
+pub fn heading_place(blocks: &[Block], anchor: &str) -> Option<Place> {
     if anchor.is_empty() {
         return None;
     }
     let anchor = anchor.to_lowercase();
-    blocks
-        .iter()
-        .position(|b| matches!(b, Block::Heading { slug, .. } if *slug == anchor))
+    find(
+        blocks,
+        &|b| matches!(b, Block::Heading { slug, .. } if *slug == anchor),
+    )
+}
+
+/// The first block that `is` picks, in document order, at any depth, as the
+/// [`Place`] whose row draws it. A list or multi-block quote is split into
+/// a row per item or child (see `rows.rs`), so a target inside one lands on
+/// that item's or child's row; anything deeper is drawn inside that row.
+fn find(blocks: &[Block], is: &dyn Fn(&Block) -> bool) -> Option<Place> {
+    blocks.iter().enumerate().find_map(|(block, b)| {
+        let child = match b {
+            _ if is(b) => None,
+            Block::Quote { blocks, .. } => Some(blocks.iter().position(|c| contains(c, is))?),
+            Block::List { items, .. } => Some(
+                items
+                    .iter()
+                    .position(|i| i.blocks.iter().any(|c| contains(c, is)))?,
+            ),
+            // A footnote's body is drawn in the footnote's row.
+            _ if contains(b, is) => None,
+            _ => return None,
+        };
+        Some(Place { block, child })
+    })
+}
+
+/// Whether `b`, or a block nested in it, is one `is` picks.
+fn contains(b: &Block, is: &dyn Fn(&Block) -> bool) -> bool {
+    is(b)
+        || match b {
+            Block::Quote { blocks, .. } | Block::Footnote { blocks, .. } => {
+                blocks.iter().any(|c| contains(c, is))
+            }
+            Block::List { items, .. } => items
+                .iter()
+                .flat_map(|i| &i.blocks)
+                .any(|c| contains(c, is)),
+            _ => false,
+        }
 }
 
 #[cfg(test)]
@@ -125,7 +165,7 @@ mod tests {
         assert_eq!(link("#intro"), Anchor("intro".into()));
         assert_eq!(link("#%C3%A9t%C3%A9"), Anchor("été".into()));
         assert_eq!(link("#a%20b"), Anchor("a b".into()));
-        // Kept as written: case is folded later, by `heading_index`.
+        // Kept as written: case is folded later, by `heading_place`.
         assert_eq!(link("#Intro"), Anchor("Intro".into()));
         assert_eq!(link("#"), Anchor(String::new()));
         assert_eq!(link("##x"), Anchor("#x".into()));
@@ -323,24 +363,36 @@ mod tests {
         assert_eq!(percent_decode("ab%4"), "ab%4");
     }
 
+    fn top(block: usize) -> Option<Place> {
+        Some(Place { block, child: None })
+    }
+
+    fn child(block: usize, child: usize) -> Option<Place> {
+        Some(Place {
+            block,
+            child: Some(child),
+        })
+    }
+
     #[test]
     fn anchor_lookup() {
         let doc = markdown::parse(
             "Intro text\n\n# Hello World\n\n## Café Ünïcode\n\n> # Nested\n\n### Hello World\n\n# A_b-c 1\n",
         );
         let blocks = &doc.blocks;
-        assert_eq!(heading_index(blocks, "hello-world"), Some(1));
-        assert_eq!(heading_index(blocks, "Hello-World"), Some(1));
-        assert_eq!(heading_index(blocks, "HELLO-WORLD"), Some(1));
-        assert_eq!(heading_index(blocks, "café-ünïcode"), Some(2));
-        assert_eq!(heading_index(blocks, "CAFÉ-ÜNÏCODE"), Some(2));
-        assert_eq!(heading_index(blocks, "a_b-c-1"), Some(5));
-        // Only top-level headings are targets.
-        assert_eq!(heading_index(blocks, "nested"), None);
-        assert_eq!(heading_index(blocks, "hello world"), None);
-        assert_eq!(heading_index(blocks, "intro-text"), None);
-        assert_eq!(heading_index(blocks, ""), None);
-        assert_eq!(heading_index(&[], "x"), None);
+        assert_eq!(heading_place(blocks, "hello-world"), top(1));
+        assert_eq!(heading_place(blocks, "Hello-World"), top(1));
+        assert_eq!(heading_place(blocks, "HELLO-WORLD"), top(1));
+        assert_eq!(heading_place(blocks, "café-ünïcode"), top(2));
+        assert_eq!(heading_place(blocks, "CAFÉ-ÜNÏCODE"), top(2));
+        assert_eq!(heading_place(blocks, "a_b-c-1"), top(5));
+        // Nested headings are targets too (issue #21): this one is the
+        // only child of a quote.
+        assert_eq!(heading_place(blocks, "nested"), child(3, 0));
+        assert_eq!(heading_place(blocks, "hello world"), None);
+        assert_eq!(heading_place(blocks, "intro-text"), None);
+        assert_eq!(heading_place(blocks, ""), None);
+        assert_eq!(heading_place(&[], "x"), None);
     }
 
     #[test]
@@ -350,20 +402,51 @@ mod tests {
             "# Setup 1\n\n# Setup\n\n## Setup\n\n### setup\n\n## Added\n\n## Added\n",
         );
         let blocks = &doc.blocks;
-        assert_eq!(heading_index(blocks, "setup-1"), Some(0));
-        assert_eq!(heading_index(blocks, "setup"), Some(1));
-        assert_eq!(heading_index(blocks, "setup-2"), Some(2));
-        assert_eq!(heading_index(blocks, "Setup-3"), Some(3));
-        assert_eq!(heading_index(blocks, "setup-4"), None);
-        assert_eq!(heading_index(blocks, "added"), Some(4));
-        assert_eq!(heading_index(blocks, "added-1"), Some(5));
+        assert_eq!(heading_place(blocks, "setup-1"), top(0));
+        assert_eq!(heading_place(blocks, "setup"), top(1));
+        assert_eq!(heading_place(blocks, "setup-2"), top(2));
+        assert_eq!(heading_place(blocks, "Setup-3"), top(3));
+        assert_eq!(heading_place(blocks, "setup-4"), None);
+        assert_eq!(heading_place(blocks, "added"), top(4));
+        assert_eq!(heading_place(blocks, "added-1"), top(5));
+    }
+
+    #[test]
+    fn headings_nested_in_quotes_lists_and_footnotes_are_found() {
+        // Issue #21: only top-level headings used to be anchor targets.
+        let doc = markdown::parse(concat!(
+            "# Top\n\n",                                       // 0
+            "> First\n>\n> ## In Quote\n\n",                   // 1, child 1
+            "- a\n- b\n- ## In List\n- d\n\n",                 // 2, item 2
+            "1. x\n2. y\n   > - z\n   >   ### Deep\n\n",       // 3, item 1
+            "> [!NOTE]\n> One\n>\n> - ## In Callout List\n\n", // 4, child 1
+            "Ref[^n].\n\n",                                    // 5
+            "[^n]: ## In Footnote\n\n    > #### Deeper\n\n",   // 6
+            "> > ## Doubly Quoted\n\n",                        // 7, child 0
+            "## Setup\n\n- ## Setup\n",                        // 8, 9 item 0
+        ));
+        let blocks = &doc.blocks;
+        assert_eq!(heading_place(blocks, "top"), top(0));
+        assert_eq!(heading_place(blocks, "in-quote"), child(1, 1));
+        assert_eq!(heading_place(blocks, "in-list"), child(2, 2));
+        assert_eq!(heading_place(blocks, "deep"), child(3, 1));
+        assert_eq!(heading_place(blocks, "in-callout-list"), child(4, 1));
+        assert_eq!(heading_place(blocks, "in-footnote"), top(6));
+        assert_eq!(heading_place(blocks, "deeper"), top(6));
+        assert_eq!(heading_place(blocks, "doubly-quoted"), child(7, 0));
+        // Repeats are numbered across nesting, so each is reachable.
+        assert_eq!(heading_place(blocks, "setup"), top(8));
+        assert_eq!(heading_place(blocks, "setup-1"), child(9, 0));
+        // Text that isn't a heading isn't a target.
+        assert_eq!(heading_place(blocks, "first"), None);
+        assert_eq!(heading_place(blocks, "z"), None);
     }
 
     #[test]
     fn bare_hash_does_not_match_an_empty_slug() {
         let doc = markdown::parse("Intro\n\n# ???\n\n# !!!\n");
-        assert_eq!(heading_index(&doc.blocks, ""), None);
+        assert_eq!(heading_place(&doc.blocks, ""), None);
         // The repeat is still reachable, as on GitHub.
-        assert_eq!(heading_index(&doc.blocks, "-1"), Some(2));
+        assert_eq!(heading_place(&doc.blocks, "-1"), top(2));
     }
 }

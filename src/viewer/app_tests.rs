@@ -388,6 +388,55 @@ fn clicking_links_opens_tabs_and_scrolls() {
     assert_eq!(titles(&v, cx).len(), 2);
 }
 
+#[test]
+fn anchors_land_on_the_row_of_nested_and_repeated_headings() {
+    // Issues #20 and #21: headings inside lists, quotes and footnotes are
+    // targets, each lands on the row of the item or quote child that
+    // holds it, and repeats are reached by their numbered slugs.
+    let dir = TempDir::new("nested-anchors");
+    let base = normalize(&dir);
+    let filler = "Filler paragraph.\n\n".repeat(80);
+    let index = [
+        "# Index\n\n",                                                 // row 0
+        "## Setup\n\n",                                                // row 1
+        "- one\n- ## Setup\n- three\n- four\n- ## In List\n- six\n\n", // rows 2..=7
+        "> [!NOTE]\n> First\n>\n> Second\n>\n> ## In Quote\n\n",       // rows 8..=11
+        "Note[^n].\n\n",                                               // row 12
+        &filler,                                                       // rows 13..=92
+        "[^n]: ### In Footnote\n\n",                                   // row 93
+        &filler,
+    ]
+    .concat();
+    std::fs::write(base.join("index.md"), index).unwrap();
+    std::fs::write(base.join("other.md"), "[back](index.md#In-Quote)\n").unwrap();
+    let (v, cx) = open(vec![
+        load(base.join("index.md")),
+        load(base.join("other.md")),
+    ]);
+    let weak = v.downgrade();
+    let follow = |cx: &mut VisualTestContext, url: &str| {
+        cx.update(|window, cx| render::open_link(&weak, &base, url, window, cx));
+        cx.run_until_parked();
+        scroll_top(&v, cx)
+    };
+    // From another file: switches to the open tab and finds the heading
+    // the same way.
+    assert_eq!(follow(cx, "index.md#In-Quote"), (11, 0.));
+    assert_eq!(active(&v, cx).as_deref(), Some("index.md"));
+    assert_eq!(follow(cx, "#setup"), (1, 0.));
+    assert_eq!(follow(cx, "#setup-1"), (3, 0.));
+    assert_eq!(follow(cx, "#in-list"), (6, 0.));
+    assert_eq!(follow(cx, "#in-footnote"), (93, 0.));
+    assert_eq!(
+        follow(cx, "#setup-2"),
+        (93, 0.),
+        "unknown anchors don't move"
+    );
+    assert_eq!(follow(cx, "#"), (93, 0.), "a bare # doesn't move");
+    assert_eq!(follow(cx, "other.md"), (0, 0.));
+    assert_eq!(follow(cx, "index.md#in-list"), (6, 0.));
+}
+
 /// Markdown that stresses rendering: multibyte text around styled spans
 /// and links, links nested in lists/quotes/tables/footnotes (each needs its
 /// own ElementId), code, images, math and diagrams.
@@ -786,8 +835,8 @@ fn anchors_account_for_split_tables_lists_code_and_quotes() {
     // the viewport; here we assert the tab's row mapping directly too).
     let mapped = cx.update(|_, cx| {
         let tab = v.read(cx).tabs.active().unwrap();
-        let block_ix = links::heading_index(&tab.doc.blocks, "target-heading").unwrap();
-        tab.rows.row_for_block(block_ix)
+        let place = links::heading_place(&tab.doc.blocks, "target-heading").unwrap();
+        tab.rows.row_for_place(place)
     });
     assert_eq!(mapped, Some(15));
 }

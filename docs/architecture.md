@@ -15,7 +15,7 @@
 │   ├── rows.rs        `Rows`: splits large top-level blocks into virtualized list rows (GUI-free, unit-tested)
 │   ├── scroll.rs      Smooth wheel glides, touchpad flings, scrollbar geometry (GUI-free, unit-tested)
 │   ├── http.rs        Lazy HTTP(S) image transport on the blocking pool
-│   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (GUI-free)
+│   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (`heading_place`) (GUI-free)
 │   └── theme.rs       Light and dark palettes
 ├── crates/mdview-core/  The GUI-free core, a separate crate so it can't depend on GPUI
 │   └── src/
@@ -48,7 +48,7 @@ flowchart TD
     render["render.rs<br/>render_row() → AnyElement"]
     rows["rows.rs<br/>Rows::from_document()"]
     scroll["scroll.rs<br/>Motion, thumb(), locate()"]
-    links["links.rs<br/>classify_link() → LinkTarget"]
+    links["links.rs<br/>classify_link() → LinkTarget<br/>heading_place() → Place"]
     theme["theme.rs<br/>Theme"]
     gpui[("crates/gpui<br/>GPUI (vendored)")]
     cmark[("pulldown-cmark")]
@@ -74,6 +74,8 @@ flowchart TD
     render --> theme
     render --> links
     viewer --> links
+    links --> markdown
+    links --> rows
     http["http.rs<br/>lazy HTTP(S) image transport"]
     main --> http
     http --> gpui
@@ -280,19 +282,27 @@ for benchmarks and debugging.
 
 | Link | Action |
 | --- | --- |
-| `#anchor` | Scroll the current tab to the heading whose slug matches |
+| `#anchor` | Scroll the current tab to the heading whose slug matches, wherever it is nested |
 | `http(s)://…`, `mailto:` | Open with the system handler (`cx.open_url`) |
 | Relative or absolute `*.md` (with an optional `#anchor`) | Open in a tab (or switch to it), then scroll to the anchor |
 | Any other local file | Open with the system handler (percent-encoded `file://…`) |
 
 Anchor slugs follow GitHub's rules (`markdown::slugify`) and are matched
-case-insensitively (`links::heading_index`). A repeated slug gets a numbered
+case-insensitively (`links::heading_place`). A repeated slug gets a numbered
 suffix, as `github-slugger` does: the parser counts every heading in the
 document, at any level or nesting depth, so the first `# Setup` is `#setup`,
 the next `#setup-1`, then `#setup-2`, and a suffix that a heading already
 uses (a literal `# Setup 1`) is skipped. Every slug in a document is
-unique. A bare `#` matches no heading. Only top-level headings can be
-anchor targets. The path and the anchor are percent-decoded separately, so
+unique. A bare `#` matches no heading.
+
+Any heading is an anchor target, including one nested in a quote, a list
+item or a footnote, at any depth. `links::heading_place` returns a
+`rows::Place`: the top-level block, plus which list item or quote child
+holds the heading, because `rows.rs` gives each of those its own row.
+`Rows::row_for_place` turns that into the row to scroll to, so a heading in
+the fifth item of a list lands on that item, not on the top of the list.
+Deeper nesting is drawn inside that row. A link to another file's anchor
+(`other.md#inside`) goes through the same lookup once the tab is open. The path and the anchor are percent-decoded separately, so
 `a%23b.md` is a file named `a#b.md`. Only `://` and `mailto:` count as
 external; a query string (`b.md?x=1`) stays part of the file name.
 
