@@ -47,7 +47,8 @@ as diagrams. Math is supported: inline `$…$` becomes Unicode text (`x²`,
 `α ≤ β`), while `$$…$$` and ```` ```math ```` blocks are typeset like KaTeX.
 
 Standalone images load from local files or HTTP(S) URLs in the background,
-with alt text shown if loading fails.
+with alt text shown if loading fails. Animated GIFs play, and a linked image,
+such as a CI badge, opens its link when clicked.
 
 You can also drag files onto the window. Clicking a link to a local `.md` file
 opens it in a new tab, and `#anchor` links scroll to the matching heading. Open

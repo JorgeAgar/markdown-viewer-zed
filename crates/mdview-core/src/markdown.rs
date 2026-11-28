@@ -115,6 +115,9 @@ impl RichText {
 pub struct Image {
     pub url: String,
     pub alt: String,
+    /// The destination of the link around the image (`[![alt](url)](link)`),
+    /// as in `RichText::links`.
+    pub link: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -460,9 +463,17 @@ impl<'a> P<'a> {
 
     /// Consume inline events. Stops (without consuming) at the first
     /// non-inline event, or at display math when `split_display` is set.
-    fn inlines(&mut self, split_display: bool) -> (RichText, Vec<Image>) {
+    ///
+    /// The images come back only when they are all the content shows
+    /// (besides whitespace): images, each maybe inside a link whose text is
+    /// only that image. Any other text, link text or footnote reference
+    /// means `None`, and the images stay in `RichText` as their fallbacks.
+    fn inlines(&mut self, split_display: bool) -> (RichText, Option<Vec<Image>>) {
         let mut rich = RichText::default();
         let mut images = Vec::new();
+        // Visible content other than images: text (in a link or not), code,
+        // math, footnote references, task markers.
+        let mut other = false;
         let mut style = 0u8;
         // Open strong, emphasis and strikethrough markers. `usize` so that any
         // nesting depth (issue #39) still matches openers to closers exactly.
@@ -530,9 +541,19 @@ impl<'a> P<'a> {
                 }
             };
             match ev {
-                Event::Text(t) => rich.push(&t, style, link),
-                Event::Code(t) => rich.push(&t, style | CODE, link),
-                Event::InlineMath(t) | Event::DisplayMath(t) => rich.push_math(&t, style, link),
+                Event::Text(t) => {
+                    other |= !t.trim().is_empty();
+                    rich.push(&t, style, link)
+                }
+                Event::Code(t) => {
+                    other |= !t.trim().is_empty();
+                    rich.push(&t, style | CODE, link)
+                }
+                Event::InlineMath(t) | Event::DisplayMath(t) => {
+                    let before = rich.text.len();
+                    rich.push_math(&t, style, link);
+                    other |= !rich.text[before..].trim().is_empty();
+                }
                 Event::InlineHtml(h) => {
                     if is_br(&h) {
                         rich.push("\n", style, link);
@@ -541,9 +562,11 @@ impl<'a> P<'a> {
                 Event::SoftBreak => rich.push(" ", style, link),
                 Event::HardBreak => rich.push("\n", style, link),
                 Event::FootnoteReference(l) => {
+                    other = true;
                     rich.push(&format!("[{l}]"), style | LINK, link);
                 }
                 Event::TaskListMarker(c) => {
+                    other = true;
                     rich.push(if c { "☑ " } else { "☐ " }, style, link);
                 }
                 Event::Start(Tag::Strong) => toggle(0, true, &mut style),
@@ -575,11 +598,13 @@ impl<'a> P<'a> {
                     image = Some(Image {
                         url: cow(dest_url),
                         alt: String::new(),
+                        link: link.map(|l| rich.links[l as usize].clone()),
                     });
                 }
                 _ => {}
             }
         }
+        let images = (!images.is_empty() && !other).then_some(images);
         (rich, images)
     }
 }
@@ -653,17 +678,12 @@ fn cow(s: CowStr) -> String {
     s.to_string()
 }
 
-fn push_paragraph(out: &mut Vec<Block>, mut rich: RichText, images: Vec<Image>) {
-    if !images.is_empty() {
-        // Paragraph made only of images (and whitespace) => image block.
-        let only_images = rich
-            .spans
-            .iter()
-            .all(|s| s.style & LINK != 0 || rich.text[s.range.clone()].trim().is_empty());
-        if only_images {
-            out.push(Block::Images(images));
-            return;
-        }
+/// `images` is `Some` when the paragraph is made only of images (see
+/// `P::inlines`): it becomes an image block.
+fn push_paragraph(out: &mut Vec<Block>, mut rich: RichText, images: Option<Vec<Image>>) {
+    if let Some(images) = images {
+        out.push(Block::Images(images));
+        return;
     }
     rich.trim_start();
     rich.trim_end();
@@ -843,6 +863,94 @@ mod tests {
     }
 
     #[test]
+    fn images_next_to_links_or_footnotes_stay_a_paragraph() {
+        // Image fallbacks are links too, so a paragraph of images and links
+        // (or footnote references) used to become an image block and drop
+        // the links.
+        for (src, text, links) in [
+            (
+                "[Docs](https://example.com) ![logo](logo.png)",
+                "Docs [logo]",
+                &["https://example.com", "logo.png"][..],
+            ),
+            (
+                "![icon](icon.png) [Click here](page.md)",
+                "[icon] Click here",
+                &["icon.png", "page.md"],
+            ),
+            (
+                "![fig](fig.png)[^1]\n\n[^1]: Note.",
+                "[fig][1]",
+                &["fig.png"],
+            ),
+            (
+                "![a](a.png) <me@x.y>",
+                "[a] me@x.y",
+                &["a.png", "mailto:me@x.y"],
+            ),
+            ("![a](a.png) `code`", "[a] code", &["a.png"]),
+            ("![a](a.png) $x$", "[a] x", &["a.png"]),
+            ("[![a](a.png) more](u)", "[a] more", &["u"]),
+        ] {
+            let doc = parse(src);
+            let Block::Paragraph(p) = &doc.blocks[0] else {
+                panic!("{src:?}: expected a paragraph, got {:?}", doc.blocks[0])
+            };
+            assert_eq!(p.text, text, "{src:?}");
+            assert_eq!(p.links, links, "{src:?}");
+        }
+        // Images alone, linked or not, with whitespace, emphasis or empty
+        // link text around them, are still an image block.
+        for src in [
+            "![a](a.png) ![b](b.png)",
+            "[![a](a.png)](u)",
+            "[![a](a.png)](u) [![b](b.png)](v)\n![c](c.png)",
+            "*![a](a.png)* [ ](u)",
+        ] {
+            let doc = parse(src);
+            assert!(
+                matches!(&doc.blocks[..], [Block::Images(_)]),
+                "{src:?}: {:?}",
+                doc.blocks
+            );
+        }
+    }
+
+    #[test]
+    fn linked_images_keep_their_link() {
+        let doc = parse(
+            "[![Logo](logo.png)](docs.md)\n\n\
+             [![A](a.svg)](https://a.example) [![B](b.svg)](https://b.example) ![C](c.png)\n\n\
+             [![M](m.png)](<me@x.y>)\n\n\
+             [![N ![nested](n2.png)](n.png)](#top)",
+        );
+        let images: Vec<Vec<(&str, Option<&str>)>> = doc
+            .blocks
+            .iter()
+            .map(|b| match b {
+                Block::Images(imgs) => imgs
+                    .iter()
+                    .map(|i| (i.url.as_str(), i.link.as_deref()))
+                    .collect(),
+                other => panic!("expected only images, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            images,
+            [
+                &[("logo.png", Some("docs.md"))][..],
+                &[
+                    ("a.svg", Some("https://a.example")),
+                    ("b.svg", Some("https://b.example")),
+                    ("c.png", None),
+                ],
+                &[("m.png", Some("me@x.y"))],
+                &[("n.png", Some("#top"))],
+            ]
+        );
+    }
+
+    #[test]
     fn email_autolinks_get_a_mailto_scheme() {
         let doc = parse("<me@example.com> <mailto:you@example.com> <https://x.y> [m](me@x.y)");
         let Block::Paragraph(p) = &doc.blocks[0] else {
@@ -970,5 +1078,17 @@ mod tests {
         };
         // `<Br/ >` isn't an HTML tag for CommonMark, so it stays text.
         assert_eq!(p.text, "a\nb\nc\nd\ne<Br/ >f\ng\nhijk");
+    }
+
+    #[test]
+    fn invisible_inline_math_or_blank_code_does_not_suppress_standalone_image() {
+        for src in ["![alt](logo.png) $\\relax$", "![alt](logo.png) ` `"] {
+            let doc = parse(src);
+            assert!(
+                matches!(&doc.blocks[..], [Block::Images(imgs)] if imgs.len() == 1 && imgs[0].url == "logo.png"),
+                "{src:?}: {:?}",
+                doc.blocks
+            );
+        }
     }
 }

@@ -134,22 +134,22 @@ exclude_re = [
     # handled by the preceding arm, so this inline guard is unreachable.
     '''^crates/mdview-core/src/markdown\.rs:453:29: replace match guard is_inline\(ev\) with false in P<'a>::paragraph$''',
 
-    # CODE is added only to a single Code event, never to the running style; OR and
-    # XOR agree.
-    '''^crates/mdview-core/src/markdown\.rs:506:53: replace \| with \^ in P<'a>::inlines$''',
-
     # The unlinked-image branch requires link == None; LINK is cleared together with
     # link, so style cannot already contain LINK.
-    '''^crates/mdview-core/src/markdown\.rs:530:55: replace \| with \^ in P<'a>::inlines$''',
+    '''^crates/mdview-core/src/markdown\.rs:521:53: replace \| with \^ in P<'a>::inlines$''',
+
+    # CODE is added only to a single Code event, never to the running style; OR and
+    # XOR agree.
+    '''^crates/mdview-core/src/markdown\.rs:550:41: replace \| with \^ in P<'a>::inlines$''',
 
     # pulldown-cmark treats footnote references as links and does not emit them
     # inside links; image descriptions are handled earlier. The running style cannot
     # contain LINK here.
-    '''^crates/mdview-core/src/markdown\.rs:540:56: replace \| with \^ in P<'a>::inlines$''',
+    '''^crates/mdview-core/src/markdown\.rs:566:56: replace \| with \^ in P<'a>::inlines$''',
 
     # The list handler consumes both tight and loose TaskListMarker events before
     # parsing item inlines.
-    '''^crates/mdview-core/src/markdown\.rs:542:17: delete match arm Event::TaskListMarker\(c\) in P<'a>::inlines$''',
+    '''^crates/mdview-core/src/markdown\.rs:568:17: delete match arm Event::TaskListMarker\(c\) in P<'a>::inlines$''',
 
     # O_NOFOLLOW and O_NONBLOCK have disjoint bits on every platform; OR and
     # XOR produce the same open flags.

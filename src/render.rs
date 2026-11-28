@@ -9,12 +9,12 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, AvailableSpace, Bounds, Element, ElementId, Font, FontFeatures, FontStyle,
-    FontWeight, GlobalElementId, Hsla, InspectorElementId, InteractiveElement, InteractiveText,
-    IntoElement, LayoutId, Length, ObjectFit, ParentElement, Pixels, ScrollHandle, SharedString,
-    StatefulInteractiveElement, StrikethroughStyle, Style, Styled, StyledImage, StyledText,
-    TextRun, UnderlineStyle, WeakEntity, Window, div, img, prelude::FluentBuilder, px, relative,
-    size,
+    AnyElement, App, AvailableSpace, Bounds, ClickEvent, Element, ElementId, Font, FontFeatures,
+    FontStyle, FontWeight, GlobalElementId, Hsla, InspectorElementId, InteractiveElement,
+    InteractiveText, IntoElement, LayoutId, Length, ObjectFit, ParentElement, Pixels, ScrollHandle,
+    SharedString, StatefulInteractiveElement, StrikethroughStyle, Style, Styled, StyledImage,
+    StyledText, TextRun, UnderlineStyle, WeakEntity, Window, div, img, prelude::FluentBuilder, px,
+    relative, size,
 };
 
 use crate::{
@@ -569,7 +569,7 @@ fn render_block(block: &Block, rcx: &RenderCx, c: &mut Cx, depth: usize) -> AnyE
             .flex()
             .flex_wrap()
             .gap_2()
-            .children(images.iter().map(|i| image(i, rcx)))
+            .children(images.iter().map(|i| image(i, rcx, &mut c.ids)))
             .into_any_element(),
         Block::Code {
             lang,
@@ -706,26 +706,44 @@ fn checkbox(done: bool, t: &Theme) -> gpui::Div {
     )
 }
 
-fn image(i: &Image, rcx: &RenderCx) -> AnyElement {
+fn image(i: &Image, rcx: &RenderCx, ids: &mut IdGen) -> AnyElement {
     let t = rcx.theme;
     let alt: SharedString = if i.alt.is_empty() {
         i.url.clone().into()
     } else {
         i.alt.clone().into()
     };
+    // `[![alt](img)](dest)`: a click follows `dest` like a text link.
+    let follow = i.link.clone().map(|url| {
+        let viewer = rcx.viewer.clone();
+        let base = rcx.base_dir.clone();
+        move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+            open_link(&viewer, &base, &url, window, cx)
+        }
+    });
     if image_is_link(&i.url) {
-        // Unsupported URI schemes remain clickable.
-        let url = i.url.clone();
-        return div()
-            .id(SharedString::from(i.url.clone()))
+        // Unsupported URI schemes remain clickable: they open the link
+        // around them, or else the image's own URL.
+        let el = div()
+            .id(ids.next())
             .text_color(t.link)
             .cursor_pointer()
-            .child(format!("[image: {alt}]"))
-            .on_click(move |_, _, cx| cx.open_url(&url))
-            .into_any_element();
+            .child(format!("[image: {alt}]"));
+        return match follow {
+            Some(follow) => el.on_click(follow),
+            None => {
+                let url = i.url.clone();
+                el.on_click(move |_, _, cx| cx.open_url(&url))
+            }
+        }
+        .into_any_element();
     }
     let muted = t.muted;
     img(image_source(&i.url, &rcx.base_dir))
+        // GPUI keeps an animated image's current frame (and requests the
+        // next one) only for an `img` with an id: without it, GIFs and
+        // WebPs stay on their first frame.
+        .id(ids.next())
         .max_w_full()
         .object_fit(ObjectFit::ScaleDown)
         .with_fallback(move || {
@@ -734,6 +752,7 @@ fn image(i: &Image, rcx: &RenderCx) -> AnyElement {
                 .child(format!("[image: {alt}]"))
                 .into_any_element()
         })
+        .when_some(follow, |el, follow| el.cursor_pointer().on_click(follow))
         .into_any_element()
 }
 
@@ -841,16 +860,44 @@ pub(crate) fn open_link(
     }
 }
 
+/// `url` after its `scheme` (such as `"https://"`), matched ASCII
+/// case-insensitively, as RFC 3986 says schemes are.
+fn after_scheme<'a>(url: &'a str, scheme: &str) -> Option<&'a str> {
+    let n = scheme.len();
+    (url.len() >= n && url.as_bytes()[..n].eq_ignore_ascii_case(scheme.as_bytes()))
+        .then(|| &url[n..])
+}
+
+/// An HTTP(S) URL with its scheme lowercased, so `HTTPS://x` and
+/// `https://x` share one cache entry.
+fn http_url(url: &str) -> Option<String> {
+    ["https://", "http://"]
+        .into_iter()
+        .find_map(|scheme| after_scheme(url, scheme).map(|rest| format!("{scheme}{rest}")))
+}
+
+fn has_authority_scheme(url: &str) -> bool {
+    let Some((scheme, _)) = url.split_once("://") else {
+        return false;
+    };
+    let mut bytes = scheme.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+}
+
 fn image_is_link(url: &str) -> bool {
-    (url.contains("://") && !url.starts_with("http://") && !url.starts_with("https://"))
-        || url.starts_with("data:")
+    (has_authority_scheme(url) && http_url(url).is_none()) || after_scheme(url, "data:").is_some()
 }
 
 fn image_source(url: &str, base_dir: &Path) -> gpui::ImageSource {
-    if url.starts_with("http://") || url.starts_with("https://") {
-        gpui::SharedUri::from(url.to_owned()).into()
+    if let Some(url) = http_url(url) {
+        gpui::SharedUri::from(url).into()
     } else {
-        base_dir.join(percent_decode(url)).into()
+        // A `#fragment` or `?query` isn't part of a local file's name
+        // (`logo.png#gh-dark-mode-only`, `fig.svg?raw=true`); an escaped
+        // `%23` or `%3F` is. Same as `links::classify_link`.
+        let path = url.split(['#', '?']).next().unwrap_or(url);
+        base_dir.join(percent_decode(path)).into()
     }
 }
 
@@ -860,15 +907,30 @@ mod image_tests {
 
     #[test]
     fn unsupported_image_schemes_stay_links() {
-        for url in ["ftp://example.com/a.png", "data:image/png;base64,abc"] {
-            assert!(image_is_link(url));
+        for url in [
+            "ftp://example.com/a.png",
+            "FTP://example.com/a.png",
+            "data:image/png;base64,abc",
+            "DATA:image/png;base64,abc",
+            "Data:image/png;base64,abc",
+        ] {
+            assert!(image_is_link(url), "{url}");
         }
+        // Schemes are case-insensitive (RFC 3986).
         for url in [
             "http://example.com/a.png",
             "https://example.com/a.png",
+            "HTTP://example.com/a.png",
+            "HTTPS://example.com/a.png",
+            "Https://example.com/a.png",
             "a.png",
+            "data.png",
+            "https.png",
+            "fig.svg?source=https://example.com",
+            "fig.svg#https://example.com",
+            "dir/foo://bar.png",
         ] {
-            assert!(!image_is_link(url));
+            assert!(!image_is_link(url), "{url}");
         }
     }
 
@@ -881,13 +943,40 @@ mod image_tests {
             assert!(matches!(image_source(url, Path::new("/docs")),
                 gpui::ImageSource::Resource(gpui::Resource::Uri(uri)) if uri.as_ref() == url));
         }
+        // An uppercase scheme is lowercased, so both spellings share one
+        // cache entry; the rest of the URL is kept as is.
+        for (url, expected) in [
+            ("HTTPS://Example.com/A.png", "https://Example.com/A.png"),
+            ("Http://example.com/a.png#x", "http://example.com/a.png#x"),
+        ] {
+            assert!(
+                matches!(image_source(url, Path::new("/docs")),
+                gpui::ImageSource::Resource(gpui::Resource::Uri(uri)) if uri.as_ref() == expected),
+                "{url}"
+            );
+        }
     }
 
     #[test]
     fn local_images_resolve_against_document_directory() {
-        for (url, expected) in [("a%20b.png", "/docs/a b.png"), ("/tmp/a.png", "/tmp/a.png")] {
-            assert!(matches!(image_source(url, Path::new("/docs")),
-                gpui::ImageSource::Resource(gpui::Resource::Path(path)) if path.as_ref() == Path::new(expected)));
+        for (url, expected) in [
+            ("a%20b.png", "/docs/a b.png"),
+            ("/tmp/a.png", "/tmp/a.png"),
+            // A `#fragment` or `?query` isn't part of the file name (as in
+            // GitHub's `#gh-dark-mode-only`), but an escaped `#` or `?` is.
+            ("logo-dark.png#gh-dark-mode-only", "/docs/logo-dark.png"),
+            ("fig.svg?raw=true", "/docs/fig.svg"),
+            ("a%20b.svg?raw=true#top", "/docs/a b.svg"),
+            ("a%23b.png", "/docs/a#b.png"),
+            ("a%3Fb.png#x?y", "/docs/a?b.png"),
+            ("fig.svg?source=https://example.com", "/docs/fig.svg"),
+            ("fig.svg#https://example.com", "/docs/fig.svg"),
+        ] {
+            assert!(
+                matches!(image_source(url, Path::new("/docs")),
+                gpui::ImageSource::Resource(gpui::Resource::Path(path)) if path.as_ref() == Path::new(expected)),
+                "{url}"
+            );
         }
     }
 }

@@ -132,6 +132,11 @@ classDiagram
         checked: Option~bool~
         blocks: Vec~Block~
     }
+    class Image {
+        url: String
+        alt: String
+        link: Option~String~  [![alt](url)](link)
+    }
     class RichText {
         text: String
         spans: Vec~Span~
@@ -144,6 +149,7 @@ classDiagram
     }
     Document --> Block
     Block --> ListItem
+    Block --> Image
     Block --> RichText
     ListItem --> Block
     RichText --> Span

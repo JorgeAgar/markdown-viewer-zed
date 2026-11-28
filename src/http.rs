@@ -79,6 +79,7 @@ mod tests {
                 "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nimage",
                 "HTTP/1.1 404 Not Found\r\nContent-Length: 7\r\nConnection: close\r\n\r\nmissing",
                 "HTTP/1.1 302 Found\r\nLocation: /image.png\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nupper",
             ] {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut reader = BufReader::new(&stream);
@@ -105,6 +106,13 @@ mod tests {
             assert_eq!(body, "missing");
             let response = ImageHttpClient.get(&url, ().into(), false).await.unwrap();
             assert_eq!(response.status(), 302);
+            // Schemes are case-insensitive (RFC 3986).
+            let upper = url.replacen("http://", "HTTP://", 1);
+            let mut response = ImageHttpClient.get(&upper, ().into(), true).await.unwrap();
+            assert_eq!(response.status(), 200);
+            body.clear();
+            response.body_mut().read_to_string(&mut body).await.unwrap();
+            assert_eq!(body, "upper");
         });
         server.join().unwrap();
     }

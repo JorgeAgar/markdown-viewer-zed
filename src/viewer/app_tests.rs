@@ -3,11 +3,11 @@
 //! example document. Windows are drawn whenever they're dirty at the end of
 //! an update, so a panic while rendering fails the test.
 
-use std::time::Duration;
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use gpui::{
     AnyView, AppContext, AvailableSpace, Entity, TestAppContext, VisualContext, VisualTestContext,
-    point, size,
+    WeakEntity, point, size,
 };
 
 use super::*;
@@ -585,7 +585,10 @@ fn standalone_remote_image_is_requested_by_the_viewer() {
         Viewer::new(
             vec![(
                 PathBuf::from("/docs/image.md"),
-                parsed("![secure](https://example.com/a%20b.svg)\n\n![plain](http://example.com/a.svg)"),
+                parsed(
+                    "![secure](https://example.com/a%20b.svg)\n\n![plain](http://example.com/a.svg)\n\n\
+                     ![upper](HTTPS://example.com/upper.svg)",
+                ),
             )],
             fonts(),
             window,
@@ -597,7 +600,11 @@ fn standalone_remote_image_is_requested_by_the_viewer() {
     requests.sort();
     assert_eq!(
         requests,
-        ["http://example.com/a.svg", "https://example.com/a%20b.svg"]
+        [
+            "http://example.com/a.svg",
+            "https://example.com/a%20b.svg",
+            "https://example.com/upper.svg"
+        ]
     );
 }
 
@@ -1967,4 +1974,275 @@ fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
     wheel_lines(cx, -1.);
     settle(&v, cx);
     assert!(gap(&v, cx).abs() < 0.01, "{}", gap(&v, cx));
+}
+
+/// Where the first line of an image block that starts the document is: its
+/// left edge and the middle of its line.
+fn first_row_origin(cx: &mut VisualTestContext) -> (f32, f32) {
+    let w = cx.update(|window, _| f32::from(window.viewport_size().width));
+    let column = w.min(render::CONTENT_MAX_WIDTH);
+    // Centered column, `px_8` side padding, `pt_8` above the first row.
+    ((w - column) / 2. + 32., TAB_BAR_HEIGHT + 32. + 10.)
+}
+
+/// Opens `path` showing `src` in a new window and clicks `dx` px right of
+/// the first row's left edge.
+fn click_first_row_of(
+    path: PathBuf,
+    src: &str,
+    dx: f32,
+) -> (Entity<Viewer>, &'static mut VisualTestContext) {
+    let (v, cx) = open(vec![(path, parsed(src))]);
+    cx.run_until_parked();
+    // Images loaded since the first frame: lay them out.
+    redraw(&v, cx);
+    let (x, y) = first_row_origin(cx);
+    cx.simulate_click(point(px(x + dx), px(y)), Default::default());
+    cx.run_until_parked();
+    (v, cx)
+}
+
+/// `click_first_row_of` for `/docs/images.md`, returning the URL handed to
+/// the system, if any.
+fn click_first_row(src: &str, dx: f32) -> Option<String> {
+    let (_, cx) = click_first_row_of(PathBuf::from("/docs/images.md"), src, dx);
+    cx.opened_url()
+}
+
+#[test]
+fn repeated_unsupported_scheme_images_are_each_clickable() {
+    // Two identical `ftp://` images used the URL as their ElementId, so
+    // they shared click state and only one of them could be clicked.
+    let src = "![a](ftp://x/a.png) ![a much longer alt text for the second one](ftp://x/a.png)";
+    for dx in [5., 200.] {
+        assert_eq!(
+            click_first_row(src, dx).as_deref(),
+            Some("ftp://x/a.png"),
+            "click at +{dx}px"
+        );
+    }
+}
+
+/// An image cache that serves `image` for every resource.
+struct OneImage(Arc<gpui::RenderImage>);
+
+impl gpui::ImageCache for OneImage {
+    fn load(
+        &mut self,
+        _: &gpui::Resource,
+        _: &mut Window,
+        _: &mut App,
+    ) -> Option<Result<Arc<gpui::RenderImage>, gpui::ImageCacheError>> {
+        Some(Ok(self.0.clone()))
+    }
+}
+
+/// The rows of a document under an image cache, recording each row's height.
+struct CachedRows {
+    rows: DocRows,
+    cache: Entity<OneImage>,
+    heights: Rc<RefCell<Vec<f32>>>,
+}
+
+impl Render for CachedRows {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let heights = self.heights.clone();
+        let rows = &self.rows;
+        gpui::image_cache(self.cache.clone()).child(
+            div()
+                .w(px(920.))
+                .on_children_prepainted(move |bounds, _, _| {
+                    *heights.borrow_mut() =
+                        bounds.iter().map(|b| f32::from(b.size.height)).collect()
+                })
+                .children((0..rows.rows.len()).map(|ix| {
+                    render::render_row(&rows.doc, &rows.rows[ix], ix, &rows.rcx, window, cx)
+                })),
+        )
+    }
+}
+
+fn frame(height: u32, delay_ms: u32) -> image::Frame {
+    image::Frame::from_parts(
+        image::RgbaImage::new(10, height),
+        0,
+        0,
+        image::Delay::from_numer_denom_ms(delay_ms, 1),
+    )
+}
+
+#[test]
+fn animated_images_advance_past_their_first_frame() {
+    // A real two-frame GIF reaches GPUI as an animated image.
+    let dir = TempDir::new("gif");
+    let path = dir.join("anim.gif");
+    {
+        let mut gif = image::codecs::gif::GifEncoder::new(std::fs::File::create(&path).unwrap());
+        gif.encode_frames([frame(10, 1), frame(10, 1)]).unwrap();
+    }
+    let cx = Box::leak(Box::new(TestAppContext::single()));
+    let resource = gpui::Resource::Path(Arc::from(path.as_path()));
+    let (task, _) = cx.update(|cx| cx.fetch_asset::<gpui::ImgResourceLoader>(&resource));
+    cx.run_until_parked();
+    let decoded = futures::FutureExt::now_or_never(task).expect("GIF decoded");
+    assert_eq!(decoded.unwrap().frame_count(), 2);
+
+    // GPUI keeps an image's frame (and requests the next one) only for an
+    // `img` with an ElementId; without one, an animated image stays on its
+    // first frame. The frames here differ in height, so the row's height
+    // says which one was laid out: 10 px for the first, 30 for the second,
+    // which then stays for an hour.
+    let doc = Arc::new(markdown::parse("![anim](anim.gif)"));
+    let image = Arc::new(gpui::RenderImage::new(vec![
+        frame(10, 1),
+        frame(30, 3_600_000),
+    ]));
+    let heights = Rc::new(RefCell::new(Vec::new()));
+    let (view, cx) = cx.add_window_view(|_, cx| CachedRows {
+        rows: DocRows {
+            rows: Arc::new(Rows::from_document(&doc)),
+            doc,
+            rcx: RenderCx {
+                theme: Theme::light(),
+                ui_font: fonts().ui,
+                mono_font: fonts().mono,
+                base_dir: Arc::from(dir.as_ref()),
+                viewer: WeakEntity::new_invalid(),
+                code_scroll: Default::default(),
+            },
+        },
+        cache: cx.new(|_| OneImage(image)),
+        heights: heights.clone(),
+    });
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        cx.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+        cx.run_until_parked();
+        seen.push(heights.borrow()[0]);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Row 0: 32 px above, 16 below the image.
+    assert_eq!(seen.first(), Some(&(32. + 10. + 16.)), "{seen:?}");
+    assert_eq!(seen.last(), Some(&(32. + 30. + 16.)), "{seen:?}");
+}
+
+#[test]
+fn linked_images_follow_their_link() {
+    // A standalone `[![alt](img)](dest)` used to drop `dest`: clicking the
+    // image did nothing.
+    let dir = TempDir::new("linked-images");
+    let base = normalize(&dir);
+    image::RgbaImage::new(40, 40)
+        .save(base.join("narrow.png"))
+        .unwrap();
+    image::RgbaImage::new(200, 40)
+        .save(base.join("wide.png"))
+        .unwrap();
+    std::fs::write(base.join("docs.md"), "# Docs").unwrap();
+    let page = base.join("index.md");
+    let click = |src: &str, dx: f32| {
+        let (_, cx) = click_first_row_of(page.clone(), src, dx);
+        cx.opened_url()
+    };
+    // Each badge on a line follows its own link.
+    let badges = "[![A](narrow.png)](https://a.example) [![B](wide.png)](https://b.example)";
+    assert_eq!(click(badges, 5.).as_deref(), Some("https://a.example"));
+    assert_eq!(click(badges, 100.).as_deref(), Some("https://b.example"));
+    // An image GPUI can't load follows the link around it, not its own URL.
+    let src = "[![d](data:image/png;base64,AAAA)](https://d.example) ![f](ftp://x/f.png)";
+    assert_eq!(click(src, 5.).as_deref(), Some("https://d.example"));
+    // Without a link, an image isn't clickable.
+    assert_eq!(click("![plain](narrow.png)", 5.), None);
+    // Links go through the same routing as text links: a Markdown file
+    // opens in a tab.
+    let (v, cx) = click_first_row_of(page.clone(), "[![Docs](narrow.png)](docs.md)", 5.);
+    assert_eq!(cx.opened_url(), None);
+    assert_eq!(titles(&v, cx), ["index.md", "docs.md"]);
+}
+
+#[test]
+fn switching_or_reloading_from_animated_gif_to_static_png_does_not_panic() {
+    // Regression: GPUI indexes `RenderImage::data[frame_index]` from the
+    // persisted `ImgState`. If two tabs (or a reloaded document) shared the
+    // same `GlobalElementId`, switching from an animated GIF on frame >= 1 to
+    // a 1-frame PNG at the same row panicked out-of-bounds.
+    let dir = TempDir::new("gif-switch");
+    let base = normalize(&dir);
+    {
+        // GIF delays are stored in 10 ms centiseconds: 10 ms for frame 0, then
+        // 60 s for frame 1 so `frame_index` stays at 1 after advancing.
+        let mut gif = image::codecs::gif::GifEncoder::new(
+            std::fs::File::create(base.join("anim.gif")).unwrap(),
+        );
+        gif.encode_frames([frame(10, 10), frame(10, 60_000)])
+            .unwrap();
+    }
+    image::RgbaImage::new(20, 20)
+        .save(base.join("still.png"))
+        .unwrap();
+
+    let (v, cx) = open(vec![
+        (base.join("png.md"), parsed("![still](still.png)")),
+        (base.join("gif.md"), parsed("![anim](anim.gif)")),
+    ]);
+    // Wait for `anim.gif` to decode (height 10 px -> row 58 px), then advance
+    // past its 10 ms frame 0 delay into frame 1.
+    for _ in 0..4 {
+        cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let gif_row_h = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .map(|b| f32::from(b.size.height))
+    });
+    assert_eq!(gif_row_h, Some(32. + 10. + 16.));
+
+    // Switch to `png.md` (1-frame PNG at row 0): must not inherit frame 1.
+    // Pump one extra frame so the async PNG decode finishes and lays out.
+    cx.dispatch_action(NextTab);
+    cx.run_until_parked();
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    assert_eq!(active(&v, cx).as_deref(), Some("png.md"));
+    let png_row_h = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .map(|b| f32::from(b.size.height))
+    });
+    assert_eq!(png_row_h, Some(32. + 20. + 16.));
+
+    // Switch back to `gif.md`, advance past frame 0 again, then live-reload to
+    // the 1-frame PNG at row 0: must not panic either.
+    cx.dispatch_action(PrevTab);
+    for _ in 0..4 {
+        cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    cx.update(|_, cx| {
+        v.update(cx, |this, cx| {
+            this.tabs
+                .active_mut()
+                .unwrap()
+                .replace(parsed("![still](still.png)"));
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let reloaded_h = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .map(|b| f32::from(b.size.height))
+    });
+    assert_eq!(reloaded_h, Some(32. + 20. + 16.));
 }

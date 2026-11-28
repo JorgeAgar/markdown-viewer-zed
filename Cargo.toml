@@ -47,9 +47,10 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", 
 embed-resource = "3.0"
 
 [dev-dependencies]
-# Golden images for display math (src/graphics/tests.rs). Already compiled
+# Golden images for display math (src/graphics/tests.rs) and an animated GIF
+# (src/viewer/app_tests.rs). Already compiled
 # in through GPUI, with these features; listed so the tests don't rely on it.
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "gif"] }
 # Headless GPUI (TestAppContext, test platform) for the Viewer tests in
 # src/viewer/app_tests.rs. Dev-dependency features aren't unified into
 # `cargo build --release` (resolver 3), so none of it reaches the binary.
