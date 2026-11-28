@@ -33,7 +33,7 @@
 ```mermaid
 flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
-    cli["cli.rs<br/>parse_args(), socket_dir_in(), encode/decode_paths()"]
+    cli["cli.rs<br/>parse_args(), runtime_dir(), fallback_dir(), encode/decode_paths()"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
     tabs["tabs.rs<br/>Tabs: list + active index"]
     subgraph core["crates/mdview-core (no GPUI)"]
@@ -240,38 +240,62 @@ flowchart LR
 `platform/unix.rs` implements it; `cli.rs` holds the pure parts (where the
 socket lives, the message format).
 
-**Where.** The socket is `mdview.sock` in `$XDG_RUNTIME_DIR`, which the XDG
-spec makes private to the user. When `XDG_RUNTIME_DIR` is unset (always on
-macOS, often over SSH), empty or relative, it's in `$TMPDIR/mdview-$UID/`
-instead (`cli::socket_dir_in`). The temp dir is shared, so mdview creates
-that directory with mode 0700 and, before every use, checks that it's a real
-directory (not a symlink), owned by the current uid, with no group or other
-permission bits. If the check fails, mdview prints why and runs as a separate
-instance: it never connects to, or binds, a socket another user could have
-planted. The socket itself is made mode 0600 when it's bound.
+**Where.** The socket is `mdview-2.sock` in `$XDG_RUNTIME_DIR`
+(`cli::runtime_dir`). The XDG spec makes that directory private to the user,
+but mdview doesn't take it on trust: before every use it checks (with
+`lstat`) that it's a real directory, not a symlink, owned by the current uid,
+with no group or other permission bits (mode 0700). When `XDG_RUNTIME_DIR`
+is unset (always on macOS, often over SSH), empty or relative, or fails that
+check (mdview then prints why), the socket is in `$TMPDIR/mdview-$UID/`
+instead (`cli::fallback_dir`). That directory is created with mode 0700 and
+gets the same check before every use. Its parent, the temp dir, is shared,
+so it's checked too: it must be owned by the current uid or root, and
+nobody else may write to it unless it has the sticky bit (like `/tmp`),
+because whoever can rename entries in it could swap `mdview-$UID` for their
+own directory between the check and the `connect`. Only the temp dir itself
+is checked, not its ancestors. If a check fails, mdview prints why and runs
+as a separate instance.
+
+Since the directory is private to the user, other users can't connect to
+the socket or plant one, even in the moment between `bind()` and the
+`chmod` that makes the socket mode 0600. The lock file is opened with
+`O_NOFOLLOW` and must be a regular file owned by the user with mode 0600.
+This protects against other users, not against processes running as the
+same user.
+
+**Versions.** The `2` in `mdview-2.sock` (and `mdview-2.lock`) is the wire
+protocol version, bumped with every incompatible change to the message.
+mdview 0.2.0 and older used `mdview.sock` with one path per line. With
+different names, an upgraded client and an older running instance (or the
+reverse) don't see each other, so each launch opens its own window instead
+of sending paths the other side would silently drop.
 
 **Message.** The client writes one message and closes the connection: a
 little-endian `u32` body length, then for each absolute path a little-endian
 `u32` byte count and the path's raw OS bytes. An empty list just raises the
-window. `cli::encode_paths` / `cli::decode_paths` implement it. Because it
+window. Paths are never empty and never contain NUL (neither can be a Unix
+path), and a message carries at most `cli::MAX_PATHS` (65,536) of them; a
+message that breaks these rules is dropped whole.
+`cli::encode_paths` / `cli::decode_paths` implement it. Because it
 carries the bytes and not a display string, every Unix path arrives exactly
 as given: newlines, a trailing `\r` and non-UTF-8 bytes included.
 
 **Limits.** The body is capped at `cli::MAX_MESSAGE` (16 MiB, like the
 Windows pipe): the listener checks the header before it reads anything, and
-a client with more paths than that opens its own window. The listener reads
-one client at a time and gives each 2 seconds for its whole message, so a
-client that stalls or trickles bytes can't block later handoffs. Truncated,
+a client with more paths than fit (or more than `MAX_PATHS`) opens its own
+window. The listener reads one client at a time and gives each 2 seconds for
+its whole message, so a client that stalls or trickles bytes can't block
+later handoffs. Truncated,
 oversized, malformed or late messages are dropped without stopping the
 listener.
 
 **Taking over.** Only a launch that can't connect takes the lock
-(`flock` on `mdview.lock` next to the socket, which is never deleted). Under
+(`flock` on `mdview-2.lock` next to the socket, which is never deleted). Under
 the lock it connects again, because another launch may have just become the
 server; if nobody answers, the socket is stale, so it removes it and binds its
 own. Two launches started together therefore elect one server instead of
-unlinking each other's socket. At exit, `cleanup()` takes the lock and
-removes the socket only if its `(dev, inode)` is still the one this process
+unlinking each other's socket. At exit, `cleanup()` takes the lock (and
+leaves everything alone if it can't) and removes the socket only if its `(dev, inode)` is still the one this process
 bound, so it can't delete a newer instance's socket.
 
 ```mermaid
@@ -289,7 +313,7 @@ sequenceDiagram
         L->>UI: unbounded_send(paths)
         UI->>UI: open_paths() → new tab, activate_window()
     else Nothing answered
-        C->>C: flock(mdview.lock)
+        C->>C: flock(mdview-2.lock)
         C->>S: connect() again
         alt Another launch became the server meanwhile
             C->>S: unlock, write(message), exit(0)

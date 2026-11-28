@@ -60,8 +60,8 @@ are unavailable, preserving bold and italic formatting.
 ## Why it starts fast
 
 - **Single instance (the same approach as Zed's CLI).** The first `mdview`
-  listens on `$XDG_RUNTIME_DIR/mdview.sock` (or in a private
-  `$TMPDIR/mdview-$UID/` directory when that's unset). Later runs send their paths over
+  listens on `$XDG_RUNTIME_DIR/mdview-2.sock` (or in a private
+  `$TMPDIR/mdview-$UID/` directory when that's unset or not private). Later runs send their paths over
   that socket and exit right away, so they skip GPU, window and font setup.
   The paths open as tabs in the window that's already running.
 - **Files are parsed in parallel with startup.** A worker thread reads and

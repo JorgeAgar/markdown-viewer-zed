@@ -47,40 +47,41 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Command {
     Command::Run { standalone, paths }
 }
 
-/// The directory that holds the single-instance socket (`mdview.sock`) and
-/// its lock file (`mdview.lock`).
+/// `$XDG_RUNTIME_DIR`, the preferred home of the single-instance socket and
+/// its lock file, if it's set to an absolute path. An unset, empty or
+/// relative value is ignored (the XDG spec says to), so the socket is never
+/// relative to the working directory. `platform::ipc` still checks that the
+/// directory is private before using it.
 #[cfg(unix)]
-#[derive(Debug, PartialEq, Eq)]
-pub enum SocketDir {
-    /// `$XDG_RUNTIME_DIR`: private to the user by the XDG spec, used as is.
-    Runtime(PathBuf),
-    /// `$TMPDIR/mdview-$UID`: the temp dir is shared, so mdview creates this
-    /// directory itself (mode 0700) and checks who owns it before use.
-    Private(PathBuf),
+pub fn runtime_dir(var: Option<OsString>) -> Option<PathBuf> {
+    var.map(PathBuf::from).filter(|dir| dir.is_absolute())
 }
 
-/// Picks the [`SocketDir`]. An unset, empty or relative `XDG_RUNTIME_DIR`
-/// is ignored (the XDG spec says to), so the socket is never relative to the
-/// working directory. The fallback (temp dir, uid) is only computed when
-/// needed.
+/// `$TMPDIR/mdview-$UID`, used when [`runtime_dir`] is missing or unsafe. The
+/// temp dir is shared, so `platform::ipc` creates this directory itself
+/// (mode 0700) and checks it, and the temp dir, before every use.
 #[cfg(unix)]
-pub fn socket_dir_in(
-    runtime_dir: Option<OsString>,
-    fallback: impl FnOnce() -> (PathBuf, u32),
-) -> SocketDir {
-    match runtime_dir.map(PathBuf::from) {
-        Some(dir) if dir.is_absolute() => SocketDir::Runtime(dir),
-        _ => {
-            let (tmp, uid) = fallback();
-            SocketDir::Private(tmp.join(format!("mdview-{uid}")))
-        }
-    }
+pub fn fallback_dir(tmp: &std::path::Path, uid: u32) -> PathBuf {
+    tmp.join(format!("mdview-{uid}"))
 }
 
 /// Largest message body the running instance accepts (16 MiB, the same cap as
 /// the Windows pipe). A larger one is rejected before it's read.
 #[cfg(unix)]
 pub const MAX_MESSAGE: usize = 16 * 1024 * 1024;
+
+/// Most paths one message may carry. Without it a 16 MiB body of 5-byte
+/// frames would decode into millions of allocations; a launch with more
+/// paths opens its own window instead.
+#[cfg(unix)]
+pub const MAX_PATHS: usize = 65_536;
+
+/// Whether `path` can be sent: Unix paths are never empty (an empty one
+/// would be opened as the working directory) and never contain NUL.
+#[cfg(unix)]
+fn valid_path(bytes: &[u8]) -> bool {
+    !bytes.is_empty() && !bytes.contains(&0)
+}
 
 /// The message a client sends to the running instance: a little-endian `u32`
 /// body length, then for each path a little-endian `u32` byte count and the
@@ -89,10 +90,15 @@ pub const MAX_MESSAGE: usize = 16 * 1024 * 1024;
 ///
 /// The bytes are the OS bytes (`OsStrExt::as_bytes`), not a display string,
 /// so every Unix path survives: newlines, trailing `\r` and non-UTF-8 bytes
-/// included. Returns `None` if the body would exceed [`MAX_MESSAGE`].
+/// included. Returns `None` for anything [`decode_paths`] would reject: a
+/// body over [`MAX_MESSAGE`], more than [`MAX_PATHS`] paths, or a path that
+/// is empty or contains NUL.
 #[cfg(unix)]
 pub fn encode_paths(paths: &[PathBuf]) -> Option<Vec<u8>> {
     use std::os::unix::ffi::OsStrExt;
+    if paths.len() > MAX_PATHS || !paths.iter().all(|p| valid_path(p.as_os_str().as_bytes())) {
+        return None;
+    }
     let body: usize = paths.iter().map(|p| 4 + p.as_os_str().len()).sum();
     if body > MAX_MESSAGE {
         return None;
@@ -115,17 +121,22 @@ pub fn body_len(header: [u8; 4]) -> Option<usize> {
 }
 
 /// Reads the body of a message written by [`encode_paths`] (without the
-/// header). Returns `None` if a frame is truncated.
+/// header). An empty body is the "raise the window" request. Returns `None`
+/// if a frame is truncated, empty or contains NUL, or if there are more than
+/// [`MAX_PATHS`] frames.
 #[cfg(unix)]
 pub fn decode_paths(mut body: &[u8]) -> Option<Vec<PathBuf>> {
     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
     let mut paths = Vec::new();
     while let Some((len, rest)) = body.split_first_chunk::<4>() {
         let len = u32::from_le_bytes(*len) as usize;
-        if len > rest.len() {
+        if len > rest.len() || paths.len() == MAX_PATHS {
             return None;
         }
         let (path, rest) = rest.split_at(len);
+        if !valid_path(path) {
+            return None;
+        }
         paths.push(PathBuf::from(OsStr::from_bytes(path)));
         body = rest;
     }
@@ -233,29 +244,24 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn socket_dir() {
-        let never = || -> (PathBuf, u32) { panic!("fallback computed needlessly") };
+    fn socket_dirs() {
         assert_eq!(
-            socket_dir_in(Some("/run/user/1000".into()), never),
-            SocketDir::Runtime("/run/user/1000".into())
-        );
-        assert_eq!(
-            socket_dir_in(None, || ("/tmp".into(), 1000)),
-            SocketDir::Private("/tmp/mdview-1000".into())
-        );
-        assert_eq!(
-            socket_dir_in(None, || ("/var/folders/x/T/".into(), 0)),
-            SocketDir::Private("/var/folders/x/T/mdview-0".into())
+            runtime_dir(Some("/run/user/1000".into())),
+            Some("/run/user/1000".into())
         );
         // An empty or relative XDG_RUNTIME_DIR would put the socket (and its
         // lock file) in the working directory: use the fallback instead.
-        for bad in ["", "run/user/1000", "./x"] {
-            assert_eq!(
-                socket_dir_in(Some(bad.into()), || ("/tmp".into(), 7)),
-                SocketDir::Private("/tmp/mdview-7".into()),
-                "{bad:?}"
-            );
+        for bad in [None, Some(""), Some("run/user/1000"), Some("./x")] {
+            assert_eq!(runtime_dir(bad.map(OsString::from)), None, "{bad:?}");
         }
+        assert_eq!(
+            fallback_dir("/tmp".as_ref(), 1000),
+            PathBuf::from("/tmp/mdview-1000")
+        );
+        assert_eq!(
+            fallback_dir("/var/folders/x/T/".as_ref(), 0),
+            PathBuf::from("/var/folders/x/T/mdview-0")
+        );
     }
 
     /// Encodes `paths` and splits off the header, checking it on the way.
@@ -277,8 +283,8 @@ mod tests {
     fn encode_format() {
         assert_eq!(encode_paths(&[]).unwrap(), [0, 0, 0, 0]);
         assert_eq!(
-            encode_paths(&[bytes(b"/a"), bytes(b"")]).unwrap(),
-            [10, 0, 0, 0, 2, 0, 0, 0, b'/', b'a', 0, 0, 0, 0]
+            encode_paths(&[bytes(b"/a"), bytes(b"b")]).unwrap(),
+            [11, 0, 0, 0, 2, 0, 0, 0, b'/', b'a', 1, 0, 0, 0, b'b']
         );
         // Lengths are little-endian and count bytes, not characters.
         let long = bytes(&[b'x'; 0x0102]);
@@ -292,8 +298,8 @@ mod tests {
     fn decode_format() {
         assert_eq!(decode_paths(&[]), Some(vec![]));
         assert_eq!(
-            decode_paths(&[2, 0, 0, 0, b'/', b'a', 0, 0, 0, 0, 1, 0, 0, 0, b'b']),
-            Some(vec![bytes(b"/a"), bytes(b""), bytes(b"b")])
+            decode_paths(&[2, 0, 0, 0, b'/', b'a', 1, 0, 0, 0, b'b']),
+            Some(vec![bytes(b"/a"), bytes(b"b")])
         );
         // A truncated length or path is rejected, not opened as a shorter path.
         for bad in [
@@ -306,6 +312,44 @@ mod tests {
         ] {
             assert_eq!(decode_paths(bad), None, "{bad:?}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn empty_and_nul_paths_are_refused() {
+        // An empty path would open the listener's working directory, and NUL
+        // can't occur in a Unix path: neither is a path anyone sent.
+        for bad in [
+            &[0, 0, 0, 0][..],
+            &[1, 0, 0, 0, b'a', 0, 0, 0, 0],
+            &[0, 0, 0, 0, 1, 0, 0, 0, b'a'],
+            &[1, 0, 0, 0, 0],
+            &[3, 0, 0, 0, b'/', 0, b'a'],
+            &[2, 0, 0, 0, b'/', b'a', 2, 0, 0, 0, b'b', 0],
+        ] {
+            assert_eq!(decode_paths(bad), None, "{bad:?}");
+        }
+        for bad in [bytes(b""), bytes(b"\0"), bytes(b"/a\0b.md"), bytes(b"/a\0")] {
+            assert_eq!(encode_paths(&[bytes(b"/ok"), bad.clone()]), None, "{bad:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_count_is_capped() {
+        assert_eq!(MAX_PATHS, 65_536);
+        let one = || bytes(b"a");
+        let fits = vec![one(); MAX_PATHS];
+        let msg = encode_paths(&fits).expect("MAX_PATHS paths fit");
+        assert_eq!(decode_paths(&msg[4..]).map(|p| p.len()), Some(MAX_PATHS));
+        // One more frame is refused on both ends, even though the body is
+        // far below MAX_MESSAGE.
+        let over = vec![one(); MAX_PATHS + 1];
+        assert_eq!(encode_paths(&over), None);
+        let mut body = msg[4..].to_vec();
+        body.extend_from_slice(&[1, 0, 0, 0, b'a']);
+        assert!(body.len() < MAX_MESSAGE);
+        assert_eq!(decode_paths(&body), None);
     }
 
     #[cfg(unix)]
@@ -330,10 +374,13 @@ mod tests {
         assert_eq!(body(std::slice::from_ref(&fits)).len(), MAX_MESSAGE);
         let over = bytes(&vec![b'a'; MAX_MESSAGE - 3]);
         assert_eq!(encode_paths(&[over]), None);
-        // Each frame header counts toward the cap too.
-        let many = vec![PathBuf::new(); MAX_MESSAGE / 4 + 1];
-        assert_eq!(encode_paths(&many), None);
-        assert!(encode_paths(&many[1..]).is_some());
+        // Each frame header counts toward the cap too: two paths that fill
+        // it exactly, then one byte over.
+        let half = MAX_MESSAGE / 2 - 4;
+        let two = [bytes(&vec![b'a'; half]), bytes(&vec![b'b'; half])];
+        assert_eq!(body(&two).len(), MAX_MESSAGE);
+        let over = [bytes(&vec![b'a'; half]), bytes(&vec![b'b'; half + 1])];
+        assert_eq!(encode_paths(&over), None);
     }
 
     /// Issue #25: the old text format turned these into other paths.
@@ -349,11 +396,7 @@ mod tests {
                 PathBuf::from("/\u{fc}n\u{ef}c\u{f6}d\u{e9}/日本語.md"),
                 PathBuf::from("/📝.md"),
             ],
-            vec![
-                bytes(b"relative.md"),
-                bytes(b"/trailing/slash/"),
-                bytes(b""),
-            ],
+            vec![bytes(b"relative.md"), bytes(b"/trailing/slash/")],
             vec![bytes(b"/a\nb.md"), bytes(b"\n"), bytes(b"/c\n")],
             vec![bytes(b"/a\r"), bytes(b"/b"), bytes(b"/c\r\n"), bytes(b"\r")],
             vec![

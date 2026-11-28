@@ -1,12 +1,14 @@
 //! Unix single-instance transport. Keep the handoff ahead of GPUI startup.
 //!
-//! The warm path is one `connect` and one `write` (plus one `lstat` of the
-//! private directory when `XDG_RUNTIME_DIR` is unset). Only a launch that
-//! finds nobody listening takes `mdview.lock`, so two launches can't both
-//! decide the socket is stale and unlink each other's live socket.
-use crate::cli::{self, SocketDir};
+//! The warm path is one `lstat` of the socket directory, one `connect` and
+//! one `write` (plus a `stat` of the temp dir when it falls back to
+//! `$TMPDIR/mdview-$UID`). Only a launch that finds nobody listening takes
+//! the lock file, so two launches can't both decide the socket is stale and
+//! unlink each other's live socket.
+use crate::cli;
 use std::{
-    fs::{self, File, OpenOptions, Permissions},
+    ffi::OsString,
+    fs::{self, File, Metadata, OpenOptions, Permissions},
     io::{self, Read, Write},
     os::unix::{
         fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
@@ -17,15 +19,20 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SOCKET: &str = "mdview.sock";
-const LOCK: &str = "mdview.lock";
+/// The socket and lock names carry the wire-protocol version. Bump it with
+/// every incompatible change to [`cli::encode_paths`], so a new client never
+/// writes to an older instance (or the reverse), which would drop the paths
+/// while both sides report success. Version 1 was `mdview.sock`, with one
+/// path per line.
+const SOCKET: &str = "mdview-2.sock";
+const LOCK: &str = "mdview-2.lock";
 /// How long the listener waits for one client's whole message. Real clients
 /// write it right after connecting; this only bounds a stalled one.
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
 
 unsafe extern "C" {
     /// POSIX `getuid(2)`, which can't fail. `uid_t` is `u32` on every Unix
-    /// Rust supports. Declared here so it costs no dependency.
+    /// Rust supports.
     safe fn getuid() -> u32;
 }
 
@@ -57,11 +64,95 @@ enum Claim {
 }
 
 fn socket_dir() -> io::Result<PathBuf> {
-    match cli::socket_dir_in(std::env::var_os("XDG_RUNTIME_DIR"), || {
-        (std::env::temp_dir(), getuid())
-    }) {
-        SocketDir::Runtime(dir) => Ok(dir),
-        SocketDir::Private(dir) => private_dir(&dir, getuid()).map(|()| dir),
+    find_socket_dir(
+        std::env::var_os("XDG_RUNTIME_DIR"),
+        std::env::temp_dir,
+        getuid(),
+    )
+}
+
+/// `$XDG_RUNTIME_DIR` if it's private to `uid`, as the XDG spec requires;
+/// otherwise (with a warning when it's set but unsafe) the private
+/// `$TMPDIR/mdview-$UID`, created if needed. The temp dir is only looked up
+/// when needed.
+fn find_socket_dir(
+    runtime: Option<OsString>,
+    tmp: impl FnOnce() -> PathBuf,
+    uid: u32,
+) -> io::Result<PathBuf> {
+    if let Some(dir) = cli::runtime_dir(runtime) {
+        match lstat(&dir).and_then(|meta| check_private(&dir, &meta, uid, Kind::Dir)) {
+            Ok(()) => return Ok(dir),
+            Err(e) => eprintln!("mdview: not using XDG_RUNTIME_DIR: {e}"),
+        }
+    }
+    let tmp = tmp();
+    shared_parent(&tmp, uid)?;
+    let dir = cli::fallback_dir(&tmp, uid);
+    private_dir(&dir, uid)?;
+    Ok(dir)
+}
+
+fn lstat(path: &Path) -> io::Result<Metadata> {
+    fs::symlink_metadata(path)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))
+}
+
+fn unsafe_path<T>(path: &Path, why: impl std::fmt::Display) -> io::Result<T> {
+    let msg = format!("{} {why}", path.display());
+    Err(io::Error::new(io::ErrorKind::PermissionDenied, msg))
+}
+
+#[derive(Clone, Copy)]
+enum Kind {
+    Dir,
+    File,
+}
+
+/// Checks that `meta` (from `lstat` or `fstat`, never following a symlink)
+/// is a real directory or regular file owned by `uid` that nobody else may
+/// use: no group or other permission bits.
+fn check_private(path: &Path, meta: &Metadata, uid: u32, kind: Kind) -> io::Result<()> {
+    let (right_kind, what, want) = match kind {
+        Kind::Dir => (meta.is_dir(), "is a symlink or not a directory", 0o700),
+        Kind::File => (meta.is_file(), "is a symlink or not a regular file", 0o600),
+    };
+    if !right_kind {
+        unsafe_path(path, what)
+    } else if meta.uid() != uid {
+        unsafe_path(path, format!("is owned by uid {}, not {uid}", meta.uid()))
+    } else if meta.mode() & 0o077 != 0 {
+        let mode = meta.mode() & 0o7777;
+        unsafe_path(path, format!("has mode {mode:o}, not {want:o}"))
+    } else {
+        Ok(())
+    }
+}
+
+/// Checks the temp dir that holds `mdview-$UID`. Whoever may rename or
+/// delete entries in it could swap our private directory for theirs between
+/// the check and the `connect`, so it must be owned by `uid` or root, and
+/// writable by nobody else unless it's sticky (like `/tmp`), where only an
+/// entry's owner can rename it. Only this directory is checked, not its
+/// ancestors.
+fn shared_parent(dir: &Path, uid: u32) -> io::Result<()> {
+    let meta = fs::metadata(dir)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", dir.display())))?;
+    let mode = meta.mode() & 0o7777;
+    if !meta.is_dir() {
+        unsafe_path(dir, "is not a directory")
+    } else if meta.uid() != uid && meta.uid() != 0 {
+        unsafe_path(
+            dir,
+            format!("is owned by uid {}, not {uid} or root", meta.uid()),
+        )
+    } else if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+        unsafe_path(
+            dir,
+            format!("has mode {mode:o}: writable by others and not sticky"),
+        )
+    } else {
+        Ok(())
     }
 }
 
@@ -75,33 +166,28 @@ fn private_dir(dir: &Path, uid: u32) -> io::Result<()> {
         Ok(meta) => meta,
         Err(_) => {
             let _ = fs::DirBuilder::new().mode(0o700).create(dir);
-            fs::symlink_metadata(dir)?
+            lstat(dir)?
         }
     };
-    let unsafe_dir = |why: String| {
-        let msg = format!("{} {why}", dir.display());
-        Err(io::Error::new(io::ErrorKind::PermissionDenied, msg))
-    };
-    if !meta.is_dir() {
-        unsafe_dir("is a symlink or not a directory".into())
-    } else if meta.uid() != uid {
-        unsafe_dir(format!("is owned by uid {}, not {uid}", meta.uid()))
-    } else if meta.mode() & 0o077 != 0 {
-        unsafe_dir(format!("has mode {:o}, not 700", meta.mode() & 0o7777))
-    } else {
-        Ok(())
-    }
+    check_private(dir, &meta, uid, Kind::Dir)
 }
 
-/// Holds `dir/mdview.lock` until the returned file is dropped. The file is
-/// never deleted: unlinking a lock file lets two processes lock two files.
+/// Holds `dir/LOCK` until the returned file is dropped. The file is never
+/// deleted: unlinking a lock file lets two processes lock two files. It's
+/// opened without following a symlink (or blocking on a FIFO), and must be
+/// our own private regular file. The directory is already private, so this
+/// is defense in depth. `O_NONBLOCK` doesn't affect `flock`.
 fn lock(dir: &Path) -> io::Result<File> {
+    let path = dir.join(LOCK);
     let file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)
         .mode(0o600)
-        .open(dir.join(LOCK))?;
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&path)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
+    check_private(&path, &file.metadata()?, getuid(), Kind::File)?;
     file.lock()?;
     Ok(file)
 }
@@ -111,7 +197,7 @@ pub fn start(standalone: bool, paths: &[PathBuf]) -> Instance {
         return Instance::Primary(None);
     }
     let Some(message) = cli::encode_paths(paths) else {
-        eprintln!("mdview: too many paths to hand off; opening a separate window");
+        eprintln!("mdview: can't hand these paths off; opening a separate window");
         return Instance::Primary(None);
     };
     let claim = socket_dir().and_then(|dir| claim(&dir, &message));
@@ -153,6 +239,8 @@ fn claim(dir: &Path, message: &[u8]) -> io::Result<Claim> {
         // succeeds or reports it. Never unlink what we couldn't test.
         Err(_) => {}
     }
+    // The directory is private (checked above), so nobody else can connect
+    // in the moment between bind() and the chmod; 0600 is a second fence.
     let listener = UnixListener::bind(&sock)?;
     fs::set_permissions(&sock, Permissions::from_mode(0o600))?;
     let meta = fs::symlink_metadata(&sock)?;
@@ -232,8 +320,11 @@ pub fn cleanup() {
 impl Owned {
     fn release(self) {
         // The lock keeps a starting instance from replacing the socket
-        // between the check and the unlink.
-        let _lock = lock(&self.dir);
+        // between the check and the unlink. Without it, leave the socket:
+        // a stale one is replaced by the next launch anyway.
+        let Ok(_lock) = lock(&self.dir) else {
+            return;
+        };
         let sock = self.dir.join(SOCKET);
         if fs::symlink_metadata(&sock).is_ok_and(|m| (m.dev(), m.ino()) == (self.dev, self.ino)) {
             let _ = fs::remove_file(&sock);
@@ -692,6 +783,149 @@ mod tests {
         }
     }
 
+    #[test]
+    fn xdg_runtime_dir_is_used_only_when_private() {
+        let uid = getuid();
+        let tmp = TempDir::new("ipc-xdg");
+        let fallback = tmp.join(format!("mdview-{uid}"));
+        let find = |rt: &Path| find_socket_dir(Some(rt.into()), || tmp.to_path_buf(), uid);
+        let rt = tmp.join("rt");
+        fs::DirBuilder::new().mode(0o700).create(&rt).unwrap();
+        assert_eq!(find(&rt).unwrap(), rt);
+        assert!(!fallback.exists(), "looked at the fallback needlessly");
+        // Not private, a symlink, a file or missing: the private fallback.
+        for bits in [0o755, 0o750, 0o701, 0o777] {
+            fs::set_permissions(&rt, Permissions::from_mode(bits)).unwrap();
+            assert_eq!(find(&rt).unwrap(), fallback, "{bits:o}");
+            assert_eq!(mode(&rt), bits, "the runtime dir must be left alone");
+        }
+        fs::set_permissions(&rt, Permissions::from_mode(0o700)).unwrap();
+        let link = tmp.join("rt-link");
+        std::os::unix::fs::symlink(&rt, &link).unwrap();
+        assert_eq!(find(&link).unwrap(), fallback);
+        fs::write(tmp.join("rt-file"), "").unwrap();
+        fs::set_permissions(tmp.join("rt-file"), Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(find(&tmp.join("rt-file")).unwrap(), fallback);
+        assert_eq!(find(&tmp.join("rt-missing")).unwrap(), fallback);
+        assert!(!tmp.join("rt-missing").exists(), "created XDG_RUNTIME_DIR");
+        // Someone else's (simulated, as we can't chown): nothing is trusted,
+        // and our temp dir isn't theirs either.
+        let other = uid.wrapping_add(1);
+        let err = find_socket_dir(Some(rt.clone().into()), || tmp.to_path_buf(), other);
+        assert!(err.unwrap_err().to_string().contains("owned by uid"));
+        let err = check_private(&rt, &lstat(&rt).unwrap(), other, Kind::Dir).unwrap_err();
+        assert!(err.to_string().contains("owned by uid"), "{err}");
+        // Unset or relative: the fallback, without needing a check.
+        for var in [None, Some(OsString::from("relative"))] {
+            let got = find_socket_dir(var, || tmp.to_path_buf(), uid).unwrap();
+            assert_eq!(got, fallback);
+        }
+    }
+
+    #[test]
+    fn shared_temp_dir_must_be_sticky_or_private() {
+        let uid = getuid();
+        let tmp = TempDir::new("ipc-tmpdir");
+        let dir = tmp.join("t");
+        fs::create_dir(&dir).unwrap();
+        // Nobody else may write, or the sticky bit stops them renaming our
+        // entries (only the owner of an entry may rename it).
+        for bits in [0o700, 0o755, 0o711, 0o1777, 0o1770, 0o1757] {
+            fs::set_permissions(&dir, Permissions::from_mode(bits)).unwrap();
+            shared_parent(&dir, uid).unwrap_or_else(|e| panic!("{bits:o}: {e}"));
+        }
+        for bits in [0o777, 0o775, 0o757, 0o770, 0o702, 0o720] {
+            fs::set_permissions(&dir, Permissions::from_mode(bits)).unwrap();
+            let err = shared_parent(&dir, uid).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{bits:o}");
+            assert!(err.to_string().contains("not sticky"), "{err}");
+            // And it isn't used: no mdview-$UID is created in it.
+            assert!(find_socket_dir(None, || dir.clone(), uid).is_err());
+            assert!(!dir.join(format!("mdview-{uid}")).exists(), "{bits:o}");
+        }
+        fs::set_permissions(&dir, Permissions::from_mode(0o700)).unwrap();
+        // Its owner can rename anything in it, so it must be us or root.
+        if uid != 0 {
+            let err = shared_parent(&dir, uid.wrapping_add(1)).unwrap_err();
+            assert!(err.to_string().contains("or root"), "{err}");
+        }
+        // A symlink to a good directory is fine (macOS's /var is one); a file
+        // or a missing directory isn't.
+        let link = tmp.join("link");
+        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        shared_parent(&link, uid).unwrap();
+        fs::write(tmp.join("file"), "").unwrap();
+        assert!(shared_parent(&tmp.join("file"), uid).is_err());
+        assert!(shared_parent(&tmp.join("missing"), uid).is_err());
+    }
+
+    #[test]
+    fn lock_file_must_be_our_private_regular_file() {
+        let tmp = TempDir::new("ipc-lockfile");
+        let path = tmp.join(LOCK);
+        // A symlink is not followed: neither to create the target...
+        let target = tmp.join("target");
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        assert!(lock(&tmp).is_err());
+        assert!(!target.exists(), "followed a dangling lock symlink");
+        // ...nor to open an existing one.
+        fs::write(&target, "keep").unwrap();
+        fs::set_permissions(&target, Permissions::from_mode(0o600)).unwrap();
+        assert!(lock(&tmp).is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "keep");
+        fs::remove_file(&path).unwrap();
+        // Readable or writable by others.
+        fs::write(&path, "").unwrap();
+        fs::set_permissions(&path, Permissions::from_mode(0o644)).unwrap();
+        let err = lock(&tmp).unwrap_err();
+        assert!(err.to_string().contains("mode 644"), "{err}");
+        fs::remove_file(&path).unwrap();
+        // A FIFO must neither be accepted nor block the launch.
+        let fifo = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert!(lock(&tmp).is_err());
+        fs::remove_file(&path).unwrap();
+        // A directory.
+        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        assert!(lock(&tmp).is_err());
+        fs::remove_dir(&path).unwrap();
+        // Owned by someone else (simulated).
+        fs::write(&path, "").unwrap();
+        fs::set_permissions(&path, Permissions::from_mode(0o600)).unwrap();
+        let meta = fs::symlink_metadata(&path).unwrap();
+        let err = check_private(&path, &meta, getuid().wrapping_add(1), Kind::File).unwrap_err();
+        assert!(err.to_string().contains("owned by uid"), "{err}");
+        // Our own private file is fine, and created that way when missing.
+        lock(&tmp).unwrap();
+        fs::remove_file(&path).unwrap();
+        lock(&tmp).unwrap();
+        assert_eq!(mode(&path), 0o600);
+        assert!(fs::symlink_metadata(&path).unwrap().is_file());
+    }
+
+    #[test]
+    fn release_without_the_lock_leaves_the_socket() {
+        // If the lock can't be taken, a starting instance might be replacing
+        // the socket right now: don't unlink anything.
+        let dir = TempDir::new("ipc-nolock");
+        let (_server, owned) = bound(&dir);
+        fs::remove_file(dir.join(LOCK)).unwrap();
+        std::os::unix::fs::symlink(dir.join("elsewhere"), dir.join(LOCK)).unwrap();
+        owned.release();
+        assert!(dir.join(SOCKET).exists(), "unlinked without the lock");
+    }
+
+    #[test]
+    fn socket_and_lock_names_carry_the_protocol_version() {
+        // Version 1 (one path per line) used mdview.sock and mdview.lock.
+        assert_eq!((SOCKET, LOCK), ("mdview-2.sock", "mdview-2.lock"));
+        let dir = TempDir::new("ipc-v1");
+        let v1 = UnixListener::bind(dir.join("mdview.sock")).unwrap();
+        v1.set_nonblocking(true).unwrap();
+        let (_server, _owned) = bound(&dir);
+        assert!(v1.accept().is_err(), "connected to a version 1 instance");
+    }
+
     // ------------------------------------------------------------- serving
 
     #[test]
@@ -707,6 +941,8 @@ mod tests {
             b"/a.md\n/b.md",
             &[5, 0, 0, 0, 9, 0, 0, 0, b'x'],
             &[4, 0, 0, 0, 1, 0],
+            &[4, 0, 0, 0, 0, 0, 0, 0],    // an empty path
+            &[5, 0, 0, 0, 1, 0, 0, 0, 0], // a NUL byte
         ] {
             let mut client = UnixStream::connect(&path).unwrap();
             client.write_all(bad).unwrap();
@@ -782,17 +1018,22 @@ mod tests {
         // A long timeout: rejecting must not wait for the client.
         let rx = serve_n(server_with_timeout(&path, Duration::from_secs(60)), 2);
         let start = Instant::now();
+        // Only the header: the server may close the connection as soon as
+        // it has read it, so a second write could fail with EPIPE. The
+        // clients stay open until the good message is through, so the
+        // server can't be waiting for them to hang up.
+        let mut bad = Vec::new();
         for header in [cli::MAX_MESSAGE as u32 + 1, u32::MAX] {
             let mut s = UnixStream::connect(&path).unwrap();
             s.write_all(&header.to_le_bytes()).unwrap();
-            s.write_all(&[0; 64]).unwrap();
-            std::mem::forget(s); // keep the connection open
+            bad.push(s);
         }
         let mut good = UnixStream::connect(&path).unwrap();
         good.write_all(&message(&["/ok.md"])).unwrap();
         drop(good);
         assert_eq!(rx.recv_timeout(WAIT).unwrap(), [PathBuf::from("/ok.md")]);
         assert!(start.elapsed() < WAIT);
+        drop(bad);
 
         // A message of exactly MAX_MESSAGE still goes through.
         let big = PathBuf::from(OsStr::from_bytes(&vec![b'a'; cli::MAX_MESSAGE - 4]));

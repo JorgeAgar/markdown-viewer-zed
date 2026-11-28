@@ -3443,6 +3443,7 @@ dependencies = [
  "futures",
  "gpui",
  "image",
+ "libc",
  "mdview-core",
  "merman",
  "ratex-layout",

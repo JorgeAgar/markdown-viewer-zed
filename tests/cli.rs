@@ -14,7 +14,7 @@
 //! ```
 //!
 //! Wire format (`cli::encode_paths`): the client connects to
-//! `$XDG_RUNTIME_DIR/mdview.sock` (or `$TMPDIR/mdview-$UID/mdview.sock`), writes a
+//! `$XDG_RUNTIME_DIR/mdview-2.sock` (or `$TMPDIR/mdview-$UID/mdview-2.sock`), writes a
 //! little-endian `u32` body length, then each absolute path as a `u32` byte
 //! count and its raw OS bytes, and closes the connection. [`read_handoff`]
 //! decodes it independently of the app's code.
@@ -39,6 +39,8 @@ use std::{
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 const BIN: &str = env!("CARGO_BIN_EXE_mdview");
+/// The socket name carries the wire-protocol version (see unix.rs).
+const SOCKET: &str = "mdview-2.sock";
 /// The warm path should take milliseconds; this only catches hangs and
 /// accidental GUI startup, with plenty of slack for a loaded CI machine.
 const WARM_TIMEOUT: Duration = Duration::from_secs(5);
@@ -49,7 +51,7 @@ const WARM_TIMEOUT: Duration = Duration::from_secs(5);
 fn help_prints_usage_and_exits_zero() {
     for flag in ["--help", "-h"] {
         let rt = TempDir::new("rt");
-        let listener = UnixListener::bind(rt.join("mdview.sock")).unwrap();
+        let listener = UnixListener::bind(rt.join(SOCKET)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let out = run(mdview(&rt).arg(flag), WARM_TIMEOUT);
         assert!(out.status.success(), "mdview {flag}: {}", describe(&out));
@@ -74,7 +76,7 @@ fn help_prints_usage_and_exits_zero() {
 #[test]
 fn help_wins_over_paths() {
     let rt = TempDir::new("rt");
-    let listener = UnixListener::bind(rt.join("mdview.sock")).unwrap();
+    let listener = UnixListener::bind(rt.join(SOCKET)).unwrap();
     listener.set_nonblocking(true).unwrap();
     let out = run(mdview(&rt).args(["a.md", "-h", "b.md"]), WARM_TIMEOUT);
     assert!(out.status.success(), "{}", describe(&out));
@@ -174,7 +176,7 @@ fn warm_path_keeps_newlines_carriage_returns_and_non_utf8_bytes() {
         b"plain.md",
     ];
     let rt = TempDir::new("rt");
-    let listener = UnixListener::bind(rt.join("mdview.sock")).unwrap();
+    let listener = UnixListener::bind(rt.join(SOCKET)).unwrap();
     let mut cmd = mdview(&rt);
     cmd.current_dir(&work);
     for n in names {
@@ -211,7 +213,7 @@ fn warm_path_falls_back_to_tmpdir_without_xdg_runtime_dir() {
         let dir = tmp.join(format!("mdview-{uid}"));
         std::fs::create_dir(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let listener = UnixListener::bind(dir.join("mdview.sock")).unwrap();
+        let listener = UnixListener::bind(dir.join(SOCKET)).unwrap();
         let mut cmd = Command::new(BIN);
         cmd.current_dir(&tmp)
             .arg("x.md")
@@ -239,7 +241,7 @@ fn warm_path_refuses_a_socket_dir_other_users_can_enter() {
     let dir = tmp.join(format!("mdview-{uid}"));
     std::fs::create_dir(&dir).unwrap();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
-    let listener = UnixListener::bind(dir.join("mdview.sock")).unwrap();
+    let listener = UnixListener::bind(dir.join(SOCKET)).unwrap();
     listener.set_nonblocking(true).unwrap();
     let mut cmd = Command::new(BIN);
     cmd.current_dir(&tmp)
@@ -258,13 +260,109 @@ fn warm_path_refuses_a_socket_dir_other_users_can_enter() {
     );
 }
 
+/// Accepts one connection on `listener` in the background.
+fn accept_one(listener: UnixListener) -> mpsc::Receiver<Vec<PathBuf>> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        if let Ok((mut s, _)) = listener.accept() {
+            let _ = tx.send(read_handoff(&mut s));
+        }
+    });
+    rx
+}
+
+#[test]
+fn warm_path_ignores_an_xdg_runtime_dir_others_can_enter() {
+    // The XDG spec requires mode 0700 and the user's ownership. Anything
+    // else is not trusted: mdview warns and uses the private fallback.
+    let rt = TempDir::new("rt");
+    std::fs::set_permissions(rt.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let planted = UnixListener::bind(rt.join(SOCKET)).unwrap();
+    planted.set_nonblocking(true).unwrap();
+    let tmp = TempDir::new("tmp");
+    let uid = std::fs::metadata(tmp.path()).unwrap().uid();
+    let dir = tmp.join(format!("mdview-{uid}"));
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let rx = accept_one(UnixListener::bind(dir.join(SOCKET)).unwrap());
+    std::fs::write(tmp.join("x.md"), "x").unwrap();
+    let mut cmd = mdview(&rt);
+    cmd.current_dir(&tmp).arg("x.md").env("TMPDIR", tmp.path());
+    let out = run(&mut cmd, WARM_TIMEOUT);
+    assert!(out.status.success(), "{}", describe(&out));
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        [canon(&tmp.join("x.md"))]
+    );
+    assert!(
+        planted.accept().is_err(),
+        "trusted a public XDG_RUNTIME_DIR"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("not using XDG_RUNTIME_DIR") && stderr.contains("mode 755"),
+        "{}",
+        describe(&out)
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn warm_path_refuses_a_tmpdir_others_can_rename_entries_in() {
+    // In a world-writable temp dir without the sticky bit, anyone can rename
+    // our private mdview-$UID away and put theirs in its place between the
+    // check and the connect. mdview must not use it at all.
+    let tmp = TempDir::new("tmp");
+    let shared = tmp.join("shared");
+    std::fs::create_dir(&shared).unwrap();
+    let uid = std::fs::metadata(tmp.path()).unwrap().uid();
+    let dir = shared.join(format!("mdview-{uid}"));
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let listener = UnixListener::bind(dir.join(SOCKET)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let mut cmd = Command::new(BIN);
+    cmd.current_dir(&tmp)
+        .arg("x.md")
+        .env_remove("XDG_RUNTIME_DIR")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .env("TMPDIR", &shared);
+    let out = run(&mut cmd, Duration::from_secs(20));
+    assert!(
+        listener.accept().is_err(),
+        "used a non-sticky shared TMPDIR"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("single-instance socket unavailable") && stderr.contains("not sticky"),
+        "{}",
+        describe(&out)
+    );
+}
+
+#[test]
+fn warm_path_never_talks_to_a_version_1_instance() {
+    // mdview before the binary format listened on mdview.sock and read one
+    // path per line. A new client must not write frames to it (they'd be
+    // dropped while both sides report success): it uses its own socket.
+    let rt = TempDir::new("rt");
+    let old = UnixListener::bind(rt.join("mdview.sock")).unwrap();
+    old.set_nonblocking(true).unwrap();
+    let (status, msgs) = handoff_raw(&rt, rt.path(), &["a.md"], &[]);
+    assert!(status.success());
+    assert_eq!(msgs, [vec![canon(rt.path()).join("a.md")]]);
+    assert!(old.accept().is_err(), "wrote to a version 1 socket");
+}
+
 #[test]
 fn unknown_flags_are_not_silently_dropped() {
     // mdview has no other flags today, so `--frobnicate` is treated as a file
     // name. Rejecting it with an error would also be fine; what must not
     // happen is a crash, a hang or a window.
     let rt = TempDir::new("rt");
-    let listener = UnixListener::bind(rt.join("mdview.sock")).unwrap();
+    let listener = UnixListener::bind(rt.join(SOCKET)).unwrap();
     let mut cmd = mdview(&rt);
     cmd.current_dir(&rt).arg("--frobnicate");
     let child = cmd
@@ -299,12 +397,12 @@ fn unknown_flags_are_not_silently_dropped() {
 #[cfg(target_os = "linux")]
 #[test]
 fn stale_socket_is_replaced() {
-    // A crashed instance leaves mdview.sock behind with nobody listening.
+    // A crashed instance leaves mdview-2.sock behind with nobody listening.
     // mdview must not hang on it or treat it as a running instance: it removes
     // it and becomes the server itself. With no display it then fails to open
     // a window, which is fine here.
     let rt = TempDir::new("rt");
-    let sock = rt.join("mdview.sock");
+    let sock = rt.join(SOCKET);
     drop(UnixListener::bind(&sock).unwrap());
     // Keep a second link to the stale socket so its inode stays allocated:
     // otherwise the filesystem may hand the same inode number to the new
@@ -453,7 +551,7 @@ fn window_instance_accepts_handoff_and_replaces_stale_socket() {
     }
     let _guard = WINDOW.lock().unwrap_or_else(|e| e.into_inner());
     let rt = TempDir::new("rt");
-    let sock = rt.join("mdview.sock");
+    let sock = rt.join(SOCKET);
     drop(UnixListener::bind(&sock).unwrap()); // stale socket
     let a = repo().join("examples/demo.md");
     let b = repo().join("examples/second.md");
@@ -575,7 +673,7 @@ fn handoff_raw(
     args: &[&str],
     env: &[(&str, &str)],
 ) -> (ExitStatus, Vec<Vec<PathBuf>>) {
-    let listener = UnixListener::bind(rt.join("mdview.sock")).unwrap();
+    let listener = UnixListener::bind(rt.join(SOCKET)).unwrap();
     let mut cmd = mdview(rt);
     cmd.current_dir(cwd).args(args);
     for (k, v) in env {
@@ -732,8 +830,8 @@ fn lexical(p: &Path) -> PathBuf {
     out
 }
 
-/// A temp directory removed on drop. std only: the tests add no
-/// dependencies.
+/// A temp directory removed on drop, mode 0700 so it passes as a private
+/// `XDG_RUNTIME_DIR`. std only: the tests add no dependencies.
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -746,6 +844,7 @@ impl TempDir {
         ));
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o700)).unwrap();
         TempDir(p)
     }
 

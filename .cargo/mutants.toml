@@ -151,6 +151,10 @@ exclude_re = [
     # parsing item inlines.
     '''^crates/mdview-core/src/markdown\.rs:542:17: delete match arm Event::TaskListMarker\(c\) in P<'a>::inlines$''',
 
+    # O_NOFOLLOW and O_NONBLOCK have disjoint bits on every platform; OR and
+    # XOR produce the same open flags.
+    '''^src/platform/unix\.rs:187:40: replace \| with \^ in lock$''',
+
     # Exact float equality at the cutoffs: at |v| == FLING_STOP the next tick
     # stops anyway; a step of exactly max_step leaves a carry of 0 either way.
     '''^src/scroll\.rs:164:46: replace < with <= in Motion::tick$''',
