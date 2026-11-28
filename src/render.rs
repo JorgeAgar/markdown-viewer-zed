@@ -871,8 +871,17 @@ fn http_url(url: &str) -> Option<String> {
         .find_map(|scheme| after_scheme(url, scheme).map(|rest| format!("{scheme}{rest}")))
 }
 
+fn has_authority_scheme(url: &str) -> bool {
+    let Some((scheme, _)) = url.split_once("://") else {
+        return false;
+    };
+    let mut bytes = scheme.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+}
+
 fn image_is_link(url: &str) -> bool {
-    (url.contains("://") && http_url(url).is_none()) || after_scheme(url, "data:").is_some()
+    (has_authority_scheme(url) && http_url(url).is_none()) || after_scheme(url, "data:").is_some()
 }
 
 fn image_source(url: &str, base_dir: &Path) -> gpui::ImageSource {
@@ -912,6 +921,9 @@ mod image_tests {
             "a.png",
             "data.png",
             "https.png",
+            "fig.svg?source=https://example.com",
+            "fig.svg#https://example.com",
+            "dir/foo://bar.png",
         ] {
             assert!(!image_is_link(url), "{url}");
         }
@@ -952,6 +964,8 @@ mod image_tests {
             ("a%20b.svg?raw=true#top", "/docs/a b.svg"),
             ("a%23b.png", "/docs/a#b.png"),
             ("a%3Fb.png#x?y", "/docs/a?b.png"),
+            ("fig.svg?source=https://example.com", "/docs/fig.svg"),
+            ("fig.svg#https://example.com", "/docs/fig.svg"),
         ] {
             assert!(
                 matches!(image_source(url, Path::new("/docs")),

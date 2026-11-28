@@ -544,12 +544,13 @@ impl<'a> P<'a> {
                     rich.push(&t, style, link)
                 }
                 Event::Code(t) => {
-                    other |= !t.is_empty();
+                    other |= !t.trim().is_empty();
                     rich.push(&t, style | CODE, link)
                 }
                 Event::InlineMath(t) | Event::DisplayMath(t) => {
-                    other |= !t.trim().is_empty();
-                    rich.push_math(&t, style, link)
+                    let before = rich.text.len();
+                    rich.push_math(&t, style, link);
+                    other |= !rich.text[before..].trim().is_empty();
                 }
                 Event::InlineHtml(h) => {
                     if is_br(&h) {
@@ -1048,5 +1049,17 @@ mod tests {
         };
         // `<Br/ >` isn't an HTML tag for CommonMark, so it stays text.
         assert_eq!(p.text, "a\nb\nc\nd\ne<Br/ >f\ng\nhijk");
+    }
+
+    #[test]
+    fn invisible_inline_math_or_blank_code_does_not_suppress_standalone_image() {
+        for src in ["![alt](logo.png) $\\relax$", "![alt](logo.png) ` `"] {
+            let doc = parse(src);
+            assert!(
+                matches!(&doc.blocks[..], [Block::Images(imgs)] if imgs.len() == 1 && imgs[0].url == "logo.png"),
+                "{src:?}: {:?}",
+                doc.blocks
+            );
+        }
     }
 }

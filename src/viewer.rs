@@ -108,12 +108,20 @@ struct ThumbDrag {
     content: f32,
 }
 
-/// Source of `Tab::id`.
+/// Source of unique `Tab::id` and `Tab::doc_id` values.
 static NEXT_TAB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn next_id() -> u64 {
+    NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 struct Tab {
     /// Unique among tabs, so a scrollbar drag knows if its tab is still active.
     id: u64,
+    /// Fresh on every tab creation and document reload, scoping per-row GPUI
+    /// element state (e.g. animated `img` frame indices) so another tab or
+    /// replaced image never inherits an out-of-bounds frame index.
+    doc_id: u64,
     path: PathBuf,
     base_dir: Arc<Path>,
     title: SharedString,
@@ -186,7 +194,8 @@ impl Tab {
         let rows = Arc::new(Rows::from_document(&doc));
         let list = ListState::new(rows.len(), ListAlignment::Top, px(LIST_OVERDRAW));
         Self {
-            id: NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            id: next_id(),
+            doc_id: next_id(),
             path,
             base_dir,
             title,
@@ -350,6 +359,7 @@ impl Tab {
         // A glide would move before the new rows are laid out (all 0 px).
         self.motion.stop();
         self.code_scroll.borrow_mut().clear();
+        self.doc_id = next_id();
         self.doc = Arc::new(doc);
         self.rows = rows;
         self.mtime = mtime;
@@ -923,12 +933,17 @@ impl Render for Viewer {
                 };
                 let doc = tab.doc.clone();
                 let rows = tab.rows.clone();
-                list(tab.list.clone(), move |ix, window, cx| {
-                    render::render_row(&doc, &rows[ix], ix, &rcx, window, cx)
-                })
-                .without_scroll_wheel()
-                .size_full()
-                .into_any_element()
+                div()
+                    .id(("tab-doc", tab.doc_id))
+                    .size_full()
+                    .child(
+                        list(tab.list.clone(), move |ix, window, cx| {
+                            render::render_row(&doc, &rows[ix], ix, &rcx, window, cx)
+                        })
+                        .without_scroll_wheel()
+                        .size_full(),
+                    )
+                    .into_any_element()
             }
             None => self.render_empty(&theme).into_any_element(),
         };

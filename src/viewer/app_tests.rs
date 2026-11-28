@@ -2096,3 +2096,90 @@ fn linked_images_follow_their_link() {
     assert_eq!(cx.opened_url(), None);
     assert_eq!(titles(&v, cx), ["index.md", "docs.md"]);
 }
+
+#[test]
+fn switching_or_reloading_from_animated_gif_to_static_png_does_not_panic() {
+    // Regression: GPUI indexes `RenderImage::data[frame_index]` from the
+    // persisted `ImgState`. If two tabs (or a reloaded document) shared the
+    // same `GlobalElementId`, switching from an animated GIF on frame >= 1 to
+    // a 1-frame PNG at the same row panicked out-of-bounds.
+    let dir = TempDir::new("gif-switch");
+    let base = normalize(&dir);
+    {
+        // GIF delays are stored in 10 ms centiseconds: 10 ms for frame 0, then
+        // 60 s for frame 1 so `frame_index` stays at 1 after advancing.
+        let mut gif = image::codecs::gif::GifEncoder::new(
+            std::fs::File::create(base.join("anim.gif")).unwrap(),
+        );
+        gif.encode_frames([frame(10, 10), frame(10, 60_000)])
+            .unwrap();
+    }
+    image::RgbaImage::new(20, 20)
+        .save(base.join("still.png"))
+        .unwrap();
+
+    let (v, cx) = open(vec![
+        (base.join("png.md"), parsed("![still](still.png)")),
+        (base.join("gif.md"), parsed("![anim](anim.gif)")),
+    ]);
+    // Wait for `anim.gif` to decode (height 10 px -> row 58 px), then advance
+    // past its 10 ms frame 0 delay into frame 1.
+    for _ in 0..4 {
+        cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let gif_row_h = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .map(|b| f32::from(b.size.height))
+    });
+    assert_eq!(gif_row_h, Some(32. + 10. + 16.));
+
+    // Switch to `png.md` (1-frame PNG at row 0): must not inherit frame 1.
+    // Pump one extra frame so the async PNG decode finishes and lays out.
+    cx.dispatch_action(NextTab);
+    cx.run_until_parked();
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    assert_eq!(active(&v, cx).as_deref(), Some("png.md"));
+    let png_row_h = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .map(|b| f32::from(b.size.height))
+    });
+    assert_eq!(png_row_h, Some(32. + 20. + 16.));
+
+    // Switch back to `gif.md`, advance past frame 0 again, then live-reload to
+    // the 1-frame PNG at row 0: must not panic either.
+    cx.dispatch_action(PrevTab);
+    for _ in 0..4 {
+        cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    cx.update(|_, cx| {
+        v.update(cx, |this, cx| {
+            this.tabs
+                .active_mut()
+                .unwrap()
+                .replace(parsed("![still](still.png)"));
+            cx.notify();
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+    let reloaded_h = cx.update(|_, cx| {
+        v.read(cx)
+            .active_list()
+            .unwrap()
+            .bounds_for_item(0)
+            .map(|b| f32::from(b.size.height))
+    });
+    assert_eq!(reloaded_h, Some(32. + 20. + 16.));
+}
