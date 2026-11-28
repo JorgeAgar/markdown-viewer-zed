@@ -208,7 +208,8 @@ classDiagram
   another section (`Rows::remap_row`, see [rendering.md](rendering.md)). Live
   reload and `Ctrl+R` both use it. Then `forget_images` drops the document's
   local images from GPUI's cache so they're read again: all of them for
-  `Ctrl+R`, the ones modified since the last load for live reload (see
+  `Ctrl+R`, and those whose on-disk state changed (appeared, vanished, or
+  changed mtime/size) for live reload (see
   [rendering.md](rendering.md#markdown-images)).
 - The open-file dialog (`Ctrl+O` / `Cmd+O`) starts in the active tab's parent
   directory, falling back to `last_open_dir` (in-memory only, updated as files

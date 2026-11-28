@@ -740,16 +740,22 @@ fn live_reload_reads_only_changed_local_images_again() {
     let dir = TempDir::new("live-image");
     let doc = normalize(&dir.join("a.md"));
     let base = doc.parent().unwrap();
-    let (same, changed, missing) = (
+    let (same, changed, missing, removed, backdated) = (
         base.join("same.svg"),
         base.join("changed.svg"),
         base.join("missing.svg"),
+        base.join("removed.svg"),
+        base.join("backdated.svg"),
     );
     std::fs::write(&same, square_svg("red")).unwrap();
     std::fs::write(&changed, square_svg("red")).unwrap();
+    std::fs::write(&removed, square_svg("red")).unwrap();
+    std::fs::write(&backdated, square_svg("red")).unwrap();
     set_mtime(&same, 1_000);
     set_mtime(&changed, 1_000);
-    let src = "![s](same.svg) ![c](changed.svg) ![m](missing.svg)\n";
+    set_mtime(&removed, 1_000);
+    set_mtime(&backdated, 1_000);
+    let src = "![s](same.svg) ![c](changed.svg) ![m](missing.svg) ![r](removed.svg) ![b](backdated.svg)\n";
     std::fs::write(&doc, src).unwrap();
     set_mtime(&doc, 1_000);
     let (_v, cx) = open(vec![load(doc.clone())]);
@@ -759,10 +765,16 @@ fn live_reload_reads_only_changed_local_images_again() {
     };
     assert!(matches!(cached_image(cx, &changed), Some(Ok((RED, _)))));
     assert_eq!(cached_image(cx, &missing), Some(Err(())));
+    assert!(matches!(cached_image(cx, &removed), Some(Ok((RED, _)))));
+    assert!(matches!(cached_image(cx, &backdated), Some(Ok((RED, _)))));
 
-    // Saved: `changed.svg` now, `missing.svg` created; the document too.
+    // Saved: `changed.svg` updated, `missing.svg` created, `removed.svg`
+    // deleted, `backdated.svg` replaced with an older mtime; the document too.
     std::fs::write(&changed, square_svg("blue")).unwrap();
     std::fs::write(&missing, square_svg("blue")).unwrap();
+    std::fs::remove_file(&removed).unwrap();
+    std::fs::write(&backdated, square_svg("blue")).unwrap();
+    set_mtime(&backdated, 500);
     std::fs::write(&doc, format!("{src}\nEdited.\n")).unwrap();
     set_mtime(&doc, 2_000);
     cx.executor().advance_clock(Duration::from_millis(800));
@@ -774,6 +786,15 @@ fn live_reload_reads_only_changed_local_images_again() {
     );
     assert!(matches!(cached_image(cx, &changed), Some(Ok((BLUE, _)))));
     assert!(matches!(cached_image(cx, &missing), Some(Ok((BLUE, _)))));
+    assert_eq!(
+        cached_image(cx, &removed),
+        Some(Err(())),
+        "deleted image must not keep stale pixels"
+    );
+    assert!(
+        matches!(cached_image(cx, &backdated), Some(Ok((BLUE, _)))),
+        "backdated replacement must be reloaded"
+    );
 
     // `Ctrl+R` reads every image again, changed or not.
     cx.dispatch_action(Reload);
@@ -2260,4 +2281,43 @@ fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
     wheel_lines(cx, -1.);
     settle(&v, cx);
     assert!(gap(&v, cx).abs() < 0.01, "{}", gap(&v, cx));
+}
+
+#[test]
+fn scroll_to_reveal_item_on_exact_row_boundary_keeps_target_visible() {
+    // 10 items of 50 px each inside a 100 px viewport: revealing item 2 sets
+    // goal_top = 150 - 100 = 50 px (exact boundary between item 0 and item 1).
+    // With Bias::Right this normalizes to (item 1, 0 px) instead of (item 0,
+    // 50 px), which the stale-offset clamp would rewind to (item 0, 0 px) and
+    // clip item 2.
+    struct FixedList(ListState);
+    impl Render for FixedList {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().w(px(200.)).h(px(100.)).child(
+                list(self.0.clone(), |_, _, _| {
+                    div().h(px(50.)).into_any_element()
+                })
+                .size_full(),
+            )
+        }
+    }
+
+    let mut cx = TestAppContext::single();
+    let state = ListState::new(10, ListAlignment::Top, px(200.));
+    let (view, cx) = cx.add_window_view(|_, _| FixedList(state.clone()));
+    cx.run_until_parked();
+
+    state.scroll_to_reveal_item(2);
+    cx.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+    cx.run_until_parked();
+
+    let top = state.logical_scroll_top();
+    assert_eq!(top.item_ix, 1, "expected item 1 at exact boundary: {top:?}");
+    assert_eq!(top.offset_in_item, px(0.), "{top:?}");
+    let b2 = state.bounds_for_item(2).expect("item 2 visible");
+    assert!(
+        b2.bottom() <= state.viewport_bounds().bottom() + px(0.5),
+        "item 2 clipped: {b2:?} vs {:?}",
+        state.viewport_bounds()
+    );
 }

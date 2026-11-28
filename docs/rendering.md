@@ -221,10 +221,11 @@ GPU textures; the next frame reads them from disk again:
 
 - `Ctrl+R` / `F5` forgets every local image of the document, so a missing
   image that was created since, or one replaced at the same path, shows up.
-- Live reload only forgets images whose file was modified since the
-  document was last loaded (with a 2 s margin for coarse file timestamps),
-  so unchanged images don't blink on every save. An image changed before
-  another tab cached it, or with an mtime set back, needs `Ctrl+R`.
+- Live reload compares each local image's on-disk state (existence, mtime, and
+  byte length) against what the tab saw on its previous load, forgetting only
+  images that changed, appeared, or disappeared so unchanged images don't blink
+  on every save. An image replaced in place with identical mtime and byte length
+  still needs `Ctrl+R`.
 
 Remote images stay cached.
 

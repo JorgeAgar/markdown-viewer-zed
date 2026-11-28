@@ -385,7 +385,10 @@ impl ListState {
             let bottom = cursor.start().height + padding.top;
             let goal_top = px(0.).max(bottom - height + padding.bottom);
 
-            cursor.seek(&Height(goal_top), Bias::Left);
+            // mdview: Bias::Right normalizes exact row boundaries to the next
+            // item at offset 0 rather than the previous item at offset == height,
+            // matching `StateInner::scroll` and the stale-offset clamp below.
+            cursor.seek(&Height(goal_top), Bias::Right);
             let start_ix = cursor.start().count;
             let start_item_top = cursor.start().height;
 

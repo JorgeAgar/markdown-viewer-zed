@@ -290,9 +290,6 @@ pub fn find_moved<T: Hash + Eq>(old: &[T], new: &[T], ix: usize) -> Option<Moved
         return None;
     }
     let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
-    if ix < prefix {
-        return Some(Moved::Same(ix));
-    }
     let suffix = old[prefix..]
         .iter()
         .rev()
@@ -300,8 +297,17 @@ pub fn find_moved<T: Hash + Eq>(old: &[T], new: &[T], ix: usize) -> Option<Moved
         .take_while(|(a, b)| a == b)
         .count();
     let (old_end, new_end) = (old.len() - suffix, new.len() - suffix);
-    if ix >= old_end {
+    if ix < prefix && !new[prefix..new_end].contains(&old[ix]) {
+        return Some(Moved::Same(ix));
+    }
+    if ix >= old_end && !new[prefix..new_end].contains(&old[ix]) {
         return Some(Moved::Same(ix - old_end + new_end));
+    }
+    if ix < prefix || ix >= old_end {
+        // A copy of `old[ix]` was inserted in the changed middle (e.g. a new
+        // `### Added` section above an existing `### Added`), so let
+        // neighboring unique anchors decide which copy `old[ix]` belongs to.
+        return Some(match_changed(old, new, ix));
     }
     let moved = match match_changed(&old[prefix..old_end], &new[prefix..new_end], ix - prefix) {
         Moved::Same(j) => Moved::Same(prefix + j),
@@ -1460,5 +1466,20 @@ mod tests {
         assert_eq!(&tied[by_bytes], "😀a");
         assert_eq!(&tied[by_non_ascii], "😀a");
         assert_eq!(&tied[by_tabs], "😀a");
+    }
+
+    #[test]
+    fn find_moved_uses_neighboring_anchors_for_repeated_prefix_and_suffix_blocks() {
+        // Prepending a duplicate `### Added` section above an existing
+        // `### Added` + `Old entry` must stay on the original `### Added`.
+        let old = ["### Added", "Old entry"];
+        let new = ["### Added", "New entry", "### Added", "Old entry"];
+        assert_eq!(find_moved(&old, &new, 0), Some(Moved::Same(2)));
+
+        // Symmetric suffix case: appending a duplicate `### Added` below
+        // `Old entry` + `### Added` must stay on the original `### Added`.
+        let old_s = ["Old entry", "### Added"];
+        let new_s = ["Old entry", "### Added", "New entry", "### Added"];
+        assert_eq!(find_moved(&old_s, &new_s, 1), Some(Moved::Same(1)));
     }
 }

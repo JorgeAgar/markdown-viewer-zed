@@ -87,8 +87,11 @@ was still the scroll top. That happens when an offset is restored after a
 `reset` (mdview reloading a file whose paragraph at the top got shorter), or
 after the item shrank (a width change). When the scroll-top item is measured
 and the offset is at or past its end, `layout_items` now starts at the item's
-top. Offsets reached by scrolling are always inside their item, so they're
-unaffected. Tested in mdview's `src/viewer/app_tests.rs`
+top. `scroll_to_reveal_item` also seeks with `Bias::Right` (matching
+`StateInner::scroll`) so exact row boundaries normalize to the next item at
+offset 0 instead of the previous item at `offset == height`. Offsets reached by
+scrolling are always inside their item, so they're unaffected. Tested in
+mdview's `src/viewer/app_tests.rs`
 (`list_starts_at_the_top_of_an_item_shorter_than_the_offset`).
 
 ## 8. Take an asset out of the cache

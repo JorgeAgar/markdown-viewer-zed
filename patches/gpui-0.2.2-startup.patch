@@ -50,7 +50,19 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/eleme
      /// Set the sizing behavior for the list.
      pub fn with_sizing_behavior(mut self, behavior: ListSizingBehavior) -> Self {
          self.sizing_behavior = behavior;
-@@ -473,6 +483,30 @@
+@@ -375,7 +385,10 @@
+             let bottom = cursor.start().height + padding.top;
+             let goal_top = px(0.).max(bottom - height + padding.bottom);
+ 
+-            cursor.seek(&Height(goal_top), Bias::Left);
++            // mdview: Bias::Right normalizes exact row boundaries to the next
++            // item at offset 0 rather than the previous item at offset == height,
++            // matching `StateInner::scroll` and the stale-offset clamp below.
++            cursor.seek(&Height(goal_top), Bias::Right);
+             let start_ix = cursor.start().count;
+             let start_item_top = cursor.start().height;
+ 
+@@ -473,6 +486,30 @@
      pub fn viewport_bounds(&self) -> Bounds<Pixels> {
          self.0.borrow().last_layout_bounds.unwrap_or_default()
      }
@@ -81,7 +93,7 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/eleme
  }
  
  impl StateInner {
-@@ -657,6 +691,17 @@
+@@ -657,6 +694,17 @@
              }
  
              let size = size.unwrap();
@@ -99,7 +111,7 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/eleme
              rendered_height += size.height;
              max_item_width = max_item_width.max(size.width);
              measured_items.push_back(ListItem::Measured {
-@@ -1078,6 +1123,10 @@
+@@ -1078,6 +1126,10 @@
          let scroll_top = prepaint.layout.scroll_top;
          let hitbox_id = prepaint.hitbox.id;
          let mut accumulated_scroll_delta = ScrollDelta::default();
