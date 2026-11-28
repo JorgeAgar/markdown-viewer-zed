@@ -39,31 +39,31 @@ exclude_re = [
 
     # Starting an identifier scan at i instead of i + 1 scans one extra byte already
     # known to satisfy the loop predicate.
-    '''^crates/mdview-core/src/highlight\.rs:786:27: replace \+ with \* in generic$''',
+    '''^crates/mdview-core/src/highlight\.rs:778:27: replace \+ with \* in generic$''',
 
     # Without the shell whitespace fast path, the word scan has length zero and
     # advances one byte; cmd_pos is unchanged.
-    '''^crates/mdview-core/src/highlight\.rs:910:22: replace \|\| with && in shell$''',
+    '''^crates/mdview-core/src/highlight\.rs:916:22: replace \|\| with && in shell$''',
 
     # Resuming on the entity semicolon only rescans ignored text; the entity token
     # is unchanged.
-    '''^crates/mdview-core/src/highlight\.rs:1024:23: replace \+ with \* in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1030:23: replace \+ with \* in markup$''',
 
     # Resuming at > or the preceding byte adds only ignored text outside the tag
     # (including an already consumed closing quote); no new construct can start
     # there.
-    '''^crates/mdview-core/src/highlight\.rs:1062:20: replace \+ with - in markup$''',
-    '''^crates/mdview-core/src/highlight\.rs:1062:20: replace \+ with \* in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1068:20: replace \+ with - in markup$''',
+    '''^crates/mdview-core/src/highlight\.rs:1068:20: replace \+ with \* in markup$''',
 
     # An empty key emits no Property (Out drops empty ranges). value skips the : or
     # = delimiter either way.
-    '''^crates/mdview-core/src/highlight\.rs:1131:24: replace match guard k > i with true in config$''',
-    '''^crates/mdview-core/src/highlight\.rs:1131:26: replace > with >= in config$''',
-    '''^crates/mdview-core/src/highlight\.rs:1134:31: replace \+ with \* in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1137:24: replace match guard k > i with true in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1137:26: replace > with >= in config$''',
+    '''^crates/mdview-core/src/highlight\.rs:1140:31: replace \+ with \* in config$''',
 
     # A scalar word starts with a byte accepted by its scan, so j > i; max(i + 1)
     # and max(i * 1) both return j.
-    '''^crates/mdview-core/src/highlight\.rs:1215:25: replace \+ with \* in value$''',
+    '''^crates/mdview-core/src/highlight\.rs:1221:25: replace \+ with \* in value$''',
 
     # Upright is only enabled inside font commands, which replace all italic ranges
     # before appending. W::sub already resets every other field; script inheritance

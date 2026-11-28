@@ -693,15 +693,7 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
                 }
             }
             if c == b'\'' {
-                // Char literal or lifetime?
-                let is_char = match b.get(i + 1) {
-                    Some(b'\\') => true,
-                    Some(&n) if n >= 0x80 => true,
-                    Some(_) => b.get(i + 2) == Some(&b'\''),
-                    None => false,
-                };
-                if is_char {
-                    let end = string_end(b, i, b'\'', true);
+                if let Some(end) = rust_char_end(code, i) {
                     out.push(i..end, Tok::String);
                     i = end;
                 } else {
@@ -846,6 +838,20 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
         // Skip one (possibly multi-byte) character.
         i += utf8_len(c);
     }
+}
+
+/// End of the Rust character literal starting at `i` (a `'`), or `None`
+/// for a lifetime or label (`'a`, `'é`, `'static`). A literal is an escape
+/// (`'\n'`, `'\u{1F600}'`) or one character, which may be multi-byte, and
+/// a closing quote (`'é'`).
+fn rust_char_end(code: &str, i: usize) -> Option<usize> {
+    let b = code.as_bytes();
+    let is_char = match code[i + 1..].chars().next() {
+        Some('\\') => true,
+        Some(ch) => b.get(i + 1 + ch.len_utf8()) == Some(&b'\''),
+        None => false,
+    };
+    is_char.then(|| string_end(b, i, b'\'', true))
 }
 
 fn utf8_len(first: u8) -> usize {

@@ -278,6 +278,53 @@ fn rust_details() {
     assert!(!got.iter().any(|(s, _)| s.starts_with("a!")), "{got:#?}");
 }
 
+/// A character literal is one character (or an escape) and a closing quote;
+/// anything else after `'` is a lifetime or label, including non-ASCII
+/// ones (#26: `'é>(s: &'` used to be one character literal).
+#[test]
+fn rust_unicode_lifetimes_and_char_literals() {
+    assert_eq!(
+        toks("rust", "fn f<'é>(s: &'é str) {}\nfn next() {}"),
+        [
+            t("fn", Tok::Keyword),
+            t("f", Tok::Function),
+            t("'é", Tok::Attr),
+            t("'é", Tok::Attr),
+            t("str", Tok::Type),
+            t("fn", Tok::Keyword),
+            t("next", Tok::Function),
+        ]
+    );
+    for lit in [
+        "'a'",
+        "'é'",
+        "'日'",
+        "'😀'",
+        "'\\n'",
+        "'\\''",
+        "'\\\\'",
+        "'\\x7f'",
+        "'\\u{1F600}'",
+    ] {
+        assert_eq!(
+            toks("rust", &format!("x({lit}, 'b);")),
+            [
+                t("x", Tok::Function),
+                t(lit, Tok::String),
+                t("'b", Tok::Attr)
+            ],
+            "{lit}"
+        );
+    }
+    for life in ["'a", "'é", "'éa", "'日本", "'static", "'_", "'outer"] {
+        assert_eq!(
+            toks("rust", &format!("&{life} T; 'c'")),
+            [t(life, Tok::Attr), t("T", Tok::Type), t("'c'", Tok::String)],
+            "{life}"
+        );
+    }
+}
+
 #[test]
 fn shell_details() {
     assert_eq!(
