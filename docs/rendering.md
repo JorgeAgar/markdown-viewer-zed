@@ -77,14 +77,6 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
 - Unmeasured rows count as 0 px, so a pixel scroll that crosses them skips
   them. `Bottom` (`G`/`End`) therefore scrolls past the last row and lets
   GPUI fill the viewport upward, instead of `scroll_to_reveal_item`.
-- `Tab::leading_measured` records whether every row above the scroll top is
-  measured. It turns false after `Bottom`, an anchor jump, a reload or a width
-  change while scrolled down (GPUI drops cached heights on a width change), and
-  true again at row 0 or after `Top`. While it's false, PageUp still moves a
-  full page, but in steps of at most `LIST_OVERDRAW - 40` px, one per frame
-  (`PageUpRest`): each frame measures the overdraw above the new scroll top
-  before the next step crosses it. Any other scroll, jump or reload drops the
-  rest of the page.
 - Pixel scrolls only cross measured rows. `Tab::room` is how far the list
   can scroll each way from the scroll top before an unmeasured row: the run
   of measured rows around it (`scroll::measured_run`), keeping the viewport
@@ -95,6 +87,17 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   at all (`Tab::unmeasured`: right after a reload, a width change or a jump
   to rows no frame has laid out yet), nothing scrolls by pixels until the
   next frame.
+- Key scrolls (arrows, `j`/`k`, PageUp/PageDown, Space) go through
+  `Tab::scroll_keys`: as far as `Tab::room` allows at once, and the rest
+  (`Tab::scroll_rest`, either way) at the start of each later frame
+  (`Tab::continue_scroll`), each crossing only rows the frame before
+  measured. Within measured rows a page goes in one step; right after
+  opening, a reload, a resize or a jump, it waits for the first layout, and
+  a page longer than the measured rows (a tall window, or keys repeating
+  faster than frames) takes a frame per `LIST_OVERDRAW` or so. Keys pressed
+  before the rest is done add to it. What would go past the top or bottom
+  of the document is dropped, and any other scroll, jump or reload drops
+  the rest.
 - The mouse wheel and touchpad go through `Viewer::wheel`, not GPUI's list
   (`List::without_scroll_wheel`), into the tab's `scroll::Motion`:
   - A wheel step (`ScrollDelta::Lines`, 20 px per line) glides there with a
@@ -108,7 +111,7 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
     left, not of where the glide started.
   - A touchpad (`ScrollDelta::Pixels`) scrolls 1:1, within the measured
     rows like GPUI's own handler (`Tab::scroll_measured`). A sideways delta (a
-    code block's) leaves a wheel glide or a split PageUp going. When the fingers lift
+    code block's) leaves a wheel glide or a key scroll's rest going. When the fingers lift
     (`TouchPhase::Ended`, which the GPUI fork sends on Wayland's `axis_stop`),
     the speed of the last 100 ms flings on, slowing down exponentially
     (τ = 350 ms). macOS sends its own momentum events, so there's no fling
@@ -119,7 +122,9 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
     reload, and when the tab isn't active. A frame moves at most
     `LIST_OVERDRAW - 40` px either way (the last frame measured that far past
     both edges), and never past the measured rows around the scroll top; the
-    rest waits for the next frame.
+    rest waits for the next frame. "At the top or bottom" means no room left
+    that way, with only measured rows up to the document's edge
+    (`scroll::Room::at_edge`).
 - The scrollbar (`Viewer::render_scrollbar`) is an overlay at the right edge,
   shown when the document doesn't fit. GPUI only knows the heights of
   measured rows, so `Tab::extent` counts each unmeasured row as the average

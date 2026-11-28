@@ -1323,15 +1323,20 @@ fn vertical_wheel_over_code_scrolls_the_page_not_the_code() {
     assert_eq!(scroll_top(&v, cx), (0, 120.));
 }
 
-/// A document of 200 headed paragraphs, tall enough to scroll a long way.
-fn tall_doc() -> (Entity<Viewer>, &'static mut VisualTestContext) {
+/// 200 headed paragraphs, tall enough to scroll a long way.
+fn tall_md() -> String {
     let mut md = String::new();
     for i in 0..200 {
         md.push_str(&format!(
             "## Heading {i}\n\nParagraph {i} with some text.\n\n"
         ));
     }
-    let (v, cx) = open(vec![(PathBuf::from("/x/tall.md"), parsed(&md))]);
+    md
+}
+
+/// A window showing `tall_md`.
+fn tall_doc() -> (Entity<Viewer>, &'static mut VisualTestContext) {
+    let (v, cx) = open(vec![(PathBuf::from("/x/tall.md"), parsed(&tall_md()))]);
     cx.run_until_parked();
     (v, cx)
 }
@@ -1636,12 +1641,11 @@ fn at(t0: Instant, ms: u64) -> Instant {
 #[test]
 fn motion_stops_at_the_top_and_bottom() {
     let (v, cx) = tall_doc();
-    let vh = viewport_height(cx);
     let t0 = Instant::now();
     // Upward at the top: done.
     let going = with_tab(&v, cx, |tab| {
         tab.motion.wheel(-100., t0);
-        tab.advance_motion(at(t0, 16), vh)
+        tab.advance_motion(at(t0, 16))
     });
     assert!(!going);
     assert!(!motion_active(&v, cx));
@@ -1652,13 +1656,13 @@ fn motion_stops_at_the_top_and_bottom() {
     let bottom = scroll_top(&v, cx);
     let going = with_tab(&v, cx, |tab| {
         tab.motion.wheel(100., t0);
-        tab.advance_motion(at(t0, 16), vh)
+        tab.advance_motion(at(t0, 16))
     });
     assert!(!going);
     assert_eq!(scroll_top(&v, cx), bottom);
     let going = with_tab(&v, cx, |tab| {
         tab.motion.wheel(-100., t0);
-        tab.advance_motion(at(t0, 16), vh)
+        tab.advance_motion(at(t0, 16))
     });
     assert!(going);
     // 50 px short of the bottom: downward goes on.
@@ -1666,7 +1670,7 @@ fn motion_stops_at_the_top_and_bottom() {
     with_tab(&v, cx, |tab| tab.motion.stop());
     let going = with_tab(&v, cx, |tab| {
         tab.motion.wheel(10., t0);
-        tab.advance_motion(at(t0, 16), vh)
+        tab.advance_motion(at(t0, 16))
     });
     assert!(going);
 }
@@ -1674,7 +1678,6 @@ fn motion_stops_at_the_top_and_bottom() {
 #[test]
 fn motion_moves_at_most_a_measured_step_per_frame() {
     let (v, cx) = tall_doc();
-    let vh = viewport_height(cx);
     let t0 = Instant::now();
     for dir in [1., -1.] {
         with_tab(&v, cx, |tab| tab.scroll_to_estimate(8000., 60.));
@@ -1684,7 +1687,7 @@ fn motion_moves_at_most_a_measured_step_per_frame() {
             tab.motion.wheel(2000. * dir, t0);
             // The glide is over, but only MEASURED_STEP goes: the rest waits
             // for the next frame to measure the rows it will cross.
-            tab.advance_motion(at(t0, 200), vh)
+            tab.advance_motion(at(t0, 200))
         });
         assert!(going);
         let moved = scrolled_px(&v, cx) - before;
@@ -1696,7 +1699,6 @@ fn motion_moves_at_most_a_measured_step_per_frame() {
 #[test]
 fn motion_waits_for_heights_after_a_reset() {
     let (v, cx) = tall_doc();
-    let vh = viewport_height(cx);
     let t0 = Instant::now();
     with_tab(&v, cx, |tab| tab.scroll_to_estimate(3000., 60.));
     redraw(&v, cx);
@@ -1708,7 +1710,7 @@ fn motion_waits_for_heights_after_a_reset() {
             offset_in_item: px(before.1),
         });
         tab.motion.wheel(-300., t0);
-        tab.advance_motion(at(t0, 200), vh)
+        tab.advance_motion(at(t0, 200))
     });
     assert!(going, "kept for after the layout");
     assert_eq!(scroll_top(&v, cx), before);
@@ -1749,17 +1751,13 @@ fn touchpad_scrolls_within_measured_rows() {
 }
 
 #[test]
-fn a_sideways_swipe_keeps_a_split_page_up() {
+fn a_sideways_swipe_keeps_a_key_scroll_rest() {
     let (v, cx) = tall_doc();
-    let rest = Some(PageUpRest {
-        px: 500.,
-        laid_out: true,
-    });
     // Handled with no frame in between, which would take the next step.
     let wheel = |v: &Entity<Viewer>, cx: &mut VisualTestContext, delta, touch_phase| {
         cx.update(|_, cx| {
             v.update(cx, |v, cx| {
-                v.tabs.active_mut().unwrap().page_up_rest = rest;
+                v.tabs.active_mut().unwrap().scroll_rest = -500.;
                 v.wheel(
                     &ScrollWheelEvent {
                         position: point(px(300.), px(300.)),
@@ -1769,27 +1767,27 @@ fn a_sideways_swipe_keeps_a_split_page_up() {
                     },
                     cx,
                 );
-                v.tabs.active().unwrap().page_up_rest
+                v.tabs.active().unwrap().scroll_rest
             })
         })
     };
     // Sideways over a code block, the start or a slow end of a touch.
     assert_eq!(
         wheel(&v, cx, point(px(-40.), px(0.)), TouchPhase::Moved),
-        rest
+        -500.
     );
     assert_eq!(
         wheel(&v, cx, point(px(0.), px(0.)), TouchPhase::Started),
-        rest
+        -500.
     );
     assert_eq!(
         wheel(&v, cx, point(px(0.), px(0.)), TouchPhase::Ended),
-        rest
+        -500.
     );
     // A vertical one drops it.
     assert_eq!(
         wheel(&v, cx, point(px(0.), px(-10.)), TouchPhase::Moved),
-        None
+        0.
     );
 }
 
@@ -1862,14 +1860,13 @@ fn wheel_now(v: &Entity<Viewer>, cx: &mut VisualTestContext, lines: f32) {
 #[test]
 fn a_step_back_from_an_edge_is_not_absorbed() {
     let (v, cx) = tall_doc();
-    let vh = viewport_height(cx);
     with_tab(&v, cx, |tab| tab.scroll_measured(15.));
     redraw(&v, cx);
     // One line (20 px) up aims 5 px past the top; one frame later the glide
     // is still on its way...
     wheel_now(&v, cx, 1.);
     let going = with_tab(&v, cx, |tab| {
-        tab.advance_motion(Instant::now() + Duration::from_millis(16), vh)
+        tab.advance_motion(Instant::now() + Duration::from_millis(16))
     });
     assert!(going);
     let mid = scrolled_px(&v, cx);
@@ -1909,7 +1906,6 @@ fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
 #[test]
 fn a_step_back_is_not_absorbed_by_a_carried_rest() {
     let (v, cx) = tall_doc();
-    let vh = viewport_height(cx);
     for _ in 0..3 {
         with_tab(&v, cx, |tab| tab.scroll_measured(400.));
         redraw(&v, cx);
@@ -1920,7 +1916,7 @@ fn a_step_back_is_not_absorbed_by_a_carried_rest() {
     let t0 = Instant::now();
     let going = with_tab(&v, cx, |tab| {
         tab.motion.wheel(-2000., t0);
-        tab.advance_motion(at(t0, 200), vh)
+        tab.advance_motion(at(t0, 200))
     });
     assert!(going);
     assert!((scrolled_px(&v, cx) - (1200. - MEASURED_STEP)).abs() < 0.01);
@@ -2068,13 +2064,12 @@ fn touchpad_waits_for_the_rows_after_a_jump() {
 #[test]
 fn motion_waits_for_the_rows_after_a_jump() {
     let (v, cx) = tall_doc();
-    let vh = viewport_height(cx);
     let t0 = Instant::now();
     let top = in_one_update(&v, cx, |v, cx| {
         v.scroll_to_anchor(None, "heading-150", cx);
         let tab = v.tabs.active_mut().unwrap();
         tab.motion.wheel(-2000., t0);
-        assert!(tab.advance_motion(at(t0, 200), vh), "kept for the layout");
+        assert!(tab.advance_motion(at(t0, 200)), "kept for the layout");
     });
     assert_eq!(top, (300, 0.));
     // Laid out: it goes on from the anchor, through measured rows.
@@ -2083,7 +2078,7 @@ fn motion_waits_for_the_rows_after_a_jump() {
     with_tab(&v, cx, |tab| tab.motion.stop());
     let going = with_tab(&v, cx, |tab| {
         tab.motion.wheel(-2000., t0);
-        tab.advance_motion(at(t0, 200), vh)
+        tab.advance_motion(at(t0, 200))
     });
     assert!(going);
     let up = scroll_top(&v, cx);
@@ -2105,4 +2100,117 @@ fn a_wheel_glide_after_bottom_moves_through_every_row() {
     let up = scroll_top(&v, cx);
     let d = measured_distance(&v, cx, bottom, up);
     assert!((d + 3000.).abs() < 0.5, "{d}");
+}
+
+/// The PageUp/PageDown distance in this window.
+fn page(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> f32 {
+    cx.update(|window, cx| v.read(cx).page(window))
+}
+
+#[test]
+fn key_scrolls_wait_for_the_rows_after_a_reload() {
+    let (v, cx) = tall_doc();
+    let page = page(&v, cx);
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "heading-100", cx));
+    redraw(&v, cx);
+    let anchor = scroll_top(&v, cx);
+    assert_eq!(anchor, (200, 0.));
+    // A reload forgets every height; Down before the next frame used to
+    // jump to the end of the document, PageUp to its top.
+    for dy in [60., -60., page, -page] {
+        let top = in_one_update(&v, cx, |v, cx| {
+            v.tabs.active_mut().unwrap().replace(parsed(&tall_md()));
+            v.scroll(dy, cx);
+        });
+        assert_eq!(top, anchor, "{dy}: scrolled over rows with no height");
+        cx.run_until_parked();
+        let now = scroll_top(&v, cx);
+        let moved = measured_distance(&v, cx, anchor, now);
+        assert!((moved - dy).abs() < 0.01, "{dy}: {moved}");
+        // Back to the anchor for the next one.
+        v.update(cx, |v, cx| v.scroll_to_anchor(None, "heading-100", cx));
+        redraw(&v, cx);
+    }
+}
+
+#[test]
+fn key_scrolls_wait_for_the_rows_after_a_jump() {
+    let (v, cx) = tall_doc();
+    // To rows no frame has laid out yet.
+    for (dy, anchor, row) in [(60., "heading-150", 300), (-60., "heading-120", 240)] {
+        let top = in_one_update(&v, cx, |v, cx| {
+            v.scroll_to_anchor(None, anchor, cx);
+            v.scroll(dy, cx);
+        });
+        assert_eq!(top, (row, 0.), "{dy}: scrolled over rows with no height");
+        cx.run_until_parked();
+        let now = scroll_top(&v, cx);
+        let moved = measured_distance(&v, cx, (row, 0.), now);
+        assert!((moved - dy).abs() < 0.01, "{dy}: {moved}");
+    }
+}
+
+#[test]
+fn key_scrolls_faster_than_frames_cross_every_row() {
+    let (v, cx) = tall_doc();
+    let page = page(&v, cx);
+    // Five PageDowns before a frame: more than the rows measured below.
+    in_one_update(&v, cx, |v, cx| {
+        for _ in 0..5 {
+            v.scroll(page, cx);
+        }
+    });
+    cx.run_until_parked();
+    let down = scroll_top(&v, cx);
+    let moved = measured_distance(&v, cx, (0, 0.), down);
+    assert!((moved - 5. * page).abs() < 0.01, "{moved}");
+    assert_eq!(
+        cx.update(|_, cx| v.read(cx).tabs.active().unwrap().scroll_rest),
+        0.
+    );
+    // And back up, also after Bottom left unmeasured rows above.
+    for after_bottom in [false, true] {
+        if after_bottom {
+            cx.dispatch_action(Bottom);
+            redraw(&v, cx);
+        }
+        let from = scroll_top(&v, cx);
+        in_one_update(&v, cx, |v, cx| {
+            for _ in 0..3 {
+                v.scroll(-page, cx);
+            }
+        });
+        cx.run_until_parked();
+        let up = scroll_top(&v, cx);
+        let moved = measured_distance(&v, cx, from, up);
+        assert!((moved + 3. * page).abs() < 0.01, "{after_bottom}: {moved}");
+    }
+}
+
+#[test]
+fn key_scrolls_stop_at_the_edges() {
+    let (v, cx) = tall_doc();
+    let page = page(&v, cx);
+    // Past the top: nothing is left waiting, so no frame after frame.
+    cx.dispatch_action(PageDown);
+    in_one_update(&v, cx, |v, cx| {
+        v.scroll(-3. * page, cx);
+        let tab = v.tabs.active_mut().unwrap();
+        assert_eq!(tab.scroll_rest, 0.);
+        assert!(!tab.continue_scroll());
+    });
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+    // Past the bottom, from just above it.
+    cx.dispatch_action(Bottom);
+    redraw(&v, cx);
+    let bottom = scroll_top(&v, cx);
+    cx.dispatch_action(ScrollUp);
+    in_one_update(&v, cx, |v, cx| {
+        v.scroll(3. * page, cx);
+        assert_eq!(v.tabs.active().unwrap().scroll_rest, 0.);
+    });
+    assert_eq!(scroll_top(&v, cx), bottom);
+    // Space goes on to the end and stays there.
+    cx.dispatch_action(PageDown);
+    assert_eq!(scroll_top(&v, cx), bottom);
 }

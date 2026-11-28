@@ -290,6 +290,41 @@ pub fn position_for_thumb(
     frac * (content - viewport).max(0.)
 }
 
+/// How far a list can scroll each way from its scroll top without
+/// crossing a row that isn't measured, and whether that's because the
+/// document ends there (rather than unmeasured rows that the next frame
+/// will measure).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Room {
+    pub up: f32,
+    pub down: f32,
+    /// Only measured rows up to the top of the document.
+    pub top: bool,
+    /// Only measured rows down to its end.
+    pub bottom: bool,
+}
+
+impl Room {
+    /// Already at the top (`dir < 0`) or the bottom (`dir > 0`).
+    pub fn at_edge(&self, dir: f32) -> bool {
+        if dir < 0. {
+            self.top && self.up <= 0.
+        } else {
+            dir > 0. && self.bottom && self.down <= 0.
+        }
+    }
+
+    /// Splits a scroll of `dy` px into what can go now and what must wait
+    /// for the next frame to measure more rows. Nothing waits to go past an
+    /// edge of the document.
+    pub fn split(&self, dy: f32) -> (f32, f32) {
+        let now = dy.clamp(-self.up, self.down);
+        let rest = dy - now;
+        let edge = if rest < 0. { self.top } else { self.bottom };
+        (now, if edge { 0. } else { rest })
+    }
+}
+
 /// The rows around row `ix` that are all measured: `start..end` with
 /// `start <= ix <= end`, as far as it goes both ways. `measured(i)` is how
 /// many of the first `i` rows are measured, for `i` in `0..=count`. It ends
@@ -784,6 +819,67 @@ mod tests {
         assert_eq!(position_for_thumb(-5., 100., 2000., 500., 400.), 0.);
         assert_eq!(position_for_thumb(900., 100., 2000., 500., 400.), 1500.);
         assert_eq!(position_for_thumb(10., 400., 2000., 500., 400.), 0.);
+    }
+
+    #[test]
+    fn room_splits_a_scroll_at_unmeasured_rows() {
+        let room = Room {
+            up: 300.,
+            down: 500.,
+            top: false,
+            bottom: false,
+        };
+        assert_eq!(room.split(200.), (200., 0.));
+        assert_eq!(room.split(-200.), (-200., 0.));
+        assert_eq!(room.split(500.), (500., 0.));
+        assert_eq!(room.split(-300.), (-300., 0.));
+        // The rest waits for the rows past the measured ones.
+        assert_eq!(room.split(1400.), (500., 900.));
+        assert_eq!(room.split(-1400.), (-300., -1100.));
+        assert_eq!(room.split(0.), (0., 0.));
+        // Nothing measured at all yet: it all waits.
+        assert_eq!(Room::default().split(-60.), (0., -60.));
+        assert_eq!(Room::default().split(60.), (0., 60.));
+    }
+
+    #[test]
+    fn room_drops_what_goes_past_an_edge() {
+        let top = Room {
+            up: 300.,
+            down: 500.,
+            top: true,
+            bottom: false,
+        };
+        assert_eq!(top.split(-1400.), (-300., 0.));
+        assert_eq!(top.split(1400.), (500., 900.));
+        let bottom = Room {
+            top: false,
+            bottom: true,
+            ..top
+        };
+        assert_eq!(bottom.split(1400.), (500., 0.));
+        assert_eq!(bottom.split(-1400.), (-300., -1100.));
+    }
+
+    #[test]
+    fn room_knows_when_it_is_at_an_edge() {
+        let mut room = Room {
+            up: 0.,
+            down: 0.,
+            top: true,
+            bottom: true,
+        };
+        assert!(room.at_edge(-1.));
+        assert!(room.at_edge(1.));
+        assert!(!room.at_edge(0.));
+        // Room left, or unmeasured rows that the next frame measures.
+        room.up = 0.25;
+        room.down = 0.25;
+        assert!(!room.at_edge(-1.));
+        assert!(!room.at_edge(1.));
+        let gap = Room::default();
+        assert!(!gap.at_edge(-1.));
+        assert!(!gap.at_edge(1.));
     }
 
     /// `measured_run` over rows measured (`true`) or not.

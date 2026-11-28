@@ -176,9 +176,7 @@ classDiagram
         code_scroll: CodeScrollMap  shared horizontal scroll per split code block
         mtime: Option~SystemTime~
         list: ListState  scroll + measured heights
-        leading_measured: bool  rows above the scroll top are measured
-        last_viewport_width: Option~Pixels~
-        page_up_rest: Option~PageUpRest~  rest of a PageUp split across frames
+        scroll_rest: f32  rest of a key scroll, either way, for later frames
         motion: Motion  wheel glide or touchpad fling in progress
     }
     class Tabs~T~ {
