@@ -214,6 +214,16 @@ and reopening an empty window. URL event tests cover escaped and Unicode
 Finder paths and reject non-file URLs. Native desktop testing remains required
 for Finder/Dock integration, menus, themes, GPU presentation and startup.
 
+The Unix handoff tests send names with newlines, a trailing `\r` and non-UTF-8
+bytes through the real binary, and decode its frames independently of the app.
+Unix transport unit tests (`src/platform/unix.rs`) race a dozen simultaneous
+launches against one stale socket and expect exactly one server, check that
+`cleanup()` leaves a socket it didn't bind, that the fallback directory is
+0700 and the socket 0600, that symlinked, foreign-owned or group/other
+accessible directories are refused, and that stalled, trickling and oversized
+clients neither hang nor block the listener. Tests that change the
+environment re-run the test binary on a single test, so they can't race the
+others.
 The Unix transport has a GUI-free stale-socket replacement test on Linux and
 macOS. The binary test expecting startup to fail without DISPLAY is Linux-only:
 macOS has native windowing and does not use DISPLAY. IPC integration tests use
