@@ -2306,3 +2306,31 @@ fn dragging_the_thumb_mid_track_follows_the_estimate() {
     assert!((got.1 - want.1).abs() < 0.01, "{got:?} vs {want:?}");
     assert!(got.0 < 395, "{got:?}");
 }
+
+#[test]
+fn going_down_right_after_bottom_is_already_at_the_end() {
+    let (v, cx) = tall_doc();
+    let t0 = Instant::now();
+    // Bottom parks the scroll top past the last row until the next frame:
+    // that's the end of the document, not rows waiting for a height.
+    in_one_update(&v, cx, |v, cx| {
+        v.tabs.active_mut().unwrap().scroll_to_end();
+        v.scroll(500., cx);
+        let tab = v.tabs.active_mut().unwrap();
+        assert_eq!(tab.scroll_rest, 0., "nothing left to wait for");
+        tab.motion.wheel(100., t0);
+        assert!(!tab.advance_motion(at(t0, 16)), "the glide is over");
+        // Up is another matter: the rows above get their heights first.
+        v.scroll(-500., cx);
+        assert_eq!(v.tabs.active().unwrap().scroll_rest, -500.);
+    });
+    cx.run_until_parked();
+    let end = with_tab(&v, cx, |tab| {
+        let (above, content, _) = tab.extent();
+        content - above
+    });
+    assert!(
+        (end - 500. - viewport_height(cx)).abs() < 0.01,
+        "500 px above the end: {end}"
+    );
+}

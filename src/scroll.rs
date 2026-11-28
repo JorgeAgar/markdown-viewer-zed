@@ -136,12 +136,9 @@ impl Motion {
         if target == rest {
             return;
         }
-        // The glide keeps what fits of it, the carry the rest.
-        let keep = if left * target > 0. {
-            left.abs().min(target.abs()).copysign(left)
-        } else {
-            0.
-        };
+        // The glide keeps what fits of it (nothing if it goes the other
+        // way), the carry the rest.
+        let keep = left.clamp(target.min(0.), target.max(0.));
         self.carry = target - keep;
         if let Some(Anim::Glide { distance, done, .. }) = &mut self.anim {
             if keep == 0. {
@@ -319,9 +316,9 @@ impl Room {
     /// edge of the document.
     pub fn split(&self, dy: f32) -> (f32, f32) {
         let now = dy.clamp(-self.up, self.down);
-        let rest = dy - now;
-        let edge = if rest < 0. { self.top } else { self.bottom };
-        (now, if edge { 0. } else { rest })
+        let min = if self.top { 0. } else { f32::NEG_INFINITY };
+        let max = if self.bottom { 0. } else { f32::INFINITY };
+        (now, (dy - now).clamp(min, max))
     }
 }
 
@@ -692,19 +689,27 @@ mod tests {
             );
             assert!((steps.iter().sum::<f32>() - 5. * dir).abs() < 1e-3);
         }
-        // With little carry, the glide keeps easing out to the edge.
+        // With no carry, the glide keeps easing out to the edge.
+        for dir in [1., -1.] {
+            let mut m = Motion::default();
+            m.wheel(300. * dir, t0);
+            m.tick(ms(t0, 16), f32::INFINITY);
+            m.limit(-40., 40.);
+            assert_eq!(m.carry, 0.);
+            let steps = steps(&mut m, t0, 16, f32::INFINITY);
+            assert!(steps.len() > 3, "{steps:?}");
+            assert!(
+                steps.windows(2).all(|w| w[0] * dir >= w[1] * dir),
+                "{steps:?}"
+            );
+            assert!((steps.iter().sum::<f32>() - 40. * dir).abs() < 1e-3);
+        }
+        // Limited to nothing mid-glide: it's over at once.
         let mut m = Motion::default();
         m.wheel(300., t0);
-        let a = m.tick(ms(t0, 16), f32::INFINITY);
-        m.limit(-10., 40.);
-        assert_eq!(m.carry, 0.);
-        let steps = steps(&mut m, t0, 16, f32::INFINITY);
-        assert!(steps.len() > 3, "{steps:?}");
-        assert!(steps.windows(2).all(|w| w[0] >= w[1]), "{steps:?}");
-        assert!(
-            (steps.iter().sum::<f32>() - 40.).abs() < 1e-3,
-            "{a} {steps:?}"
-        );
+        m.tick(ms(t0, 16), f32::INFINITY);
+        m.limit(-40., 0.);
+        assert!(!m.is_active());
     }
 
     #[test]
