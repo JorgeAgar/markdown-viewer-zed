@@ -206,7 +206,10 @@ classDiagram
   position on the same block, found by content: blocks inserted, deleted or
   resized above it, or edits to the block itself, don't move the reader to
   another section (`Rows::remap_row`, see [rendering.md](rendering.md)). Live
-  reload and `Ctrl+R` both use it.
+  reload and `Ctrl+R` both use it. Then `forget_images` drops the document's
+  local images from GPUI's cache so they're read again: all of them for
+  `Ctrl+R`, the ones modified since the last load for live reload (see
+  [rendering.md](rendering.md#markdown-images)).
 - The open-file dialog (`Ctrl+O` / `Cmd+O`) starts in the active tab's parent
   directory, falling back to `last_open_dir` (in-memory only, updated as files
   are opened) and then the process working directory.

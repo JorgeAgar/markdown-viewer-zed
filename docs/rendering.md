@@ -213,6 +213,21 @@ blocking pool only when requested; startup never waits for the network.
 Images scale down to fit the column and show alt text on failure. Other URI
 schemes remain links. Images mixed into a text paragraph remain alt-text links.
 
+GPUI caches images by path for the whole app, failed loads included, so a
+reload removes local ones from that cache (`forget_images` in `viewer.rs`,
+over every image of the old and new document, found by
+`render::local_images` in lists, quotes and footnotes too) and frees their
+GPU textures; the next frame reads them from disk again:
+
+- `Ctrl+R` / `F5` forgets every local image of the document, so a missing
+  image that was created since, or one replaced at the same path, shows up.
+- Live reload only forgets images whose file was modified since the
+  document was last loaded (with a 2 s margin for coarse file timestamps),
+  so unchanged images don't blink on every save. An image changed before
+  another tab cached it, or with an mtime set back, needs `Ctrl+R`.
+
+Remote images stay cached.
+
 ### Math
 
 Inline and display math are handled differently, because GPUI lays out a

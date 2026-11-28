@@ -91,6 +91,16 @@ top. Offsets reached by scrolling are always inside their item, so they're
 unaffected. Tested in mdview's `src/viewer/app_tests.rs`
 (`list_starts_at_the_top_of_an_item_shorter_than_the_offset`).
 
+## 8. Take an asset out of the cache
+
+`app.rs`
+
+`App::remove_asset` drops a cached asset without returning it, so an image
+removed from the cache (to read a changed file again) kept its texture in
+the sprite atlas. `App::take_asset` removes it and returns it if it had
+finished loading, without starting a load the way `fetch_asset` would, so
+the caller can free the texture with `App::drop_image`.
+
 ## Measurements
 
 Time from `main()` to the first frame submitted and presented. Medians;

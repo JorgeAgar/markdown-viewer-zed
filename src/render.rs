@@ -854,6 +854,40 @@ fn image_source(url: &str, base_dir: &Path) -> gpui::ImageSource {
     }
 }
 
+/// Adds the local image files `blocks` show to `out`, nested ones included,
+/// as the resources GPUI caches them under (see `image`).
+pub fn local_images(blocks: &[Block], base_dir: &Path, out: &mut Vec<gpui::Resource>) {
+    for block in blocks {
+        match block {
+            Block::Images(images) => {
+                for i in images.iter().filter(|i| !image_is_link(&i.url)) {
+                    if let gpui::ImageSource::Resource(r @ gpui::Resource::Path(_)) =
+                        image_source(&i.url, base_dir)
+                    {
+                        out.push(r);
+                    }
+                }
+            }
+            Block::Quote { blocks, .. } | Block::Footnote { blocks, .. } => {
+                local_images(blocks, base_dir, out)
+            }
+            Block::List { items, .. } => {
+                for item in items {
+                    local_images(&item.blocks, base_dir, out);
+                }
+            }
+            // Table cells and headings hold text only.
+            Block::Heading { .. }
+            | Block::Paragraph(_)
+            | Block::Code { .. }
+            | Block::Table { .. }
+            | Block::Math(_)
+            | Block::Mermaid(_)
+            | Block::Rule => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod image_tests {
     use super::*;
@@ -889,5 +923,38 @@ mod image_tests {
             assert!(matches!(image_source(url, Path::new("/docs")),
                 gpui::ImageSource::Resource(gpui::Resource::Path(path)) if path.as_ref() == Path::new(expected)));
         }
+    }
+
+    #[test]
+    fn local_images_lists_local_files_at_any_depth() {
+        let doc = crate::markdown::parse(
+            "# T\n\n![a](a.png) ![r](https://x.org/r.png) ![f](ftp://x.org/f.png) ![d](data:image/png;base64,x)\n\n\
+             > ![q](q%20x.png)\n>\n> > ![qq](/abs/qq.png)\n\n\
+             - item\n\n  ![l](l.png)\n\n  - ![ll](ll.png)\n\n\
+             Note[^1].\n\n[^1]: ![n](n.png)\n\n\
+             | ![t](t.png) |\n|---|\n\n\
+             ![a again](a.png)\n",
+        );
+        let mut out = Vec::new();
+        local_images(&doc.blocks, Path::new("/docs"), &mut out);
+        let paths: Vec<String> = out
+            .iter()
+            .map(|r| match r {
+                gpui::Resource::Path(p) => p.display().to_string(),
+                other => panic!("not a path: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "/docs/a.png",
+                "/docs/q x.png",
+                "/abs/qq.png",
+                "/docs/l.png",
+                "/docs/ll.png",
+                "/docs/n.png",
+                "/docs/a.png",
+            ]
+        );
     }
 }

@@ -3,7 +3,7 @@
 mdview uses its own copy of [GPUI](https://crates.io/crates/gpui) 0.2.2. The
 copy lives in `crates/gpui` and replaces the crates.io version through
 `[patch.crates-io]` in the root `Cargo.toml`. It's identical to upstream
-except for three startup fixes and four small follow-up patches.
+except for three startup fixes and five small follow-up patches.
 
 - Every change is marked in the code with a `// mdview:` comment.
 - `patches/gpui-0.2.2-startup.patch` holds the full diff against upstream.
@@ -43,6 +43,7 @@ flowchart TB
 | 5 | `PathPromptOptions` has no initial directory, so `Ctrl+O` opens in the portal/OS default folder. | Add `directory: Option<PathBuf>` and pass it to the native open dialog on Linux, macOS and Windows. | `platform.rs`, `platform/linux/platform.rs`, `platform/mac/platform.rs`, `platform/windows/platform.rs` |
 | 6 | Wayland drops `wl_pointer.axis_stop`, so nothing tells an app when a touchpad scroll ends, and kinetic scrolling is the client's job on Wayland. GPUI's `List` always scrolls on wheel events itself, and doesn't say how many items it has measured. | A vertical `axis_stop` from a finger becomes a zero-delta `ScrollWheelEvent` with `TouchPhase::Ended`. `List::without_scroll_wheel()` lets the view scroll it, and `ListState::measured_before(n)` returns the measured count and height of the first `n` items. | `platform/linux/wayland/client.rs`, `elements/list.rs` |
 | 7 | A scroll offset restored after a reset (or kept while the item shrank) can be past the end of the item at the scroll top, which is then drawn above the viewport. | When the scroll-top item is measured and the offset is at or past its end, the list starts at the item's top. | `elements/list.rs` |
+| 8 | `App::remove_asset` drops a cached image without returning it, so its texture stays in the sprite atlas. | `App::take_asset` removes an asset and returns it if it had loaded (never starting a load), for `App::drop_image`. | `app.rs` |
 
 The X11 code compiles with fix 3, but it has only been tested on Wayland
 (niri).

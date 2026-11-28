@@ -655,6 +655,135 @@ fn standalone_remote_image_is_requested_by_the_viewer() {
     );
 }
 
+/// A 20×20 SVG filled with `color`.
+fn square_svg(color: &str) -> String {
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="{color}"/></svg>"#
+    )
+}
+
+/// What GPUI's image cache holds for `path`: `None` if it isn't loaded (an
+/// entry nothing asked for is only started here, so it's still `None`),
+/// else the error or the center pixel (BGRA) and the image's id.
+fn cached_image(cx: &mut VisualTestContext, path: &Path) -> Option<Result<([u8; 4], usize), ()>> {
+    let resource = gpui::Resource::Path(Arc::from(path));
+    let cached =
+        cx.update(|window, cx| window.get_asset::<gpui::ImgResourceLoader>(&resource, cx))?;
+    Some(cached.map_err(|_| ()).map(|image| {
+        let size = image.size(0);
+        let (w, h) = (size.width.0 as usize, size.height.0 as usize);
+        let at = ((h / 2) * w + w / 2) * 4;
+        let px = image.as_bytes(0).unwrap()[at..at + 4].try_into().unwrap();
+        // Ids are unique: a new one means the image was decoded again.
+        (px, image.id.0)
+    }))
+}
+
+const RED: [u8; 4] = [0, 0, 255, 255];
+const BLUE: [u8; 4] = [255, 0, 0, 255];
+
+#[test]
+fn reload_reads_local_images_again() {
+    // Issue #31: GPUI caches images by path for the whole app, errors
+    // included, so `Ctrl+R` kept showing a missing image's fallback after
+    // the file was created, and the old pixels after it was replaced.
+    let dir = TempDir::new("reload-image");
+    let doc = normalize(&dir.join("a.md"));
+    let image = doc.parent().unwrap().join("image.svg");
+    std::fs::write(&doc, "# Images\n\n![local](image.svg)\n").unwrap();
+    let (_v, cx) = open(vec![load(doc.clone())]);
+    cx.run_until_parked();
+    assert_eq!(cached_image(cx, &image), Some(Err(())), "missing at first");
+
+    // Created: the next reload shows it.
+    std::fs::write(&image, square_svg("red")).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    let Some(Ok((px, _))) = cached_image(cx, &image) else {
+        panic!("the viewer loads the new image");
+    };
+    assert_eq!(px, RED);
+
+    // Replaced at the same path: the next reload shows the new pixels.
+    std::fs::write(&image, square_svg("blue")).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert!(matches!(cached_image(cx, &image), Some(Ok((BLUE, _)))));
+
+    // Images in quotes, lists and footnotes count too; so do images the
+    // new version no longer shows.
+    let nested = doc.parent().unwrap().join("nested.svg");
+    std::fs::write(&nested, square_svg("red")).unwrap();
+    std::fs::write(
+        &doc,
+        "> ![q](nested.svg)\n\n- item\n\n  ![l](image.svg)\n\nNote[^1].\n\n[^1]: ![f](nested.svg)\n",
+    )
+    .unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert!(matches!(cached_image(cx, &nested), Some(Ok((RED, _)))));
+    std::fs::write(&nested, square_svg("blue")).unwrap();
+    std::fs::write(&image, square_svg("red")).unwrap();
+    std::fs::write(&doc, "# No images\n").unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    // Not drawn any more, so nothing loads them again.
+    assert_eq!(cached_image(cx, &nested), None);
+    assert_eq!(cached_image(cx, &image), None);
+}
+
+#[test]
+fn live_reload_reads_only_changed_local_images_again() {
+    // Reading every image again on each save would make them blink
+    // while the document is edited: live reload keeps the ones whose file
+    // didn't change since the document was loaded.
+    let dir = TempDir::new("live-image");
+    let doc = normalize(&dir.join("a.md"));
+    let base = doc.parent().unwrap();
+    let (same, changed, missing) = (
+        base.join("same.svg"),
+        base.join("changed.svg"),
+        base.join("missing.svg"),
+    );
+    std::fs::write(&same, square_svg("red")).unwrap();
+    std::fs::write(&changed, square_svg("red")).unwrap();
+    set_mtime(&same, 1_000);
+    set_mtime(&changed, 1_000);
+    let src = "![s](same.svg) ![c](changed.svg) ![m](missing.svg)\n";
+    std::fs::write(&doc, src).unwrap();
+    set_mtime(&doc, 1_000);
+    let (_v, cx) = open(vec![load(doc.clone())]);
+    cx.run_until_parked();
+    let Some(Ok((RED, same_id))) = cached_image(cx, &same) else {
+        panic!("loaded");
+    };
+    assert!(matches!(cached_image(cx, &changed), Some(Ok((RED, _)))));
+    assert_eq!(cached_image(cx, &missing), Some(Err(())));
+
+    // Saved: `changed.svg` now, `missing.svg` created; the document too.
+    std::fs::write(&changed, square_svg("blue")).unwrap();
+    std::fs::write(&missing, square_svg("blue")).unwrap();
+    std::fs::write(&doc, format!("{src}\nEdited.\n")).unwrap();
+    set_mtime(&doc, 2_000);
+    cx.executor().advance_clock(Duration::from_millis(800));
+    cx.run_until_parked();
+    assert_eq!(
+        cached_image(cx, &same),
+        Some(Ok((RED, same_id))),
+        "unchanged: not decoded again"
+    );
+    assert!(matches!(cached_image(cx, &changed), Some(Ok((BLUE, _)))));
+    assert!(matches!(cached_image(cx, &missing), Some(Ok((BLUE, _)))));
+
+    // `Ctrl+R` reads every image again, changed or not.
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    let Some(Ok((RED, id))) = cached_image(cx, &same) else {
+        panic!("loaded");
+    };
+    assert_ne!(id, same_id);
+}
+
 #[test]
 fn platform_open_events_reuse_and_recreate_the_viewer() {
     let dir = TempDir::new("platform-open");
