@@ -721,6 +721,10 @@ fn image(i: &Image, rcx: &RenderCx, ids: &mut IdGen) -> AnyElement {
     }
     let muted = t.muted;
     img(image_source(&i.url, &rcx.base_dir))
+        // GPUI keeps an animated image's current frame (and requests the
+        // next one) only for an `img` with an id: without it, GIFs and
+        // WebPs stay on their first frame.
+        .id(ids.next())
         .max_w_full()
         .object_fit(ObjectFit::ScaleDown)
         .with_fallback(move || {

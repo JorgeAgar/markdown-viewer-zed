@@ -177,7 +177,9 @@ images use GPUI's asynchronous image loader and asset cache. `http.rs` adapts
 GPUI's existing reqwest dependency, with TLS verification, redirects (up to
 10 hops), and a 30-second timeout. Client creation and downloads run on smol's
 blocking pool only when requested; startup never waits for the network.
-Images scale down to fit the column and show alt text on failure. Other URI
+Images scale down to fit the column and show alt text on failure. Animated
+GIFs and WebPs play: GPUI only keeps an image's current frame for an `img`
+with an `ElementId`, so each image gets one from the row's `IdGen`. Other URI
 schemes remain links. Images mixed into a text paragraph remain alt-text links.
 
 ### Math

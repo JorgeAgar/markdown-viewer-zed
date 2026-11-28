@@ -3,11 +3,11 @@
 //! example document. Windows are drawn whenever they're dirty at the end of
 //! an update, so a panic while rendering fails the test.
 
-use std::time::Duration;
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use gpui::{
     AnyView, AppContext, AvailableSpace, Entity, TestAppContext, VisualContext, VisualTestContext,
-    point, size,
+    WeakEntity, point, size,
 };
 
 use super::*;
@@ -1938,4 +1938,107 @@ fn repeated_unsupported_scheme_images_are_each_clickable() {
             "click at +{dx}px"
         );
     }
+}
+
+/// An image cache that serves `image` for every resource.
+struct OneImage(Arc<gpui::RenderImage>);
+
+impl gpui::ImageCache for OneImage {
+    fn load(
+        &mut self,
+        _: &gpui::Resource,
+        _: &mut Window,
+        _: &mut App,
+    ) -> Option<Result<Arc<gpui::RenderImage>, gpui::ImageCacheError>> {
+        Some(Ok(self.0.clone()))
+    }
+}
+
+/// The rows of a document under an image cache, recording each row's height.
+struct CachedRows {
+    rows: DocRows,
+    cache: Entity<OneImage>,
+    heights: Rc<RefCell<Vec<f32>>>,
+}
+
+impl Render for CachedRows {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let heights = self.heights.clone();
+        let rows = &self.rows;
+        gpui::image_cache(self.cache.clone()).child(
+            div()
+                .w(px(920.))
+                .on_children_prepainted(move |bounds, _, _| {
+                    *heights.borrow_mut() =
+                        bounds.iter().map(|b| f32::from(b.size.height)).collect()
+                })
+                .children((0..rows.rows.len()).map(|ix| {
+                    render::render_row(&rows.doc, &rows.rows[ix], ix, &rows.rcx, window, cx)
+                })),
+        )
+    }
+}
+
+fn frame(height: u32, delay_ms: u32) -> image::Frame {
+    image::Frame::from_parts(
+        image::RgbaImage::new(10, height),
+        0,
+        0,
+        image::Delay::from_numer_denom_ms(delay_ms, 1),
+    )
+}
+
+#[test]
+fn animated_images_advance_past_their_first_frame() {
+    // A real two-frame GIF reaches GPUI as an animated image.
+    let dir = TempDir::new("gif");
+    let path = dir.join("anim.gif");
+    {
+        let mut gif = image::codecs::gif::GifEncoder::new(std::fs::File::create(&path).unwrap());
+        gif.encode_frames([frame(10, 1), frame(10, 1)]).unwrap();
+    }
+    let cx = Box::leak(Box::new(TestAppContext::single()));
+    let resource = gpui::Resource::Path(Arc::from(path.as_path()));
+    let (task, _) = cx.update(|cx| cx.fetch_asset::<gpui::ImgResourceLoader>(&resource));
+    cx.run_until_parked();
+    let decoded = futures::FutureExt::now_or_never(task).expect("GIF decoded");
+    assert_eq!(decoded.unwrap().frame_count(), 2);
+
+    // GPUI keeps an image's frame (and requests the next one) only for an
+    // `img` with an ElementId; without one, an animated image stays on its
+    // first frame. The frames here differ in height, so the row's height
+    // says which one was laid out: 10 px for the first, 30 for the second,
+    // which then stays for an hour.
+    let doc = Arc::new(markdown::parse("![anim](anim.gif)"));
+    let image = Arc::new(gpui::RenderImage::new(vec![
+        frame(10, 1),
+        frame(30, 3_600_000),
+    ]));
+    let heights = Rc::new(RefCell::new(Vec::new()));
+    let (view, cx) = cx.add_window_view(|_, cx| CachedRows {
+        rows: DocRows {
+            rows: Arc::new(Rows::from_document(&doc)),
+            doc,
+            rcx: RenderCx {
+                theme: Theme::light(),
+                ui_font: fonts().ui,
+                mono_font: fonts().mono,
+                base_dir: Arc::from(dir.as_ref()),
+                viewer: WeakEntity::new_invalid(),
+                code_scroll: Default::default(),
+            },
+        },
+        cache: cx.new(|_| OneImage(image)),
+        heights: heights.clone(),
+    });
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        cx.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+        cx.run_until_parked();
+        seen.push(heights.borrow()[0]);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Row 0: 32 px above, 16 below the image.
+    assert_eq!(seen.first(), Some(&(32. + 10. + 16.)), "{seen:?}");
+    assert_eq!(seen.last(), Some(&(32. + 30. + 16.)), "{seen:?}");
 }
