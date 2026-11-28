@@ -1198,3 +1198,345 @@ fn style_distances() {
         assert_eq!(style_distance(s, Normal), 2);
     }
 }
+
+// ---------------------------------------------------------------------------
+// The previous image, while an edited block renders.
+
+fn image_of(show: &Show) -> Option<&Arc<Graphic>> {
+    match show {
+        Show::Image(g) => Some(g),
+        _ => None,
+    }
+}
+
+fn is_placeholder(show: &Show) -> bool {
+    matches!(show, Show::Placeholder)
+}
+
+fn cached(cache: &Cache, key: &Key) -> Option<Arc<Graphic>> {
+    match cache.slots.get(key) {
+        Some(Slot::Ready { graphic, .. }) => Some(graphic.clone()),
+        _ => None,
+    }
+}
+
+fn shown_key<'a>(shown: &'a Shown, block: &Arc<str>) -> Option<&'a Key> {
+    shown.0.get(&BlockId(block.clone()))
+}
+
+#[test]
+fn a_block_shows_a_placeholder_until_its_first_image_is_ready() {
+    let (mut cache, mut shown) = (Cache::default(), Shown::default());
+    let block: Arc<str> = "x".into();
+    let (s, render) = show(&mut cache, &mut shown, &block, &k("x"));
+    assert!(is_placeholder(&s) && render);
+    let (s, render) = show(&mut cache, &mut shown, &block, &k("x"));
+    assert!(is_placeholder(&s) && !render, "rendered once");
+    assert_eq!(shown_len(&shown), 0);
+
+    cache.finish(k("x"), Ok(graphic(4, 2)));
+    let (s, render) = show(&mut cache, &mut shown, &block, &k("x"));
+    assert_eq!(pixel_size(image_of(&s).unwrap()), (4, 2));
+    assert!(!render);
+    assert_eq!(shown_key(&shown, &block), Some(&k("x")));
+}
+
+#[test]
+fn an_edited_block_keeps_its_previous_image_until_the_new_one_is_ready() {
+    let (mut cache, mut shown) = (Cache::default(), Shown::default());
+    let block: Arc<str> = "x".into();
+    show(&mut cache, &mut shown, &block, &k("x"));
+    cache.finish(k("x"), Ok(graphic(4, 2)));
+    let old = image_of(&show(&mut cache, &mut shown, &block, &k("x")).0)
+        .unwrap()
+        .clone();
+
+    // Edited: the new image renders, the old one stays, at its size.
+    for first in [true, false] {
+        let (s, render) = show(&mut cache, &mut shown, &block, &k("y"));
+        assert!(Arc::ptr_eq(image_of(&s).unwrap(), &old));
+        assert_eq!(render, first);
+    }
+    // Then the new one takes over and becomes the previous image.
+    cache.finish(k("y"), Ok(graphic(6, 3)));
+    let (s, _) = show(&mut cache, &mut shown, &block, &k("y"));
+    let new = image_of(&s).unwrap().clone();
+    assert_eq!(pixel_size(&new), (6, 3));
+    assert_eq!(shown_key(&shown, &block), Some(&k("y")));
+    let (s, _) = show(&mut cache, &mut shown, &block, &k("z"));
+    assert!(Arc::ptr_eq(image_of(&s).unwrap(), &new));
+}
+
+#[test]
+fn a_broken_edit_shows_the_error_not_the_previous_image() {
+    let (mut cache, mut shown) = (Cache::default(), Shown::default());
+    let block: Arc<str> = "x".into();
+    show(&mut cache, &mut shown, &block, &k("x"));
+    cache.finish(k("x"), Ok(graphic(4, 2)));
+    show(&mut cache, &mut shown, &block, &k("x"));
+
+    let (s, _) = show(&mut cache, &mut shown, &block, &k("bad"));
+    assert!(
+        image_of(&s).is_some(),
+        "still the previous image while it renders"
+    );
+    cache.finish(k("bad"), Err("Math error: nope".into()));
+    match show(&mut cache, &mut shown, &block, &k("bad")) {
+        (Show::Error(e), false) => assert_eq!(e.as_ref(), "Math error: nope"),
+        _ => panic!("not the error"),
+    }
+    assert_eq!(shown_len(&shown), 0, "forgotten");
+    // Fixed again: there's nothing left to show meanwhile.
+    let (s, render) = show(&mut cache, &mut shown, &block, &k("fixed"));
+    assert!(is_placeholder(&s) && render);
+}
+
+#[test]
+fn the_previous_image_is_kept_across_scale_factors_but_not_themes() {
+    let (mut cache, mut shown) = (Cache::default(), Shown::default());
+    let block: Arc<str> = "x".into();
+    let light = key(Kind::Math, "x", false, 100);
+    show(&mut cache, &mut shown, &block, &light);
+    cache.finish(light.clone(), Ok(graphic(4, 2)));
+    show(&mut cache, &mut shown, &block, &light);
+
+    let (s, render) = show(
+        &mut cache,
+        &mut shown,
+        &block,
+        &key(Kind::Math, "x", false, 200),
+    );
+    assert!(image_of(&s).is_some() && render, "another scale factor");
+    let (s, render) = show(
+        &mut cache,
+        &mut shown,
+        &block,
+        &key(Kind::Math, "x", true, 100),
+    );
+    assert!(is_placeholder(&s) && render, "the other theme's colors");
+}
+
+#[test]
+fn an_evicted_previous_image_is_never_drawn_again() {
+    let (mut cache, mut shown) = (Cache::default(), Shown::default());
+    let block: Arc<str> = "x".into();
+    cache.finish_within(k("a"), Ok(graphic(10, 1)), 50);
+    show(&mut cache, &mut shown, &block, &k("a"));
+    assert!(image_of(&show(&mut cache, &mut shown, &block, &k("b")).0).is_some());
+    // Something else evicts it (and its texture is dropped).
+    let evicted = cache.finish_within(k("other"), Ok(graphic(10, 1)), 40);
+    assert_eq!(evicted.len(), 1);
+    let (s, render) = show(&mut cache, &mut shown, &block, &k("b"));
+    assert!(is_placeholder(&s) && !render);
+    assert!(cached(&cache, &k("a")).is_none(), "not brought back");
+    assert_eq!(cache.bytes, 40);
+}
+
+#[test]
+fn a_previous_image_on_screen_is_the_last_to_be_evicted() {
+    let (mut cache, mut shown) = (Cache::default(), Shown::default());
+    let block: Arc<str> = "x".into();
+    // 40 bytes each, room for two.
+    let budget = 100;
+    cache.finish_within(k("a"), Ok(graphic(10, 1)), budget);
+    show(&mut cache, &mut shown, &block, &k("a"));
+    cache.finish_within(k("d"), Ok(graphic(10, 1)), budget);
+    // "a" is older than "d", but it's on screen while "b" renders.
+    show(&mut cache, &mut shown, &block, &k("b"));
+    cache.finish_within(k("c"), Ok(graphic(10, 1)), budget);
+    assert!(cached(&cache, &k("a")).is_some());
+    assert!(cached(&cache, &k("d")).is_none());
+    assert!(cache.ready(&k("d")).is_none());
+}
+
+/// Live-reloading a block over and over: one previous image per block, and
+/// the pixels stay within the budget, every image either cached or handed
+/// back to have its texture dropped.
+#[test]
+fn repeated_edits_stay_within_the_budget() {
+    let (mut cache, mut shown) = (Cache::default(), Shown::default());
+    let block: Arc<str> = "x".into();
+    let budget = 3 * 40;
+    let mut evicted = 0;
+    for i in 0..50 {
+        let key = k(&i.to_string());
+        let (s, render) = show(&mut cache, &mut shown, &block, &key);
+        assert!(render);
+        assert_eq!(is_placeholder(&s), i == 0, "{i}");
+        evicted += cache
+            .finish_within(key.clone(), Ok(graphic(10, 1)), budget)
+            .len();
+        assert!(cache.bytes <= budget, "{i}: {} bytes", cache.bytes);
+        assert!(image_of(&show(&mut cache, &mut shown, &block, &key).0).is_some());
+        assert_eq!(shown_len(&shown), 1);
+    }
+    let ready = cache
+        .slots
+        .values()
+        .filter(|s| matches!(s, Slot::Ready { .. }))
+        .count();
+    assert_eq!(ready, 3);
+    assert_eq!(ready + evicted, 50);
+}
+
+#[test]
+fn cache_ready_never_starts_a_render() {
+    let mut cache = Cache::default();
+    assert!(cache.ready(&k("a")).is_none());
+    assert!(cache.slots.is_empty());
+    cache.lookup(&k("a"));
+    assert!(cache.ready(&k("a")).is_none(), "pending");
+    cache.finish(k("bad"), Err("e".into()));
+    assert!(cache.ready(&k("bad")).is_none());
+    cache.finish(k("a"), Ok(graphic(1, 1)));
+    assert!(cache.ready(&k("a")).is_some());
+}
+
+// Which blocks are which across a reload.
+
+/// The math and diagram blocks of `src`, as `(kind, source)`.
+fn graphics_of(doc: &Document) -> Vec<(Kind, String)> {
+    graphics_in(&doc.blocks)
+        .into_iter()
+        .map(|(kind, s)| (kind, s.to_string()))
+        .collect()
+}
+
+#[test]
+fn graphics_in_finds_nested_blocks_in_document_order() {
+    let doc = markdown::parse(
+        "$$\na\n$$\n\n> ```mermaid\n> graph LR; B-->C\n> ```\n\n\
+         - item\n\n  $$\n  c\n  $$\n\nText[^n]\n\n[^n]: Note\n\n    $$\n    d\n    $$\n\n\
+         # Heading\n\n| x |\n|---|\n| y |\n\n```rust\nfn main() {}\n```\n\n---\n\n![i](i.png)\n",
+    );
+    assert_eq!(
+        graphics_of(&doc),
+        [
+            (Kind::Math, "a".into()),
+            (Kind::Mermaid, "graph LR; B-->C".into()),
+            (Kind::Math, "c".into()),
+            (Kind::Math, "d".into()),
+        ]
+    );
+}
+
+fn as_refs(v: &[(Kind, Arc<str>)]) -> Vec<(Kind, &Arc<str>)> {
+    v.iter().map(|(k, s)| (*k, s)).collect()
+}
+
+/// `pair_up` for blocks written as letters: a lowercase one is math, an
+/// uppercase one a diagram, and the letter is its source.
+fn pairs(old: &str, new: &str) -> Vec<(usize, usize)> {
+    let blocks = |s: &str| -> Vec<(Kind, Arc<str>)> {
+        s.chars()
+            .map(|c| {
+                let kind = if c.is_lowercase() {
+                    Kind::Math
+                } else {
+                    Kind::Mermaid
+                };
+                (kind, c.to_lowercase().to_string().into())
+            })
+            .collect()
+    };
+    let (old, new) = (blocks(old), blocks(new));
+    let mut p = pair_up(&as_refs(&old), &as_refs(&new));
+    p.sort();
+    p
+}
+
+#[test]
+fn pair_up_matches_unchanged_ends_then_the_middle_one_to_one() {
+    // Old blocks, new blocks, and which old one each new one replaces.
+    type Case = (&'static str, &'static str, &'static [(usize, usize)]);
+    let cases: &[Case] = &[
+        ("", "", &[]),
+        ("a", "", &[]),
+        ("", "a", &[]),
+        // Unchanged.
+        ("aB", "aB", &[(0, 0), (1, 1)]),
+        // One edited, at the start, in the middle or at the end.
+        ("aBc", "xBc", &[(0, 0), (1, 1), (2, 2)]),
+        ("aBc", "aYc", &[(0, 0), (1, 1), (2, 2)]),
+        ("aBc", "aBx", &[(0, 0), (1, 1), (2, 2)]),
+        // Two edited.
+        ("aBc", "xYc", &[(0, 0), (1, 1), (2, 2)]),
+        // Edited into another kind: not the same block.
+        ("aB", "AB", &[(1, 1)]),
+        ("aB", "Ab", &[]),
+        // Inserted or removed: the others keep theirs, a new one has none.
+        ("ac", "axc", &[(0, 0), (1, 2)]),
+        ("axc", "ac", &[(0, 0), (2, 1)]),
+        ("a", "xa", &[(0, 1)]),
+        ("a", "ax", &[(0, 0)]),
+        // Edited and inserted: unclear which is which.
+        ("aBc", "axYc", &[(0, 0), (2, 3)]),
+        // Duplicates aren't counted twice.
+        ("aa", "a", &[(0, 0)]),
+        ("a", "aa", &[(0, 0)]),
+        ("aa", "aa", &[(0, 0), (1, 1)]),
+    ];
+    for (old, new, want) in cases {
+        assert_eq!(pairs(old, new), *want, "{old:?} → {new:?}");
+    }
+}
+
+#[test]
+fn carry_over_moves_previous_images_to_the_edited_blocks() {
+    let old = markdown::parse("$$\na\n$$\n\n> $$\n> b\n> $$\n\n- $$\n  c\n  $$\n");
+    let new = markdown::parse("# New\n\n$$\na\n$$\n\n> $$\n> b2\n> $$\n\n- $$\n  c\n  $$\n");
+    let (old_g, new_g) = (graphics_in(&old.blocks), graphics_in(&new.blocks));
+    assert_eq!(old_g.len(), 3);
+    assert_eq!(new_g.len(), 3);
+    let mut shown = Shown::default();
+    for (i, (_, s)) in old_g.iter().enumerate() {
+        shown.0.insert(BlockId((*s).clone()), k(&format!("key{i}")));
+    }
+    shown.carry_over(&old, &new);
+    for (i, (_, s)) in new_g.iter().enumerate() {
+        assert_eq!(shown_key(&shown, s), Some(&k(&format!("key{i}"))), "{i}");
+    }
+    // Only the new blocks are left; the old ones' sources are let go.
+    assert_eq!(shown_len(&shown), 3);
+    for (_, s) in &old_g {
+        assert!(shown_key(&shown, s).is_none());
+        assert_eq!(Arc::strong_count(s), 1);
+    }
+
+    // A block that showed nothing yet stays without a previous image.
+    let mut shown = Shown::default();
+    shown.carry_over(&old, &new);
+    assert_eq!(shown_len(&shown), 0);
+}
+
+#[test]
+fn block_ids_are_the_source_arcs_not_their_text() {
+    use std::hash::{BuildHasher, RandomState};
+    let a: Arc<str> = "same".into();
+    let b: Arc<str> = "same".into();
+    assert!(BlockId(a.clone()) == BlockId(a.clone()));
+    assert!(BlockId(a.clone()) != BlockId(b.clone()));
+    let hasher = RandomState::new();
+    assert_eq!(
+        hasher.hash_one(BlockId(a.clone())),
+        hasher.hash_one(BlockId(a.clone()))
+    );
+    assert_ne!(
+        hasher.hash_one(BlockId(a.clone())),
+        hasher.hash_one(BlockId(b.clone()))
+    );
+}
+
+#[test]
+fn cache_ready_makes_the_image_the_most_recently_used() {
+    let used = |cache: &Cache, name: &str| match cache.slots.get(&k(name)) {
+        Some(Slot::Ready { used, .. }) => *used,
+        _ => panic!("{name} not ready"),
+    };
+    let mut cache = Cache::default();
+    cache.finish(k("a"), Ok(graphic(1, 1)));
+    cache.finish(k("b"), Ok(graphic(1, 1)));
+    assert!(used(&cache, "a") < used(&cache, "b"));
+    cache.ready(&k("a"));
+    assert!(used(&cache, "a") > used(&cache, "b"), "strictly newer");
+}

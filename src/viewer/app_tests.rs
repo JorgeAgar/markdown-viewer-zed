@@ -3,7 +3,7 @@
 //! example document. Windows are drawn whenever they're dirty at the end of
 //! an update, so a panic while rendering fails the test.
 
-use std::time::Duration;
+use std::{rc::Rc, time::Duration};
 
 use gpui::{
     AnyView, AppContext, AvailableSpace, Entity, TestAppContext, VisualContext, VisualTestContext,
@@ -527,6 +527,7 @@ fn draws_every_document_in_both_themes() {
                 base_dir: Arc::from(path.parent().unwrap()),
                 viewer: weak.clone(),
                 code_scroll: Default::default(),
+                shown: Default::default(),
             };
             let rows = cx.new(|_| DocRows {
                 doc: doc.clone(),
@@ -820,6 +821,7 @@ fn draws_split_large_code_quotes_and_header_only_table_in_both_themes() {
             base_dir: Arc::from(Path::new("/x")),
             viewer: weak.clone(),
             code_scroll: Default::default(),
+            shown: Default::default(),
         };
         let rows = cx.new(|_| DocRows {
             doc: doc.clone(),
@@ -1967,4 +1969,166 @@ fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
     wheel_lines(cx, -1.);
     settle(&v, cx);
     assert!(gap(&v, cx).abs() < 0.01, "{}", gap(&v, cx));
+}
+
+/// What the frames since the last call drew for the document's one math or
+/// diagram block, without repeats: its image (with its height), placeholder
+/// or error.
+fn drawn_graphic() -> Vec<graphics::Drawn> {
+    let mut drawn = graphics::take_drawn();
+    drawn.dedup();
+    drawn
+}
+
+/// The height of the document's last row.
+fn last_row_height(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> f32 {
+    cx.update(|_, cx| {
+        let list = v.read(cx).active_list().unwrap();
+        f32::from(
+            list.bounds_for_item(list.item_count() - 1)
+                .unwrap()
+                .size
+                .height,
+        )
+    })
+}
+
+/// Saves `src` and reloads the active tab, drawing one frame but not letting
+/// the background renders run.
+fn edit_and_draw(v: &Entity<Viewer>, cx: &mut VisualTestContext, path: &Path, src: &str) {
+    std::fs::write(path, src).unwrap();
+    with_tab(v, cx, |t| t.replace(load(t.path.clone()).1));
+    cx.update(|_, cx| v.update(cx, |_, cx| cx.notify()));
+}
+
+fn image_height(drawn: &[graphics::Drawn], what: &str) -> f32 {
+    match drawn {
+        [graphics::Drawn::Image(h)] => *h,
+        _ => panic!("{what}: {drawn:?}"),
+    }
+}
+
+/// Issue #2: while an edited formula or diagram renders again, its block
+/// keeps the previous image, at its size, instead of flashing a placeholder,
+/// wherever it's nested. A broken edit shows the error.
+#[test]
+fn an_edited_graphic_keeps_its_previous_image_while_it_renders() {
+    use graphics::Drawn::{Error, Image, Placeholder};
+    let math = |f: &str| format!("$$\n{f}\n$$\n");
+    // Puts a block where it's tested: at the top level or nested.
+    type Wrap = fn(&str) -> String;
+    let cases: &[(&str, Wrap)] = &[
+        ("top level", |b| b.to_string()),
+        ("quote", |b| b.lines().map(|l| format!("> {l}\n")).collect()),
+        ("list", |b| {
+            let indented: String = b.lines().map(|l| format!("  {l}\n")).collect();
+            format!("- item\n\n{indented}")
+        }),
+        ("footnote", |b| {
+            let indented: String = b.lines().map(|l| format!("    {l}\n")).collect();
+            format!("Text[^n]\n\n[^n]: Note\n\n{indented}")
+        }),
+    ];
+    for (name, wrap) in cases {
+        let doc = |block: String| format!("# Doc\n\n{}", wrap(&block));
+        let dir = TempDir::new("graphic-edit");
+        let path = normalize(&dir.join("a.md"));
+        std::fs::write(&path, doc(math("x"))).unwrap();
+        graphics::take_drawn();
+        let (v, cx) = open(vec![load(path.clone())]);
+
+        // First render: a placeholder until the image is ready.
+        let drawn = drawn_graphic();
+        assert!(
+            matches!(drawn[..], [Placeholder, Image(_)]),
+            "{name}: {drawn:?}"
+        );
+        let small = image_height(&drawn[1..], name);
+        let row = last_row_height(&v, cx);
+
+        // Edited: the old image, at its old size, until the new one is ready.
+        edit_and_draw(&v, cx, &path, &doc(math(r"\frac{a}{b}")));
+        assert_eq!(drawn_graphic(), [Image(small)], "{name}");
+        assert_eq!(last_row_height(&v, cx), row, "{name}: the page moved");
+        cx.run_until_parked();
+        let tall = image_height(&drawn_graphic(), name);
+        assert!(tall > small + 5., "{name}: {tall} vs {small}");
+
+        // Broken: the error once it's known, not the stale image.
+        edit_and_draw(&v, cx, &path, &doc(math(r"\frac{a}")));
+        assert_eq!(drawn_graphic(), [Image(tall)], "{name}");
+        cx.run_until_parked();
+        assert_eq!(drawn_graphic(), [Error], "{name}");
+
+        // Fixed: there's no previous image left after the error.
+        edit_and_draw(&v, cx, &path, &doc(math("y")));
+        assert_eq!(drawn_graphic(), [Placeholder], "{name}");
+        cx.run_until_parked();
+        image_height(&drawn_graphic(), name);
+    }
+}
+
+#[test]
+fn an_edited_diagram_keeps_its_previous_image_while_it_renders() {
+    use graphics::Drawn::{Image, Placeholder};
+    let dir = TempDir::new("diagram-edit");
+    let path = normalize(&dir.join("a.md"));
+    let diagram = |src: &str| format!("# Doc\n\n```mermaid\n{src}\n```\n");
+    std::fs::write(&path, diagram("graph TD; A-->B")).unwrap();
+    graphics::take_drawn();
+    let (v, cx) = open(vec![load(path.clone())]);
+    let drawn = drawn_graphic();
+    assert!(matches!(drawn[..], [Placeholder, Image(_)]), "{drawn:?}");
+    let before = image_height(&drawn[1..], "first");
+    let row = last_row_height(&v, cx);
+
+    edit_and_draw(&v, cx, &path, &diagram("graph TD; A-->B-->C"));
+    assert_eq!(drawn_graphic(), [Image(before)]);
+    assert_eq!(last_row_height(&v, cx), row, "the page moved");
+    cx.run_until_parked();
+    let after = image_height(&drawn_graphic(), "edited");
+    assert!(after > before, "{after} vs {before}");
+}
+
+/// Live-reloading an edited formula again and again: one previous image per
+/// block, the cache stays within its budget (evicted images get their
+/// textures dropped), and closing the tab lets go of its previous images.
+#[test]
+fn live_reloading_edits_stays_within_the_cache_budget() {
+    let dir = TempDir::new("graphic-budget");
+    let path = normalize(&dir.join("a.md"));
+    let doc = |i: u32| format!("# Doc\n\n$$\nx_{{{i}}}\n$$\n");
+    std::fs::write(&path, doc(0)).unwrap();
+    set_mtime(&path, 1_000);
+    let (v, cx) = open(vec![load(path.clone())]);
+    let one = cx.update(|_, cx| graphics::cache_bytes(cx));
+    assert!(one > 0);
+    // Room for about three of them.
+    let budget = one * 3 + one / 2;
+    cx.update(|_, cx| graphics::set_cache_budget(cx, budget));
+    let shown = with_tab(&v, cx, |t| t.shown.clone());
+
+    for i in 1..=12 {
+        std::fs::write(&path, doc(i)).unwrap();
+        set_mtime(&path, 1_000 + u64::from(i));
+        graphics::take_drawn();
+        cx.executor().advance_clock(Duration::from_millis(800));
+        cx.run_until_parked();
+        let drawn = drawn_graphic();
+        assert!(
+            !drawn.is_empty() && drawn.iter().all(|d| matches!(d, graphics::Drawn::Image(_))),
+            "{i}: {drawn:?}"
+        );
+        let bytes = cx.update(|_, cx| graphics::cache_bytes(cx));
+        assert!(bytes <= budget, "{i}: {bytes} > {budget}");
+        assert_eq!(graphics::shown_len(&shown.borrow()), 1, "{i}");
+    }
+    let (ready, _, _) = cx.update(|_, cx| graphics::cache_stats(cx, graphics::Kind::Math));
+    assert!(ready <= 3, "{ready} images cached");
+
+    let weak = Rc::downgrade(&shown);
+    drop(shown);
+    cx.dispatch_action(CloseTab);
+    cx.run_until_parked();
+    assert!(weak.upgrade().is_none(), "the closed tab's previous images");
 }

@@ -174,6 +174,7 @@ classDiagram
         doc: Arc~Document~
         rows: Arc~Rows~
         code_scroll: CodeScrollMap  shared horizontal scroll per split code block
+        shown: ShownMap  last image of each math or diagram block
         mtime: Option~SystemTime~
         list: ListState  scroll + measured heights
         leading_measured: bool  rows above the scroll top are measured
@@ -202,8 +203,11 @@ classDiagram
   (`Tabs::close`). Next/previous tab wrap around.
 - `Tab::replace` swaps in a newly parsed document and keeps the scroll
   position on the same block, even when earlier blocks grew or shrank
-  (`Rows::remap_row`, see [rendering.md](rendering.md)). Live reload and
-  `Ctrl+R` both use it.
+  (`Rows::remap_row`, see [rendering.md](rendering.md)). Edited math and
+  diagram blocks keep their previous image while they render again
+  (`Shown::carry_over`, see
+  [rendering.md](rendering.md#images-rendered-in-the-background)). Live
+  reload and `Ctrl+R` both use it.
 - The open-file dialog (`Ctrl+O` / `Cmd+O`) starts in the active tab's parent
   directory, falling back to `last_open_dir` (in-memory only, updated as files
   are opened) and then the process working directory.

@@ -9,10 +9,15 @@
 //!
 //! Results live in a global LRU cache keyed by source, theme and scale, so
 //! scrolling back, switching tabs or reloading an unchanged file is free.
+//! When an edited block's new image is still rendering, the block keeps
+//! showing its previous image (see [`Shown`]), so a live reload doesn't
+//! flash a placeholder or move the page.
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
-    hash::Hash,
+    hash::{Hash, Hasher},
+    rc::Rc,
     sync::{Arc, LazyLock, OnceLock},
 };
 
@@ -23,6 +28,7 @@ use gpui::{
 use resvg::{tiny_skia, usvg};
 
 use crate::{
+    markdown::{Block, Document},
     render::{BASE_SIZE, RenderCx},
     theme::Theme,
 };
@@ -34,7 +40,7 @@ pub enum Kind {
 }
 
 /// What to render. Everything that changes the pixels is part of the key.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Key {
     kind: Kind,
     source: Arc<str>,
@@ -61,11 +67,23 @@ const CACHE_BYTES: usize = 128 << 20;
 /// Largest raster side, in device pixels.
 const MAX_SIDE: f32 = 4096.;
 
-#[derive(Default)]
 struct Cache {
     slots: HashMap<Key, Slot>,
     bytes: usize,
     clock: u64,
+    /// [`CACHE_BYTES`], or less in tests.
+    budget: usize,
+}
+
+impl Default for Cache {
+    fn default() -> Self {
+        Self {
+            slots: HashMap::default(),
+            bytes: 0,
+            clock: 0,
+            budget: CACHE_BYTES,
+        }
+    }
 }
 
 impl Global for Cache {}
@@ -99,10 +117,23 @@ impl Cache {
         }
     }
 
+    /// The image for `key` if it's rendered and still cached, marked as just
+    /// used. Unlike [`Self::lookup`], it never starts a render.
+    fn ready(&mut self, key: &Key) -> Option<Arc<Graphic>> {
+        self.clock += 1;
+        match self.slots.get_mut(key) {
+            Some(Slot::Ready { graphic, used }) => {
+                *used = self.clock;
+                Some(graphic.clone())
+            }
+            _ => None,
+        }
+    }
+
     /// Stores a finished render and returns the images evicted to stay under
     /// the memory budget (their GPU textures must be dropped too).
     fn finish(&mut self, key: Key, result: Result<Graphic, String>) -> Vec<Arc<RenderImage>> {
-        self.finish_within(key, result, CACHE_BYTES)
+        self.finish_within(key, result, self.budget)
     }
 
     /// [`Self::finish`] with an explicit budget, in bytes. The image just
@@ -151,9 +182,150 @@ fn bytes(image: &RenderImage) -> usize {
     image.as_bytes(0).map_or(0, |b| b.len())
 }
 
+/// A math or diagram block of a tab's document, by identity: its source
+/// `Arc`, compared by address. Holding the `Arc` keeps that address from
+/// being reused by another block while the entry exists.
+#[derive(Clone)]
+struct BlockId(Arc<str>);
+
+impl PartialEq for BlockId {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for BlockId {}
+
+impl Hash for BlockId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).cast::<u8>().hash(state);
+    }
+}
+
+/// The image each math or diagram block of a tab showed last, as its cache
+/// key. While an edited block's new image renders, the block shows that one
+/// instead of a placeholder, at its size, so the page doesn't jump.
+///
+/// It holds keys, not images: the [`Cache`] stays the only owner of the
+/// pixels and GPU textures. A previous image is shown only while it's still
+/// cached (it's then marked as used, so it's the last to go); once evicted,
+/// its texture has been dropped and the block shows the placeholder, so an
+/// evicted image is never drawn (which would upload its texture again,
+/// with nothing left to drop it). Memory stays within the cache budget
+/// however often a file is reloaded, and closing a tab just drops this.
+#[derive(Default)]
+pub struct Shown(HashMap<BlockId, Key>);
+
+/// A tab's [`Shown`], shared with its [`RenderCx`].
+pub type ShownMap = Rc<RefCell<Shown>>;
+
+impl Shown {
+    /// After a reload: what each block of `old` showed now belongs to the
+    /// block of `new` that replaces it. Blocks are matched in document
+    /// order (nested ones included): the unchanged ones at the start and
+    /// at the end, then the ones in between one to one, if there are as
+    /// many on both sides. Otherwise it's unclear which edited block is
+    /// which, and they start over with a placeholder.
+    pub fn carry_over(&mut self, old: &Document, new: &Document) {
+        let (old, new) = (graphics_in(&old.blocks), graphics_in(&new.blocks));
+        let mut next = HashMap::new();
+        for (o, n) in pair_up(&old, &new) {
+            if let Some(key) = self.0.get(&BlockId(old[o].1.clone())) {
+                next.insert(BlockId(new[n].1.clone()), key.clone());
+            }
+        }
+        self.0 = next;
+    }
+}
+
+/// The math and diagram blocks of `blocks`, in document order, nested ones
+/// included.
+fn graphics_in(blocks: &[Block]) -> Vec<(Kind, &Arc<str>)> {
+    fn walk<'a>(blocks: &'a [Block], out: &mut Vec<(Kind, &'a Arc<str>)>) {
+        for b in blocks {
+            match b {
+                Block::Math(s) => out.push((Kind::Math, s)),
+                Block::Mermaid(s) => out.push((Kind::Mermaid, s)),
+                Block::Quote { blocks, .. } | Block::Footnote { blocks, .. } => walk(blocks, out),
+                Block::List { items, .. } => {
+                    for item in items {
+                        walk(&item.blocks, out);
+                    }
+                }
+                Block::Heading { .. }
+                | Block::Paragraph(_)
+                | Block::Images(_)
+                | Block::Code { .. }
+                | Block::Table { .. }
+                | Block::Rule => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(blocks, &mut out);
+    out
+}
+
+/// Which block of `old` each block of `new` replaces, as index pairs (see
+/// [`Shown::carry_over`]). Only blocks of the same kind are paired.
+fn pair_up(old: &[(Kind, &Arc<str>)], new: &[(Kind, &Arc<str>)]) -> Vec<(usize, usize)> {
+    let same = |o: usize, n: usize| old[o].0 == new[n].0 && old[o].1 == new[n].1;
+    let shorter = old.len().min(new.len());
+    let start = (0..shorter).take_while(|&i| same(i, i)).count();
+    let end = (0..shorter - start)
+        .take_while(|&i| same(old.len() - 1 - i, new.len() - 1 - i))
+        .count();
+    let mut pairs: Vec<(usize, usize)> = (0..start).map(|i| (i, i)).collect();
+    if old.len() == new.len() {
+        pairs.extend(
+            (start..old.len() - end)
+                .filter(|&i| old[i].0 == new[i].0)
+                .map(|i| (i, i)),
+        );
+    }
+    pairs.extend((0..end).map(|i| (old.len() - 1 - i, new.len() - 1 - i)));
+    pairs
+}
+
+/// What a block shows.
+enum Show {
+    Image(Arc<Graphic>),
+    Placeholder,
+    Error(SharedString),
+}
+
+/// What `block` shows for `key`, and whether `key` must be rendered now.
+/// While it renders, the block keeps its previous image if that's still
+/// cached and was drawn for the same theme: an image in the other theme's
+/// colors could be unreadable (dark text on the dark background), whereas
+/// one at another scale factor only looks a little blurry for a moment.
+fn show(cache: &mut Cache, shown: &mut Shown, block: &Arc<str>, key: &Key) -> (Show, bool) {
+    let id = BlockId(block.clone());
+    let render = match cache.lookup(key) {
+        Lookup::Ready(graphic) => {
+            shown.0.insert(id, key.clone());
+            return (Show::Image(graphic), false);
+        }
+        Lookup::Failed(e) => {
+            // The edited source is broken: say so rather than keep showing
+            // what it used to be.
+            shown.0.remove(&id);
+            return (Show::Error(e), false);
+        }
+        Lookup::Pending => false,
+        Lookup::Missing => true,
+    };
+    let previous = shown
+        .0
+        .get(&id)
+        .filter(|k| k.dark == key.dark)
+        .and_then(|k| cache.ready(k));
+    (previous.map_or(Show::Placeholder, Show::Image), render)
+}
+
 /// The element for a math or diagram block: the rendered image when it's
-/// ready, a placeholder while it renders, or the source with an error message
-/// if it can't be rendered.
+/// ready, the block's previous image or else a placeholder while it renders,
+/// or the source with an error message if it can't be rendered.
 pub fn element(
     kind: Kind,
     source: &Arc<str>,
@@ -167,19 +339,23 @@ pub fn element(
         dark: rcx.theme.dark,
         scale: (window.scale_factor() * 100.).round() as u32,
     };
-    let state = match cx.default_global::<Cache>().lookup(&key) {
-        Lookup::Ready(graphic) => Ok(Some(graphic)),
-        Lookup::Failed(e) => Err(e),
-        Lookup::Pending => Ok(None),
-        Lookup::Missing => {
-            spawn(key, rcx, cx);
-            Ok(None)
-        }
-    };
+    let cache = cx.default_global::<Cache>();
+    let (state, render) = show(cache, &mut rcx.shown.borrow_mut(), source, &key);
+    if render {
+        spawn(key, rcx, cx);
+    }
+    #[cfg(test)]
+    DRAWN.with_borrow_mut(|d| {
+        d.push(match &state {
+            Show::Image(g) => Drawn::Image(f32::from(g.size.height)),
+            Show::Placeholder => Drawn::Placeholder,
+            Show::Error(_) => Drawn::Error,
+        })
+    });
 
     let t = &rcx.theme;
     match state {
-        Ok(Some(g)) => {
+        Show::Image(g) => {
             let mut image = img(ImageSource::Render(g.image.clone()))
                 .w(g.size.width)
                 .max_w_full()
@@ -193,7 +369,7 @@ pub fn element(
                 .child(image)
                 .into_any_element()
         }
-        Ok(None) => match kind {
+        Show::Placeholder => match kind {
             Kind::Math => div().w_full().h(px(BASE_SIZE * 2.5)).into_any_element(),
             Kind::Mermaid => div()
                 .w_full()
@@ -209,7 +385,7 @@ pub fn element(
                 .child("Rendering diagram…")
                 .into_any_element(),
         },
-        Err(e) => div()
+        Show::Error(e) => div()
             .w_full()
             .flex()
             .flex_col()
@@ -561,6 +737,46 @@ pub(crate) fn cache_stats(cx: &App, kind: Kind) -> (usize, usize, usize) {
         }
     }
     stats
+}
+
+/// What [`element`] showed for a block, for tests.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Drawn {
+    /// An image, with its logical height.
+    Image(f32),
+    Placeholder,
+    Error,
+}
+
+#[cfg(test)]
+thread_local! {
+    static DRAWN: RefCell<Vec<Drawn>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What [`element`] showed since the last call, oldest first, for tests
+/// (GPUI's `debug_bounds` keeps elements of earlier frames).
+#[cfg(test)]
+pub(crate) fn take_drawn() -> Vec<Drawn> {
+    DRAWN.take()
+}
+
+/// Lowers the cache budget, so tests can fill it with small images.
+#[cfg(test)]
+pub(crate) fn set_cache_budget(cx: &mut App, bytes: usize) {
+    cx.default_global::<Cache>().budget = bytes;
+}
+
+/// The pixel data in the cache, in bytes, for tests.
+#[cfg(test)]
+pub(crate) fn cache_bytes(cx: &App) -> usize {
+    cx.try_global::<Cache>().map_or(0, |c| c.bytes)
+}
+
+/// Number of blocks with a previous image, for tests.
+#[cfg(test)]
+pub(crate) fn shown_len(shown: &Shown) -> usize {
+    shown.0.len()
 }
 
 #[cfg(test)]

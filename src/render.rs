@@ -18,7 +18,7 @@ use gpui::{
 };
 
 use crate::{
-    graphics::{self, Kind},
+    graphics::{self, Kind, ShownMap},
     highlight::{Highlight, Tok},
     links::{LinkTarget, classify_link, percent_decode},
     markdown::{
@@ -59,6 +59,8 @@ pub struct RenderCx {
     pub base_dir: Arc<Path>,
     pub viewer: WeakEntity<Viewer>,
     pub code_scroll: CodeScrollMap,
+    /// The tab's last image of each math and diagram block.
+    pub shown: ShownMap,
 }
 
 impl RenderCx {

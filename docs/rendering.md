@@ -135,6 +135,7 @@ children. Everything it needs comes from `RenderCx`, which is cheap to clone:
 | `base_dir` | The document's folder, used to resolve relative links and images |
 | `viewer` | `WeakEntity<Viewer>`, so clicking a link can open tabs or scroll |
 | `code_scroll` | The tab's `CodeScrollMap`: one shared `ScrollHandle` and width per split code block |
+| `shown` | The tab's `graphics::ShownMap`: the last image of each math and diagram block, kept on screen while an edited one renders |
 
 ### Text with inline styles
 
@@ -227,11 +228,11 @@ sequenceDiagram
     participant BG as background executor
     R->>C: element(kind, source)
     alt cached
-        C-->>R: image + size
-    else first time
+        C-->>R: image + size (remembered in the tab's Shown)
+    else not rendered yet
         C->>C: slot = Pending
         C-)BG: RaTeX or merman → SVG → resvg → BGRA pixels
-        C-->>R: placeholder
+        C-->>R: the block's previous image if still cached, else a placeholder
         BG-->>C: finish(): store image, evict LRU over 128 MB
         C->>R: notify Viewer → next frame shows the image
     end
@@ -245,6 +246,30 @@ switching tabs or reloading an unchanged file never re-renders. Old entries
 are evicted (and their GPU textures dropped with `cx.drop_image`) once the
 cached pixels exceed 128 MB, which matters when live-reloading a file while
 editing it.
+
+Editing a formula or diagram changes its key, so it renders again. Meanwhile
+the block keeps showing its previous image, at its previous size, instead of
+the placeholder, so a save doesn't flash or move the page:
+
+- Each tab has a `graphics::Shown`: the key of the image each block showed
+  last. A block is identified by its source `Arc<str>` (by address, holding
+  the `Arc`), so nested blocks in quotes, lists and footnotes work the same.
+- `Tab::replace` calls `Shown::carry_over` to hand those keys to the blocks
+  of the new document: blocks are matched in document order, the unchanged
+  ones at both ends, then the changed ones in between one to one, if both
+  sides have as many (of the same kind). A block that was inserted, or that
+  can't be told apart, starts with the placeholder.
+- Only the key is kept, never the image: the cache stays the only owner of
+  the pixels and textures, so memory stays within the 128 MB budget however
+  often a file is reloaded, and closing a tab just drops its `Shown`. The
+  previous image is shown only while it's still cached (it's marked as used,
+  so it's the last to go). An evicted one is never drawn again, which would
+  upload its texture again with nothing left to drop it.
+- The previous image is kept when the scale factor changes (briefly blurry),
+  but not when the theme changes: in the other theme's colors it could be
+  unreadable.
+- If the new source can't be rendered, the block shows the error and forgets
+  its previous image, rather than keep showing what the source used to be.
 
 If a formula or diagram can't be parsed, the block shows the error and the
 source. The renderers are third-party code fed with arbitrary input, so

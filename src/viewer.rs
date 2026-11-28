@@ -15,6 +15,7 @@ use gpui::{
 };
 
 use crate::{
+    graphics::ShownMap,
     links,
     markdown::{self, Document},
     render::{self, CodeScrollMap, RenderCx},
@@ -120,6 +121,9 @@ struct Tab {
     doc: Arc<Document>,
     rows: Arc<Rows>,
     code_scroll: CodeScrollMap,
+    /// The image each math and diagram block showed last, kept on screen
+    /// while an edited one renders again.
+    shown: ShownMap,
     mtime: Option<SystemTime>,
     list: ListState,
     /// True while every row before `list.logical_scroll_top().item_ix` is
@@ -193,6 +197,7 @@ impl Tab {
             doc: Arc::new(doc),
             rows,
             code_scroll: CodeScrollMap::default(),
+            shown: ShownMap::default(),
             mtime,
             list,
             leading_measured: true,
@@ -350,6 +355,7 @@ impl Tab {
         // A glide would move before the new rows are laid out (all 0 px).
         self.motion.stop();
         self.code_scroll.borrow_mut().clear();
+        self.shown.borrow_mut().carry_over(&self.doc, &doc);
         self.doc = Arc::new(doc);
         self.rows = rows;
         self.mtime = mtime;
@@ -925,6 +931,7 @@ impl Render for Viewer {
                     base_dir: tab.base_dir.clone(),
                     viewer: cx.weak_entity(),
                     code_scroll: tab.code_scroll.clone(),
+                    shown: tab.shown.clone(),
                 };
                 let doc = tab.doc.clone();
                 let rows = tab.rows.clone();
