@@ -120,6 +120,37 @@ impl RichText {
         });
     }
 
+    /// Drops the `links` no span points to (a link whose text was all
+    /// trimmed away, or one carried past display math that ends right
+    /// there) and renumbers the spans' links to match.
+    fn drop_unused_links(&mut self) {
+        let mut used = vec![false; self.links.len()];
+        for s in &self.spans {
+            if let Some(l) = s.link {
+                used[l as usize] = true;
+            }
+        }
+        if used.iter().all(|&u| u) {
+            return;
+        }
+        // New index of each link: how many used links come before it.
+        let renumber: Vec<u32> = used
+            .iter()
+            .scan(0, |n, &u| {
+                let ix = *n;
+                *n += u as u32;
+                Some(ix)
+            })
+            .collect();
+        for s in &mut self.spans {
+            if let Some(l) = s.link.as_mut() {
+                *l = renumber[*l as usize];
+            }
+        }
+        let mut used = used.into_iter();
+        self.links.retain(|_| used.next() == Some(true));
+    }
+
     fn trim_end(&mut self) {
         let trimmed = self.text.trim_end().len();
         self.text.truncate(trimmed);
@@ -310,7 +341,7 @@ impl<'a> P<'a> {
                 self.next(); // End(Paragraph)
             }
             Tag::Heading { level, .. } => {
-                let (mut text, _) = self.inlines(false);
+                let (mut text, _) = self.inlines(false, &mut Open::default());
                 self.next();
                 text.trim_end();
                 let slug = self.unique_slug(slugify(&text.text));
@@ -466,7 +497,7 @@ impl<'a> P<'a> {
         while let Some(ev) = self.next() {
             match ev {
                 Event::Start(Tag::TableCell) => {
-                    let (rich, _) = self.inlines(false);
+                    let (rich, _) = self.inlines(false, &mut Open::default());
                     self.next();
                     cells.push(rich);
                 }
@@ -478,9 +509,11 @@ impl<'a> P<'a> {
 
     /// A paragraph's inline content. Display math (`$$…$$`) splits it: the
     /// text before and after become paragraphs and the math its own block.
+    /// Emphasis and links open across the formula carry on after it.
     fn paragraph(&mut self, out: &mut Vec<Block>) {
+        let mut open = Open::default();
         loop {
-            let (rich, images) = self.inlines(true);
+            let (rich, images) = self.inlines(true, &mut open);
             push_paragraph(out, rich, images);
             match self.peek() {
                 Some(Event::DisplayMath(_)) => {
@@ -504,14 +537,19 @@ impl<'a> P<'a> {
 
     /// Consume inline events. Stops (without consuming) at the first
     /// non-inline event, or at display math when `split_display` is set.
-    fn inlines(&mut self, split_display: bool) -> (RichText, Vec<Image>) {
+    /// Starts with the formatting in `open` and leaves what's still open at
+    /// the end there, for the text after the display math.
+    fn inlines(&mut self, split_display: bool, open: &mut Open) -> (RichText, Vec<Image>) {
         let mut rich = RichText::default();
         let mut images = Vec::new();
-        let mut style = 0u8;
-        // Open strong, emphasis and strikethrough markers. `usize` so that any
-        // nesting depth (issue #39) still matches openers to closers exactly.
-        let mut counts = [0usize; 3];
-        let mut link: Option<u32> = None;
+        let Open {
+            mut style,
+            mut counts,
+            link: mut target,
+        } = std::mem::take(open);
+        // A link still open after display math links this text too, with an
+        // entry in this `RichText`'s own `links`.
+        let mut link: Option<u32> = target.clone().and_then(|t| rich.add_link(t));
         let mut image: Option<Image> = None;
         // Images nested inside the open image's description.
         let mut nested_images = 0u32;
@@ -607,15 +645,18 @@ impl<'a> P<'a> {
                 }) => {
                     // `<me@example.com>` comes without its scheme; without
                     // one, `render::open_link` would look for a local file.
-                    link = rich.add_link(Link::Url(if link_type == LinkType::Email {
+                    let t = Link::Url(if link_type == LinkType::Email {
                         format!("mailto:{dest_url}")
                     } else {
                         dest_url.to_string()
-                    }));
+                    });
+                    link = rich.add_link(t.clone());
+                    target = Some(t);
                     style |= LINK;
                 }
                 Event::End(TagEnd::Link) => {
                     link = None;
+                    target = None;
                     style &= !LINK;
                 }
                 Event::Start(Tag::Image { dest_url, .. }) => {
@@ -627,8 +668,26 @@ impl<'a> P<'a> {
                 _ => {}
             }
         }
+        *open = Open {
+            style,
+            counts,
+            link: target,
+        };
         (rich, images)
     }
+}
+
+/// Inline formatting open at some point of a paragraph. Display math splits
+/// a paragraph into several `RichText`s (issue #22); this carries over from
+/// one to the next, so the text after a formula keeps its emphasis and link.
+#[derive(Default)]
+struct Open {
+    style: u8,
+    /// Open strong, emphasis and strikethrough markers. `usize` so that any
+    /// nesting depth (issue #39) still matches openers to closers exactly.
+    counts: [usize; 3],
+    /// The enclosing link's target.
+    link: Option<Link>,
 }
 
 /// Length of the YAML (`---`) or TOML (`+++`) front matter at the start of
@@ -714,6 +773,7 @@ fn push_paragraph(out: &mut Vec<Block>, mut rich: RichText, images: Vec<Image>) 
     }
     rich.trim_start();
     rich.trim_end();
+    rich.drop_unused_links();
     if !rich.text.is_empty() {
         out.push(Block::Paragraph(rich));
     }
@@ -831,6 +891,125 @@ mod tests {
                 .collect();
             assert_eq!(italic, ["E", "mc"]);
         }
+    }
+
+    /// Each block as `m:tex` or the paragraph's spans as `text@STYLES>link`.
+    fn split_blocks(src: &str) -> Vec<String> {
+        parse(src)
+            .blocks
+            .iter()
+            .map(|b| match b {
+                Block::Math(t) => format!("m:{t}"),
+                Block::Paragraph(p) => {
+                    let all = links(p);
+                    let spans: Vec<String> = p
+                        .spans
+                        .iter()
+                        .map(|s| {
+                            let mut tag = String::new();
+                            for (bit, c) in [(BOLD, 'B'), (ITALIC, 'I'), (STRIKE, 'S'), (LINK, 'L')]
+                            {
+                                if s.style & bit != 0 {
+                                    tag.push(c);
+                                }
+                            }
+                            let link = s
+                                .link
+                                .map_or(String::new(), |l| format!(">{}", all[l as usize]));
+                            format!("{}@{tag}{link}", &p.text[s.range.clone()])
+                        })
+                        .collect();
+                    format!("p:{} links={}", spans.join("|"), all.join(","))
+                }
+                Block::Footnote { .. } => "footnote".into(),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn display_math_keeps_the_surrounding_formatting() {
+        // Issue #22: the text after a `$$…$$` lost the bold, italic,
+        // strikethrough and link it was inside.
+        assert_eq!(
+            split_blocks("**before $$x^2$$ after**"),
+            ["p:before@B links=", "m:x^2", "p:after@B links="]
+        );
+        assert_eq!(
+            split_blocks("*italic $$x^2$$ still italic*"),
+            ["p:italic@I links=", "m:x^2", "p:still italic@I links="]
+        );
+        assert_eq!(
+            split_blocks("~~struck $$x^2$$ still struck~~ plain"),
+            [
+                "p:struck@S links=",
+                "m:x^2",
+                "p:still struck@S| plain@ links="
+            ]
+        );
+        // The link is registered again in the next paragraph's own links.
+        assert_eq!(
+            split_blocks("[before $$x^2$$ after](docs.md) out"),
+            [
+                "p:before@L>docs.md links=docs.md",
+                "m:x^2",
+                "p:after@L>docs.md| out@ links=docs.md"
+            ]
+        );
+    }
+
+    #[test]
+    fn display_math_keeps_nested_formatting_across_several_formulas() {
+        assert_eq!(
+            split_blocks("**[before $$x^2$$ *mid* $$y^2$$ after](https://e.com)** end"),
+            [
+                "p:before@BL>https://e.com links=https://e.com",
+                "m:x^2",
+                "p:mid@BIL>https://e.com links=https://e.com",
+                "m:y^2",
+                "p:after@BL>https://e.com| end@ links=https://e.com",
+            ]
+        );
+        // Formulas right at the start or end of the formatting.
+        assert_eq!(
+            split_blocks("a **$$x$$ b** c"),
+            ["p:a@ links=", "m:x", "p:b@B| c@ links="]
+        );
+        assert_eq!(
+            split_blocks("a **b $$x$$** c"),
+            ["p:a @|b@B links=", "m:x", "p:c@ links="]
+        );
+        assert_eq!(
+            split_blocks("[$$x$$ b](u) c"),
+            ["m:x", "p:b@L>u| c@ links=u"]
+        );
+        assert_eq!(
+            split_blocks("[b $$x$$](u) c"),
+            ["p:b@L>u links=u", "m:x", "p:c@ links="]
+        );
+        // A footnote reference and a link between two formulas keep their
+        // own targets inside the carried emphasis.
+        assert_eq!(
+            split_blocks("*a $$x$$ b[^n] [l](u) $$y$$ c*\n\n[^n]: N\n"),
+            [
+                "p:a@I links=",
+                "m:x",
+                "p:b@I|[n]@IL>[^n]| @I|l@IL>u links=[^n],u",
+                "m:y",
+                "p:c@I links=",
+                "footnote",
+            ]
+        );
+        // A link whose carried text is all trimmed away leaves no entry.
+        assert_eq!(
+            split_blocks("[a $$x$$ ](u) c"),
+            ["p:a@L>u links=u", "m:x", "p:c@ links="]
+        );
+        // Nothing leaks into the next paragraph.
+        assert_eq!(
+            split_blocks("**a $$x$$\n\nb"),
+            ["p:**a@ links=", "m:x", "p:b@ links="]
+        );
     }
 
     #[test]
@@ -1174,7 +1353,7 @@ mod tests {
             i: 0,
             slugs: HashMap::new(),
         };
-        let (rt, _) = p.inlines(false);
+        let (rt, _) = p.inlines(false, &mut Open::default());
         assert_eq!(
             linked_spans(&rt),
             [

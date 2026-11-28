@@ -40,3 +40,5 @@ $x
 y$ across lines.
 
 *Already italic $x+y$ stays italic.*
+
+**Bold $$x^2$$ still bold** and [link $$y$$ still linked](u) after.

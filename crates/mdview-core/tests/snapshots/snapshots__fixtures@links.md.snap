@@ -29,10 +29,9 @@ paragraph
   link 0: u4
   link 1: u5
 paragraph
-  "Code in link: ⟦CL0|code⟧⟦L0| text⟧. Empty text: . Anchor: ⟦L2|section⟧."
+  "Code in link: ⟦CL0|code⟧⟦L0| text⟧. Empty text: . Anchor: ⟦L1|section⟧."
   link 0: u6
-  link 1: u7
-  link 2: #heading-slug
+  link 1: #heading-slug
 paragraph
   "Relative: ⟦L0|doc⟧, ⟦L1|doc with anchor⟧, ⟦L2|dir⟧."
   link 0: other.md

@@ -47,7 +47,11 @@ small recursive-descent parser (`struct P`):
 - Inline math (`$…$`) is converted to Unicode text by `latex::to_unicode`
   and pushed into the `RichText`, with variables in italics. Display math
   (`$$…$$`) splits its paragraph: the text before and after become
-  paragraphs, and the formula becomes a `Block::Math`. A ```` ```math ````
+  paragraphs, and the formula becomes a `Block::Math`. Bold, italic,
+  strikethrough and a link that are open across the formula carry on after
+  it (`struct Open`), so in `**a $$x$$ b**` the `b` is still bold, and the
+  link is registered again in the next `RichText`'s own `links`. Link
+  entries that no span uses are dropped. A ```` ```math ````
   code block becomes a `Block::Math` too. See [Math](#math).
 - A ```` ```mermaid ```` code block becomes a `Block::Mermaid`. See
   [Mermaid diagrams](#mermaid-diagrams).

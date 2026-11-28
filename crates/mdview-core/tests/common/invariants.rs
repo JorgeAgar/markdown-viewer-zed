@@ -59,6 +59,13 @@ fn check_block(b: &Block, at: &str, slugs: &mut HashSet<String>) {
         }
         Block::Paragraph(text) => {
             check_rich(text, at);
+            // No dead entries, so a paragraph without links isn't clickable.
+            for l in 0..text.links.len() as u32 {
+                assert!(
+                    text.spans.iter().any(|s| s.link == Some(l)),
+                    "{at}: no span uses link {l}"
+                );
+            }
             assert!(!text.text.is_empty(), "{at}: empty paragraph");
             assert_eq!(
                 text.text.trim(),
