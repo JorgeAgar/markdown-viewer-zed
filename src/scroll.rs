@@ -348,6 +348,30 @@ pub fn measured_run(ix: usize, count: usize, measured: impl Fn(usize) -> usize) 
     start..lo
 }
 
+/// How close (px) a dragged thumb must come to an end of its track to
+/// scroll to that end of the document.
+const THUMB_END: f32 = 0.5;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum End {
+    Top,
+    Bottom,
+}
+
+/// Which end of its track a thumb at `thumb_top` is at, with `room` px to
+/// move in it, if any.
+pub fn thumb_end(thumb_top: f32, room: f32) -> Option<End> {
+    if room <= 0. {
+        None
+    } else if thumb_top >= room - THUMB_END {
+        Some(End::Bottom)
+    } else if thumb_top <= THUMB_END {
+        Some(End::Top)
+    } else {
+        None
+    }
+}
+
 /// The row containing position `pos` and the offset into it, given the
 /// (non-decreasing) height of the first `ix` rows, `before(ix)`, for
 /// `ix` in `0..=count`.
@@ -927,6 +951,21 @@ mod tests {
                 assert_eq!(run_of(&rows, ix), start..end, "{rows:?} from {ix}");
             }
         }
+    }
+
+    #[test]
+    fn thumb_ends_are_half_a_pixel_wide() {
+        assert_eq!(thumb_end(0., 100.), Some(End::Top));
+        assert_eq!(thumb_end(0.5, 100.), Some(End::Top));
+        assert_eq!(thumb_end(0.6, 100.), None);
+        assert_eq!(thumb_end(50., 100.), None);
+        assert_eq!(thumb_end(99.4, 100.), None);
+        assert_eq!(thumb_end(99.5, 100.), Some(End::Bottom));
+        assert_eq!(thumb_end(100., 100.), Some(End::Bottom));
+        // A track only as long as a pixel: the bottom wins.
+        assert_eq!(thumb_end(0.5, 1.), Some(End::Bottom));
+        // No room to move: no scrollbar to drag.
+        assert_eq!(thumb_end(0., 0.), None);
     }
 
     #[test]

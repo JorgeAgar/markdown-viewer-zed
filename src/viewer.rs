@@ -103,7 +103,8 @@ struct ThumbDrag {
     /// The thumb now, relative to the track.
     thumb: Thumb,
     /// Row height estimate and document height, frozen for the drag so the
-    /// thumb stays under the mouse while rows get measured.
+    /// thumb stays under the mouse while rows get measured. Not used at the
+    /// ends of the track, which go to the ends of the document.
     avg: f32,
     content: f32,
 }
@@ -260,6 +261,28 @@ impl Tab {
             offset_in_item: px(offset),
         });
         self.scroll_rest = 0.;
+    }
+
+    /// To the top of the document (`Top`, or the thumb dragged up to the
+    /// end of its track).
+    fn scroll_to_top(&mut self) {
+        self.list.scroll_to(ListOffset::default());
+        self.scroll_rest = 0.;
+        self.motion.stop();
+    }
+
+    /// To the end of the document (`Bottom`, or the thumb dragged down to
+    /// the end of its track). Scrolls past the last row so GPUI fills the
+    /// viewport upward from the end with the rows' real heights, even when
+    /// middle rows are unmeasured (0 px in the SumTree) or the estimate of
+    /// the last ones is far off.
+    fn scroll_to_end(&mut self) {
+        self.list.scroll_to(ListOffset {
+            item_ix: self.list.item_count(),
+            offset_in_item: px(0.),
+        });
+        self.scroll_rest = 0.;
+        self.motion.stop();
     }
 
     /// A key scroll of `dy` px, on top of what's left of the last one
@@ -585,16 +608,24 @@ impl Viewer {
             cx.notify();
             return;
         }
-        drag.thumb.top =
-            (y - drag.origin - drag.grab).clamp(0., (drag.track - drag.thumb.len).max(0.));
-        let pos = scroll::position_for_thumb(
-            drag.thumb.top,
-            drag.thumb.len,
-            drag.content,
-            drag.track,
-            drag.track,
-        );
-        tab.scroll_to_estimate(pos, drag.avg);
+        let room = (drag.track - drag.thumb.len).max(0.);
+        drag.thumb.top = (y - drag.origin - drag.grab).clamp(0., room);
+        match scroll::thumb_end(drag.thumb.top, room) {
+            // The frozen estimate maps the ends of the track to a guess, which
+            // falls short when the rows there are taller than the average.
+            Some(scroll::End::Top) => tab.scroll_to_top(),
+            Some(scroll::End::Bottom) => tab.scroll_to_end(),
+            None => {
+                let pos = scroll::position_for_thumb(
+                    drag.thumb.top,
+                    drag.thumb.len,
+                    drag.content,
+                    drag.track,
+                    drag.track,
+                );
+                tab.scroll_to_estimate(pos, drag.avg);
+            }
+        }
         cx.notify();
     }
 
@@ -938,23 +969,13 @@ impl Render for Viewer {
             }))
             .on_action(cx.listener(|this, _: &Top, _, cx| {
                 if let Some(tab) = this.tabs.active_mut() {
-                    tab.list.scroll_to(ListOffset::default());
-                    tab.scroll_rest = 0.;
-                    tab.motion.stop();
+                    tab.scroll_to_top();
                     cx.notify();
                 }
             }))
             .on_action(cx.listener(|this, _: &Bottom, _, cx| {
                 if let Some(tab) = this.tabs.active_mut() {
-                    // Scroll past the last row so GPUI fills the viewport
-                    // upward from the end even when middle rows are
-                    // unmeasured (height 0 in the SumTree).
-                    tab.list.scroll_to(ListOffset {
-                        item_ix: tab.list.item_count(),
-                        offset_in_item: px(0.),
-                    });
-                    tab.scroll_rest = 0.;
-                    tab.motion.stop();
+                    tab.scroll_to_end();
                     cx.notify();
                 }
             }))

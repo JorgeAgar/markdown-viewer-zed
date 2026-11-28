@@ -76,7 +76,8 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   keeps rows just outside the viewport ready, so scrolling stays smooth.
 - Unmeasured rows count as 0 px, so a pixel scroll that crosses them skips
   them. `Bottom` (`G`/`End`) therefore scrolls past the last row and lets
-  GPUI fill the viewport upward, instead of `scroll_to_reveal_item`.
+  GPUI fill the viewport upward with the rows' real heights
+  (`Tab::scroll_to_end`), instead of `scroll_to_reveal_item`.
 - Pixel scrolls only cross measured rows. `Tab::room` is how far the list
   can scroll each way from the scroll top before an unmeasured row: the run
   of measured rows around it (`scroll::measured_run`), keeping the viewport
@@ -130,7 +131,11 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   measured rows, so `Tab::extent` counts each unmeasured row as the average
   measured one (`ListState::measured_before`, added in the fork). Dragging the
   thumb freezes that estimate for the drag and jumps to the row at the
-  matching position (`scroll::locate`). A drag ends if its tab stops being
+  matching position (`scroll::locate`). At either end of the track (within
+  0.5 px, `scroll::thumb_end`) it goes to the top or the end of the document
+  instead, like `Top` and `End` (`Tab::scroll_to_top`, `Tab::scroll_to_end`):
+  the estimate falls short when the last rows are taller than the average,
+  and would leave them offscreen. A drag ends if its tab stops being
   the active one, even if it comes back. A click on the track glides one page toward it.
 - When a file is reloaded, `Tab::replace` remaps the top visible row through
   `(block_ix, offset_within_block)` before calling `ListState::reset` (resetting

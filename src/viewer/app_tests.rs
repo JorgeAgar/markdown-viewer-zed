@@ -2214,3 +2214,95 @@ fn key_scrolls_stop_at_the_edges() {
     cx.dispatch_action(PageDown);
     assert_eq!(scroll_top(&v, cx), bottom);
 }
+
+/// 400 paragraphs: one line each, but the last 40 many lines long.
+fn tall_end_doc() -> (Entity<Viewer>, &'static mut VisualTestContext) {
+    let mut md = String::new();
+    for i in 0..400 {
+        if i < 360 {
+            md.push_str(&format!("Paragraph {i}.\n\n"));
+        } else {
+            md.push_str(&format!("Paragraph {i}: {}\n\n", "more words ".repeat(60)));
+        }
+    }
+    let (v, cx) = open(vec![(PathBuf::from("/x/tall-end.md"), parsed(&md))]);
+    redraw(&v, cx);
+    (v, cx)
+}
+
+#[test]
+fn dragging_the_thumb_to_the_end_shows_the_end() {
+    let (v, cx) = tall_end_doc();
+    let (w, h, thumb) = thumb_now(&v, cx);
+    let x = px(w - 5.);
+    let grab = point(x, px(TAB_BAR_HEIGHT + thumb.len / 2.));
+    cx.simulate_mouse_down(grab, MouseButton::Left, Default::default());
+    // To the bottom of the track, a step at a time like a real drag, and
+    // held there for a few frames.
+    for y in [h / 2., h - 10., h + 100.] {
+        cx.simulate_mouse_move(point(x, px(y)), MouseButton::Left, Default::default());
+        cx.run_until_parked();
+    }
+    for _ in 0..3 {
+        redraw(&v, cx);
+    }
+    let dragged = scroll_top(&v, cx);
+    cx.simulate_mouse_up(
+        point(x, px(h + 100.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), dragged, "the release doesn't move it");
+    // Where End goes.
+    cx.dispatch_action(Top);
+    cx.dispatch_action(Bottom);
+    redraw(&v, cx);
+    let end = scroll_top(&v, cx);
+    assert!(end.0 > 390, "{end:?}");
+    assert_eq!(dragged, end);
+    // The thumb, now sized from the real heights, sits at the end.
+    let (_, _, thumb) = thumb_now(&v, cx);
+    assert!(
+        (thumb.top + thumb.len - (h - TAB_BAR_HEIGHT)).abs() < 0.5,
+        "{thumb:?}"
+    );
+    // And back up to the very top.
+    let on_thumb = point(x, px(TAB_BAR_HEIGHT + thumb.top + thumb.len / 2.));
+    cx.simulate_mouse_down(on_thumb, MouseButton::Left, Default::default());
+    cx.simulate_mouse_move(point(x, px(h / 2.)), MouseButton::Left, Default::default());
+    cx.simulate_mouse_move(point(x, px(-100.)), MouseButton::Left, Default::default());
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (0, 0.));
+    cx.simulate_mouse_up(point(x, px(-100.)), MouseButton::Left, Default::default());
+}
+
+#[test]
+fn dragging_the_thumb_mid_track_follows_the_estimate() {
+    let (v, cx) = tall_end_doc();
+    let (w, h, thumb) = thumb_now(&v, cx);
+    let track = h - TAB_BAR_HEIGHT;
+    let x = px(w - 5.);
+    let grab_y = TAB_BAR_HEIGHT + thumb.len / 2.;
+    cx.simulate_mouse_down(point(x, px(grab_y)), MouseButton::Left, Default::default());
+    let (content, avg) = cx.update(|_, cx| {
+        let d = v.read(cx).thumb_drag.unwrap();
+        (d.content, d.avg)
+    });
+    // Just short of the bottom end: still the frozen estimate, no jump to
+    // the end. Checked before a frame measures the rows there.
+    let room = track - thumb.len;
+    let pos = scroll::position_for_thumb(room - 1., thumb.len, content, track, track);
+    let mut want = (0, 0.);
+    let got = in_one_update(&v, cx, |v, cx| {
+        let tab = v.tabs.active().unwrap();
+        want = scroll::locate(pos, tab.list.item_count(), |ix| {
+            measured(&tab.list, ix).estimate(avg)
+        });
+        v.drag_thumb(grab_y + room - 1., cx);
+    });
+    assert!((dragged_thumb(&v, cx).unwrap().top - (room - 1.)).abs() < 1e-3);
+    assert_eq!(got.0, want.0);
+    assert!((got.1 - want.1).abs() < 0.01, "{got:?} vs {want:?}");
+    assert!(got.0 < 395, "{got:?}");
+}
