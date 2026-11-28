@@ -654,7 +654,7 @@ fn wrap(w: &mut W, g: W) {
         || !t.chars().any(|c| {
             c.is_whitespace() || matches!(c, '+' | '−' | '/' | '=' | '·' | '⋅' | '×' | '±' | ',')
         })
-        || (t.starts_with('(') && t.ends_with(')'));
+        || enclosed_in_parens(t);
     if simple {
         w.append(g);
     } else {
@@ -663,6 +663,28 @@ fn wrap(w: &mut W, g: W) {
         w.s.push(')');
         w.last = Some(Class::Ord);
     }
+}
+
+/// Whether one pair of parentheses encloses all of `t`: `(a + b)` and
+/// `((a) + (b))` do, `(a) + (b)` and `(a + b)(c + d)` don't, because their
+/// first `(` closes before the end.
+fn enclosed_in_parens(t: &str) -> bool {
+    let Some(inner) = t.strip_prefix('(').and_then(|t| t.strip_suffix(')')) else {
+        return false;
+    };
+    let mut depth = 0usize;
+    for c in inner.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => match depth.checked_sub(1) {
+                Some(d) => depth = d,
+                // This `)` closes the first `(`.
+                None => return false,
+            },
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 fn add_accent(w: &mut W, g: W, mark: char, name: &str) {
@@ -1178,6 +1200,44 @@ mod tests {
         assert_eq!(u(r"\sum_{i=1}^n i"), "∑ᵢ₌₁ⁿi");
         assert_eq!(u(r"\foo"), "\\foo");
         assert_eq!(u(r"f(x, y)"), "f(x,\u{2009}y)");
+    }
+
+    #[test]
+    fn wraps_terms_whose_outer_parentheses_do_not_match() {
+        // #47: the first `(` closes before the end, so these are not one
+        // parenthesized term and need their own parentheses.
+        assert_eq!(u(r"\frac{(a+b) + (c+d)}{2}"), "((a + b) + (c + d))/2");
+        assert_eq!(u(r"\frac{1}{(a+b)(c+d)}"), "1/((a + b)(c + d))");
+        assert_eq!(u(r"\sqrt{(a) + (b)}"), "√((a) + (b))");
+        assert_eq!(u(r"\sqrt[3]{(a)-(b)}"), "∛((a) − (b))");
+        // Already enclosed: no second pair.
+        assert_eq!(u(r"\frac{(a+b)}{2}"), "(a + b)/2");
+        assert_eq!(u(r"\frac{((a+b))}{2}"), "((a + b))/2");
+        assert_eq!(u(r"\frac{((a) + (b))}{2}"), "((a) + (b))/2");
+        assert_eq!(u(r"\sqrt{(x+1)}"), "√(x + 1)");
+    }
+
+    #[test]
+    fn enclosed_in_parens_matches_the_first_parenthesis() {
+        for t in ["()", "(a)", "(a + b)", "((a))", "((a) + (b))", "(f(x))"] {
+            assert!(enclosed_in_parens(t), "{t:?}");
+        }
+        for t in [
+            "",
+            "(",
+            ")",
+            "a",
+            "(a",
+            "a)",
+            "(a) + (b)",
+            "(a)(b)",
+            "(a))",
+            "((a)",
+            ")a(",
+            "(a)) + ((b)",
+        ] {
+            assert!(!enclosed_in_parens(t), "{t:?}");
+        }
     }
 
     #[test]
