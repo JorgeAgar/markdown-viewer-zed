@@ -335,7 +335,7 @@ impl Tab {
         let (doc, mtime) = res.unwrap_or_else(|e| (error_doc(&self.path, &e), None));
         let rows = Arc::new(Rows::from_document(&doc));
         let top = self.list.logical_scroll_top();
-        let mapped = rows.remap_row(&self.rows, top.item_ix);
+        let mapped = rows.remap_row(&doc.blocks, &self.rows, &self.doc.blocks, top.item_ix);
         self.list.reset(rows.len());
         self.list.scroll_to(ListOffset {
             item_ix: mapped.item_ix,

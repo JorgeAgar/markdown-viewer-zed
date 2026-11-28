@@ -12,7 +12,7 @@
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
 │   ├── render.rs      Block model + rows → GPUI elements; link handling
-│   ├── rows.rs        `Rows`: splits large top-level blocks into virtualized list rows (GUI-free, unit-tested)
+│   ├── rows.rs        `Rows`: splits large top-level blocks into virtualized list rows, and finds the scroll row again after a reload (GUI-free, unit-tested)
 │   ├── scroll.rs      Smooth wheel glides, touchpad flings, scrollbar geometry (GUI-free, unit-tested)
 │   ├── http.rs        Lazy HTTP(S) image transport on the blocking pool
 │   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (GUI-free)
@@ -107,7 +107,9 @@ Rules that keep this structure simple:
 ## Data model
 
 The parser output is a tree of `Block`s. Inline formatting is flattened into
-`RichText`: one `String` plus non-overlapping style spans.
+`RichText`: one `String` plus non-overlapping style spans. Every type of the
+model derives `PartialEq`, `Eq` and `Hash` on its content, so a reload can
+find the same block in the new document.
 
 ```mermaid
 classDiagram
@@ -201,9 +203,10 @@ classDiagram
   tab activates its right neighbor, or its left one if it was the last
   (`Tabs::close`). Next/previous tab wrap around.
 - `Tab::replace` swaps in a newly parsed document and keeps the scroll
-  position on the same block, even when earlier blocks grew or shrank
-  (`Rows::remap_row`, see [rendering.md](rendering.md)). Live reload and
-  `Ctrl+R` both use it.
+  position on the same block, found by content: blocks inserted, deleted or
+  resized above it, or edits to the block itself, don't move the reader to
+  another section (`Rows::remap_row`, see [rendering.md](rendering.md)). Live
+  reload and `Ctrl+R` both use it.
 - The open-file dialog (`Ctrl+O` / `Cmd+O`) starts in the active tab's parent
   directory, falling back to `last_open_dir` (in-memory only, updated as files
   are opened) and then the process working directory.

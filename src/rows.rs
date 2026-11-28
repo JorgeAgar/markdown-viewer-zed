@@ -4,7 +4,11 @@
 //! GUI-free so the row layout, code chunking, highlight slicing and block→row
 //! index mapping can be unit-tested without a window.
 
-use std::ops::{Index, Range};
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    ops::{Index, Range},
+};
 
 use crate::{
     highlight::Highlight,
@@ -191,39 +195,59 @@ impl Rows {
         end - start
     }
 
-    /// Translates `old_row_ix` from `old` into `self` across a document reload,
-    /// preserving the top-level block and within-block row offset even when
-    /// earlier blocks grow or shrink. Sets `reset_offset` whenever the saved
-    /// pixel offset inside the row is no longer valid (clamped row or a row
-    /// that changed shape or shrank).
-    pub fn remap_row(&self, old: &Rows, old_row_ix: usize) -> RemappedRow {
+    /// Translates `old_row_ix` from `old` (the rows of `old_blocks`) into
+    /// `self` (the rows of `blocks`) across a document reload.
+    ///
+    /// The row's top-level block is found in the new document by content
+    /// (see [`find_moved`]), so inserting or deleting blocks above it doesn't
+    /// move the reader to another section, and editing the block itself
+    /// stays on it. Inside a table, list or quote that changed, the row is
+    /// matched the same way among its body rows, items or child blocks.
+    /// Sets `reset_offset` whenever the saved pixel offset inside the row is
+    /// no longer valid (the row was removed or clamped, or changed shape or
+    /// shrank). An offset past the end of an edited row is left to the list,
+    /// which clamps it once the row is measured.
+    pub fn remap_row(
+        &self,
+        blocks: &[Block],
+        old: &Rows,
+        old_blocks: &[Block],
+        old_row_ix: usize,
+    ) -> RemappedRow {
         if self.rows.is_empty() {
             return RemappedRow {
                 item_ix: 0,
                 reset_offset: true,
             };
         }
-        let Some((block_ix, offset)) = old.block_and_offset(old_row_ix) else {
+        let last = self.rows.len() - 1;
+        let Some((old_block, offset)) = old.block_and_offset(old_row_ix) else {
             return RemappedRow {
-                item_ix: if old_row_ix == 0 {
-                    0
-                } else {
-                    self.rows.len() - 1
-                },
+                item_ix: if old_row_ix == 0 { 0 } else { last },
                 reset_offset: true,
             };
         };
-        if block_ix >= self.block_start.len() {
+        let Some(moved) = find_moved(old_blocks, blocks, old_block) else {
             return RemappedRow {
-                item_ix: self.rows.len() - 1,
+                item_ix: last,
                 reset_offset: true,
             };
-        }
+        };
+        let (block_ix, sub, removed) = match moved {
+            Moved::Same(b) => (b, offset, false),
+            Moved::Edited(b) => match sub_row(&old_blocks[old_block], &blocks[b], offset) {
+                Some(Moved::Same(sub) | Moved::Edited(sub)) => (b, sub, false),
+                Some(Moved::Removed(sub)) => (b, sub, true),
+                None => (b, offset, false),
+            },
+            Moved::Removed(b) => (b, 0, true),
+        };
         let start = self.block_start[block_ix];
         let count = self.block_row_count(block_ix);
-        let clamped_offset = offset.min(count.saturating_sub(1));
-        let item_ix = start + clamped_offset;
-        let reset_offset = clamped_offset != offset
+        let clamped = sub.min(count - 1);
+        let item_ix = start + clamped;
+        let reset_offset = removed
+            || clamped != sub
             || row_shrank_or_changed(&old.rows[old_row_ix], &self.rows[item_ix]);
         RemappedRow {
             item_ix,
@@ -237,6 +261,162 @@ impl Rows {
 pub struct RemappedRow {
     pub item_ix: usize,
     pub reset_offset: bool,
+}
+
+/// Where an element of an old sequence is in its new version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Moved {
+    /// Found unchanged at this index.
+    Same(usize),
+    /// Edited: the element at this index stands where it was.
+    Edited(usize),
+    /// Removed: this index holds what followed it (or is the last one).
+    Removed(usize),
+}
+
+/// Finds `old[ix]` in `new`, the same sequence after an edit. `None` when
+/// `new` is empty or `ix` is out of range.
+///
+/// Linear in the length of the sequences, so it's fine for huge documents:
+/// the common prefix and suffix are unchanged, and only the part between
+/// them is hashed. There, elements that occur exactly once in both versions
+/// are anchors. `old[ix]` itself, if it's one, is found directly. Otherwise
+/// the nearest anchors before and after it bound the window it must be in:
+/// a copy of it there, nearest to where it would be, wins over copies
+/// elsewhere (repeated headings like `### Added`); with no copy it was
+/// edited in place, or removed when the window is empty.
+pub fn find_moved<T: Hash + Eq>(old: &[T], new: &[T], ix: usize) -> Option<Moved> {
+    if new.is_empty() || ix >= old.len() {
+        return None;
+    }
+    let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+    if ix < prefix {
+        return Some(Moved::Same(ix));
+    }
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let (old_end, new_end) = (old.len() - suffix, new.len() - suffix);
+    if ix >= old_end {
+        return Some(Moved::Same(ix - old_end + new_end));
+    }
+    let moved = match match_changed(&old[prefix..old_end], &new[prefix..new_end], ix - prefix) {
+        Moved::Same(j) => Moved::Same(prefix + j),
+        Moved::Edited(j) => Moved::Edited(prefix + j),
+        Moved::Removed(j) => Moved::Removed((prefix + j).min(new.len() - 1)),
+    };
+    Some(moved)
+}
+
+/// [`find_moved`] between the changed parts of two sequences, which have no
+/// common prefix or suffix. `new` may be empty.
+fn match_changed<T: Hash + Eq>(old: &[T], new: &[T], ix: usize) -> Moved {
+    let key = |t: &T| {
+        let mut h = DefaultHasher::new();
+        t.hash(&mut h);
+        h.finish()
+    };
+    let old_keys: Vec<u64> = old.iter().map(key).collect();
+    let new_keys: Vec<u64> = new.iter().map(key).collect();
+    // Per hash: occurrences in `old`, in `new`, and the last index in `new`.
+    let mut seen: HashMap<u64, (u32, u32, usize)> = HashMap::with_capacity(old.len() + new.len());
+    for &k in &old_keys {
+        seen.entry(k).or_default().0 += 1;
+    }
+    for (j, &k) in new_keys.iter().enumerate() {
+        let e = seen.entry(k).or_default();
+        e.1 += 1;
+        e.2 = j;
+    }
+    // Where `old[i]` is in `new`, if it occurs once in each (and isn't
+    // just a hash collision).
+    let anchor = |i: usize| {
+        let &(in_old, in_new, j) = seen.get(&old_keys[i])?;
+        (in_old == 1 && in_new == 1 && old[i] == new[j]).then_some(j)
+    };
+    if let Some(j) = anchor(ix) {
+        return Moved::Same(j);
+    }
+    let before = (0..ix).rev().find_map(|i| Some((i, anchor(i)?)));
+    let after = (ix + 1..old.len()).find_map(|i| Some((i, anchor(i)?)));
+    let lo = before.map_or(0, |(_, j)| j + 1);
+    // A moved block can put the next anchor before the previous one: then
+    // only the one before counts.
+    let hi = after
+        .map(|(_, j)| j)
+        .filter(|&j| j >= lo)
+        .unwrap_or(new.len());
+    if lo == hi {
+        return Moved::Removed(hi);
+    }
+    let guess = match (before, after) {
+        (Some((i, j)), _) => j + (ix - i),
+        (None, Some((i, j))) => j.saturating_sub(i - ix),
+        (None, None) => ix,
+    }
+    .clamp(lo, hi - 1);
+    let copy = (lo..hi)
+        .filter(|&j| new_keys[j] == old_keys[ix] && new[j] == old[ix])
+        .min_by_key(|&j| j.abs_diff(guess));
+    match copy {
+        Some(j) => Moved::Same(j),
+        None => Moved::Edited(guess),
+    }
+}
+
+/// Where row `sub` of a top-level block that was edited (`old` became
+/// `new`) went, for blocks split into rows by their parts: table body rows,
+/// list items, and the child blocks of a quote. `None` for other blocks, or
+/// when the block changed shape.
+fn sub_row(old: &Block, new: &Block, sub: usize) -> Option<Moved> {
+    // `parts` of a block starting at row `head` (after a header row).
+    let shift = |m: Moved, head: usize| match m {
+        Moved::Same(j) => Moved::Same(j + head),
+        Moved::Edited(j) => Moved::Edited(j + head),
+        Moved::Removed(j) => Moved::Removed(j + head),
+    };
+    match (old, new) {
+        (Block::Table { rows: old_rows, .. }, Block::Table { rows: new_rows, .. }) => {
+            if sub == 0 {
+                return Some(Moved::Edited(0));
+            }
+            Some(shift(find_moved(old_rows, new_rows, sub - 1)?, 1))
+        }
+        (
+            Block::List {
+                items: old_items, ..
+            },
+            Block::List {
+                items: new_items, ..
+            },
+        ) => find_moved(old_items, new_items, sub),
+        (
+            Block::Quote {
+                callout: old_callout,
+                blocks: old_children,
+            },
+            Block::Quote {
+                callout: new_callout,
+                blocks: new_children,
+            },
+        ) if old_children.len() > 1 && new_children.len() > 1 => {
+            let (old_head, new_head) = (
+                usize::from(old_callout.is_some()),
+                usize::from(new_callout.is_some()),
+            );
+            if sub < old_head {
+                return Some(Moved::Edited(0));
+            }
+            Some(shift(
+                find_moved(old_children, new_children, sub - old_head)?,
+                new_head,
+            ))
+        }
+        _ => None,
+    }
 }
 
 fn row_shrank_or_changed(old: &Row, new: &Row) -> bool {
@@ -707,6 +887,26 @@ mod tests {
         assert!(slice_highlights(&spanning, 5..5).is_empty());
     }
 
+    /// A parsed document and its rows.
+    struct Parsed {
+        doc: Document,
+        rows: Rows,
+    }
+
+    impl Parsed {
+        fn new(src: &str) -> Self {
+            let doc = markdown::parse(src);
+            let rows = Rows::from_document(&doc);
+            Self { doc, rows }
+        }
+
+        /// `old_row` of `old`, remapped into `self`.
+        fn remap(&self, old: &Parsed, old_row: usize) -> RemappedRow {
+            self.rows
+                .remap_row(&self.doc.blocks, &old.rows, &old.doc.blocks, old_row)
+        }
+    }
+
     #[test]
     fn block_and_offset_and_remap_preserve_block_across_table_edits() {
         let make_doc = |n: usize| {
@@ -715,31 +915,31 @@ mod tests {
                 s.push_str(&format!("| {i} |\n"));
             }
             s.push_str("\n## After Table\n\nTrailing paragraph.\n");
-            Rows::from_document(&markdown::parse(&s))
+            Parsed::new(&s)
         };
 
         let small = make_doc(5); // block 0: rows 0..=5, block 1 (heading): row 6, block 2: row 7
         let large = make_doc(105); // block 0: rows 0..=105, block 1 (heading): row 106, block 2: row 107
 
         // Every Row variant reports its owning block and offset.
-        assert_eq!(small.block_and_offset(0), Some((0, 0)));
-        assert_eq!(small.block_and_offset(5), Some((0, 5)));
-        assert_eq!(small.block_and_offset(6), Some((1, 0)));
-        assert_eq!(small.block_and_offset(7), Some((2, 0)));
-        assert_eq!(small.block_and_offset(8), None);
+        assert_eq!(small.rows.block_and_offset(0), Some((0, 0)));
+        assert_eq!(small.rows.block_and_offset(5), Some((0, 5)));
+        assert_eq!(small.rows.block_and_offset(6), Some((1, 0)));
+        assert_eq!(small.rows.block_and_offset(7), Some((2, 0)));
+        assert_eq!(small.rows.block_and_offset(8), None);
 
         // Growing the preceding table from 5 to 105 rows keeps the scroll
         // position on `## After Table` (block 1 -> row 106, not row 6) and
         // preserves the pixel offset inside that heading.
         assert_eq!(
-            large.remap_row(&small, 6),
+            large.remap(&small, 6),
             RemappedRow {
                 item_ix: 106,
                 reset_offset: false
             }
         );
         assert_eq!(
-            large.remap_row(&small, 7),
+            large.remap(&small, 7),
             RemappedRow {
                 item_ix: 107,
                 reset_offset: false
@@ -747,7 +947,7 @@ mod tests {
         );
         // Shrinking the table back returns to row 6 without resetting offset.
         assert_eq!(
-            small.remap_row(&large, 106),
+            small.remap(&large, 106),
             RemappedRow {
                 item_ix: 6,
                 reset_offset: false
@@ -757,14 +957,14 @@ mod tests {
         // clamps to the table's last row (resetting pixel offset) without
         // spilling into `## After Table`.
         assert_eq!(
-            large.remap_row(&small, 3),
+            large.remap(&small, 3),
             RemappedRow {
                 item_ix: 3,
                 reset_offset: false
             }
         );
         assert_eq!(
-            small.remap_row(&large, 50),
+            small.remap(&large, 50),
             RemappedRow {
                 item_ix: 5,
                 reset_offset: true
@@ -777,19 +977,19 @@ mod tests {
                 s.push_str(&format!("| {i} |\n"));
             }
             s.push_str("\n## Tail\n");
-            Rows::from_document(&markdown::parse(&s))
+            Parsed::new(&s)
         };
         let pref_large = with_prefix(20); // block 0: row 0, block 1: rows 1..=21, block 2: row 22
         let pref_small = with_prefix(3); // block 0: row 0, block 1: rows 1..=4, block 2: row 5
         assert_eq!(
-            pref_small.remap_row(&pref_large, 15),
+            pref_small.remap(&pref_large, 15),
             RemappedRow {
                 item_ix: 4,
                 reset_offset: true
             }
         );
         assert_eq!(
-            pref_small.remap_row(&pref_large, 22),
+            pref_small.remap(&pref_large, 22),
             RemappedRow {
                 item_ix: 5,
                 reset_offset: false
@@ -797,41 +997,43 @@ mod tests {
         );
         // Top of document stays at 0; out-of-range (e.g. Bottom) clamps to end.
         assert_eq!(
-            large.remap_row(&small, 0),
+            large.remap(&small, 0),
             RemappedRow {
                 item_ix: 0,
                 reset_offset: false
             }
         );
         assert_eq!(
-            large.remap_row(&small, small.len()),
+            large.remap(&small, small.rows.len()),
             RemappedRow {
-                item_ix: large.len() - 1,
+                item_ix: large.rows.len() - 1,
                 reset_offset: true
             }
         );
         // Reloading into an empty doc or shorter block list clamps safely.
-        let empty = Rows::from_document(&markdown::parse(""));
+        let empty = Parsed::new("");
         assert_eq!(
-            empty.remap_row(&small, 6),
+            empty.remap(&small, 6),
             RemappedRow {
                 item_ix: 0,
                 reset_offset: true
             }
         );
         assert_eq!(
-            small.remap_row(&empty, 0),
+            small.remap(&empty, 0),
             RemappedRow {
                 item_ix: 0,
                 reset_offset: true
             }
         );
-        let one_para = Rows::from_document(&markdown::parse("Only one block\n"));
+        // The trailing paragraph became the only one: edited in place, so
+        // the offset stays (the list clamps it if the row got shorter).
+        let one_para = Parsed::new("Only one block\n");
         assert_eq!(
-            one_para.remap_row(&small, 7),
+            one_para.remap(&small, 7),
             RemappedRow {
                 item_ix: 0,
-                reset_offset: true
+                reset_offset: false
             }
         );
 
@@ -844,38 +1046,277 @@ mod tests {
                 s.push_str(&format!("let x = {i};\n"));
             }
             s.push_str("```\n\nAfter\n");
-            Rows::from_document(&markdown::parse(&s))
+            Parsed::new(&s)
         };
         let code_150 = code_doc(150);
         let code_200 = code_doc(200);
         let code_70 = code_doc(70);
         let code_1 = code_doc(1);
         assert_eq!(
-            code_1.remap_row(&code_150, 1),
+            code_1.remap(&code_150, 1),
             RemappedRow {
                 item_ix: 0,
                 reset_offset: true
             }
         );
         assert_eq!(
-            code_1.remap_row(&code_150, 0),
+            code_1.remap(&code_150, 0),
             RemappedRow {
                 item_ix: 0,
                 reset_offset: true
             }
         );
         assert_eq!(
-            code_70.remap_row(&code_150, 1),
+            code_70.remap(&code_150, 1),
             RemappedRow {
                 item_ix: 1,
                 reset_offset: true
             }
         );
         assert_eq!(
-            code_200.remap_row(&code_150, 1),
+            code_200.remap(&code_150, 1),
             RemappedRow {
                 item_ix: 1,
                 reset_offset: false
+            }
+        );
+    }
+
+    fn moved(old: &[&str], new: &[&str], ix: usize) -> Option<Moved> {
+        find_moved(old, new, ix)
+    }
+
+    #[test]
+    fn find_moved_follows_insertions_and_deletions_around_it() {
+        let old = ["a", "b", "c", "d", "e"];
+        // Unchanged prefix and suffix.
+        assert_eq!(
+            moved(&old, &["a", "X", "b", "c", "d", "e"], 0),
+            Some(Moved::Same(0))
+        );
+        assert_eq!(
+            moved(&old, &["a", "X", "b", "c", "d", "e"], 3),
+            Some(Moved::Same(4))
+        );
+        assert_eq!(moved(&old, &["a", "c", "d", "e"], 3), Some(Moved::Same(2)));
+        assert_eq!(moved(&old, &old, 4), Some(Moved::Same(4)));
+        // Edits both above and below: found as an anchor in the middle.
+        let new = ["X", "a", "b", "c", "Y", "d", "e!"];
+        assert_eq!(moved(&old, &new, 2), Some(Moved::Same(3)));
+        assert_eq!(moved(&old, &new, 3), Some(Moved::Same(5)));
+        assert_eq!(moved(&old, &new, 4), Some(Moved::Edited(6)));
+        // Nothing to find in.
+        assert_eq!(moved(&old, &[], 0), None);
+        assert_eq!(moved(&old, &old, 5), None);
+        assert_eq!(moved(&[], &old, 0), None);
+    }
+
+    #[test]
+    fn find_moved_picks_the_copy_of_a_repeated_element_nearest_its_neighbors() {
+        // A changelog: every release has an `Added` heading. The title and
+        // the footer changed too, so everything in between is compared.
+        let old = ["T", "1.1", "Added", "x", "1.0", "Added", "y", "end"];
+        let new = [
+            "T2", "1.2", "Added", "z", "1.1", "Added", "x", "1.0", "Added", "y", "end2",
+        ];
+        assert_eq!(moved(&old, &new, 2), Some(Moved::Same(5)));
+        assert_eq!(moved(&old, &new, 5), Some(Moved::Same(8)));
+        // Only the anchor after it: counted back from there.
+        let old = ["T", "Added", "x", "end"];
+        let new = ["T2", "Added", "w", "Added", "x", "end2"];
+        assert_eq!(moved(&old, &new, 1), Some(Moved::Same(3)));
+        // No anchor at all: the copy nearest to the old index.
+        let old = ["T", "-", "-", "-", "end"];
+        let new = ["T2", "-", "-", "-", "-", "end2"];
+        assert_eq!(moved(&old, &new, 2), Some(Moved::Same(2)));
+        assert_eq!(moved(&old, &new, 3), Some(Moved::Same(3)));
+    }
+
+    #[test]
+    fn find_moved_keeps_an_edited_element_between_its_neighbors() {
+        let old = ["T", "x", "para", "y", "end"];
+        let new = ["T2", "x", "para, edited", "y", "end2"];
+        assert_eq!(moved(&old, &new, 2), Some(Moved::Edited(2)));
+        // Something was also inserted before it: still right after `x`.
+        let new = ["T2", "N", "x", "para, edited", "y", "end2"];
+        assert_eq!(moved(&old, &new, 2), Some(Moved::Edited(3)));
+        // Its neighbors are copies too: where it was, counted from the
+        // anchor before it.
+        let old = ["T", "x", "-", "p", "-", "y", "end"];
+        let new = ["T2", "x", "-", "p2", "-", "y", "end2"];
+        assert_eq!(moved(&old, &new, 3), Some(Moved::Edited(3)));
+        // One edit: just the element itself differs.
+        let old = ["a", "b", "c"];
+        assert_eq!(moved(&old, &["a", "B", "c"], 1), Some(Moved::Edited(1)));
+        assert_eq!(
+            moved(&old, &["a", "B", "B2", "c"], 1),
+            Some(Moved::Edited(1))
+        );
+        // Without anchors, the guess stays inside the new middle.
+        assert_eq!(moved(&["a", "b", "c"], &["z"], 2), Some(Moved::Edited(0)));
+    }
+
+    #[test]
+    fn find_moved_reports_removed_elements() {
+        let old = ["a", "b", "c", "d"];
+        assert_eq!(moved(&old, &["a", "c", "d"], 1), Some(Moved::Removed(1)));
+        assert_eq!(moved(&old, &["a", "d"], 2), Some(Moved::Removed(1)));
+        // At the end: the last element left.
+        assert_eq!(moved(&old, &["a", "b"], 3), Some(Moved::Removed(1)));
+        assert_eq!(moved(&old, &["a", "b"], 2), Some(Moved::Removed(1)));
+        // Between two anchors with nothing left in between.
+        let old = ["T", "x", "gone", "y", "end"];
+        let new = ["T2", "x", "y", "end2"];
+        assert_eq!(moved(&old, &new, 2), Some(Moved::Removed(2)));
+    }
+
+    #[test]
+    fn find_moved_compares_elements_not_just_hashes() {
+        /// Every value hashes the same.
+        #[derive(PartialEq, Eq)]
+        struct Collide(u8);
+        impl Hash for Collide {
+            fn hash<H: Hasher>(&self, _: &mut H) {}
+        }
+        let c = |v: &[u8]| v.iter().map(|&b| Collide(b)).collect::<Vec<_>>();
+        let old = c(b"TabcE");
+        // No anchors (all one hash): the copy nearest the old index.
+        assert_eq!(find_moved(&old, &c(b"UabcF"), 2), Some(Moved::Same(2)));
+        assert_eq!(find_moved(&old, &c(b"UaXbcF"), 2), Some(Moved::Same(3)));
+        assert_eq!(find_moved(&old, &c(b"UaZcF"), 2), Some(Moved::Edited(2)));
+        // One element per hash, but not equal: not an anchor.
+        let old = c(b"Tb");
+        assert_eq!(find_moved(&old, &c(b"Uc"), 1), Some(Moved::Edited(1)));
+    }
+
+    #[test]
+    fn find_moved_stays_in_range_when_blocks_move() {
+        // `A` and `B` swapped: the anchors cross.
+        let old = ["P", "A", "Q", "B", "R"];
+        let new = ["P2", "B", "Q2", "A", "R2"];
+        for ix in 0..old.len() {
+            let m = moved(&old, &new, ix).unwrap();
+            let (Moved::Same(j) | Moved::Edited(j) | Moved::Removed(j)) = m;
+            assert!(j < new.len(), "{ix}: {m:?}");
+        }
+        assert_eq!(moved(&old, &new, 1), Some(Moved::Same(3)));
+        assert_eq!(moved(&old, &new, 3), Some(Moved::Same(1)));
+        assert_eq!(moved(&old, &new, 2), Some(Moved::Edited(4)));
+    }
+
+    /// Issue #24: the reader stays on the section they were reading when
+    /// blocks are inserted or removed above it, or the block is edited.
+    #[test]
+    fn remap_follows_the_block_across_edits_above_it() {
+        let base =
+            "# Title\n\n## One\n\nFirst.\n\n## Two\n\nSecond.\n\n---\n\n## Three\n\nThird.\n";
+        let old = Parsed::new(base);
+        // Rows: 0 title, 1 `## One`, 2 First, 3 `## Two`, 4 Second, 5 rule,
+        // 6 `## Three`, 7 Third.
+        let at = |new: &Parsed, row| new.remap(&old, row);
+        let same = |item_ix| RemappedRow {
+            item_ix,
+            reset_offset: false,
+        };
+        // A heading and a paragraph inserted above `## Two`.
+        let inserted = Parsed::new(&base.replace("## One", "## Zero\n\nNew.\n\n## One"));
+        assert_eq!(at(&inserted, 3), same(5));
+        assert_eq!(at(&inserted, 7), same(9));
+        // A block above it deleted.
+        let deleted = Parsed::new(&base.replace("First.\n\n", ""));
+        assert_eq!(at(&deleted, 3), same(2));
+        assert_eq!(at(&deleted, 6), same(5));
+        // Inserted above and edited below: `Second.` is matched by content.
+        let both = Parsed::new(
+            &base
+                .replace("# Title", "# Title\n\nIntro.")
+                .replace("Third.", "Third, edited."),
+        );
+        assert_eq!(at(&both, 4), same(5));
+        // The paragraph at the top edited, plus an edit elsewhere: the
+        // viewport stays on it, keeping the offset.
+        let edited = Parsed::new(
+            &base
+                .replace("Second.", "Second, with a typo fixed.")
+                .replace("# Title", "# Title\n\nIntro."),
+        );
+        assert_eq!(at(&edited, 4), same(5));
+        // The block at the top removed: the next one, from its top.
+        let gone = Parsed::new(&base.replace("Second.\n\n", ""));
+        assert_eq!(
+            at(&gone, 4),
+            RemappedRow {
+                item_ix: 4,
+                reset_offset: true
+            }
+        );
+    }
+
+    #[test]
+    fn remap_follows_rows_inside_edited_tables_lists_and_quotes() {
+        let list = |items: &[&str]| {
+            let body: String = items.iter().map(|i| format!("- {i}\n")).collect();
+            Parsed::new(&format!("# T\n\n{body}\n## End\n"))
+        };
+        let same = |item_ix| RemappedRow {
+            item_ix,
+            reset_offset: false,
+        };
+        // Rows: 0 title, 1.. items.
+        let old = list(&["a", "b", "c"]);
+        assert_eq!(list(&["new", "a", "b", "c"]).remap(&old, 3), same(4));
+        assert_eq!(list(&["b", "c"]).remap(&old, 3), same(2));
+        assert_eq!(list(&["a", "B", "c"]).remap(&old, 2), same(2));
+        assert_eq!(
+            list(&["a", "c"]).remap(&old, 2),
+            RemappedRow {
+                item_ix: 2,
+                reset_offset: true
+            }
+        );
+
+        let table = |rows: &[&str]| {
+            let body: String = rows.iter().map(|r| format!("| {r} |\n")).collect();
+            Parsed::new(&format!("| H |\n|---|\n{body}\nAfter\n"))
+        };
+        // Rows: 0 header, 1.. body rows.
+        let old = table(&["a", "b", "c"]);
+        assert_eq!(table(&["new", "a", "b", "c"]).remap(&old, 3), same(4));
+        assert_eq!(table(&["new", "a", "b", "c"]).remap(&old, 0), same(0));
+        assert_eq!(table(&["b", "c"]).remap(&old, 2), same(1));
+
+        let quote = |callout: &str, children: &[&str]| {
+            let body = children
+                .iter()
+                .map(|c| format!("> {c}\n"))
+                .collect::<Vec<_>>()
+                .join(">\n");
+            Parsed::new(&format!("{callout}{body}\nAfter\n"))
+        };
+        // Rows: 0 callout header, 1.. children.
+        let old = quote("> [!NOTE]\n", &["a", "b", "c"]);
+        assert_eq!(
+            quote("> [!NOTE]\n", &["new", "a", "b", "c"]).remap(&old, 2),
+            same(3)
+        );
+        assert_eq!(
+            quote("> [!TIP]\n", &["a", "b", "c", "d"]).remap(&old, 0),
+            same(0)
+        );
+        // The callout went away: children start at row 0.
+        assert_eq!(quote("", &["new", "a", "b", "c"]).remap(&old, 3), same(3));
+        // And back.
+        let plain = quote("", &["a", "b"]);
+        assert_eq!(
+            quote("> [!NOTE]\n", &["a", "b", "c"]).remap(&plain, 1),
+            same(2)
+        );
+        // A quote that became one block isn't split any more: its one row.
+        assert_eq!(
+            quote("", &["only"]).remap(&old, 2),
+            RemappedRow {
+                item_ix: 0,
+                reset_offset: true
             }
         );
     }

@@ -327,6 +327,60 @@ fn reload_keeps_the_scroll_position() {
     assert_eq!(scroll_top(&v, cx), before);
 }
 
+/// The heading of the top row of the active tab.
+fn top_heading(v: &Entity<Viewer>, cx: &mut VisualTestContext) -> String {
+    cx.update(|_, cx| {
+        let tab = v.read(cx).tabs.active().unwrap();
+        let row = tab.list.logical_scroll_top().item_ix;
+        match &tab.doc.blocks[tab.rows[row].block()] {
+            markdown::Block::Heading { text, .. } => text.text.clone(),
+            b => panic!("row {row} is not a heading: {b:?}"),
+        }
+    })
+}
+
+#[test]
+fn reload_keeps_the_section_when_blocks_change_above_it() {
+    // Issue #24: the old block index was reused, so a block inserted above
+    // the viewport moved the reader to the block before.
+    let dir = TempDir::new("reload-insert-above");
+    let path = normalize(&dir.join("long.md"));
+    std::fs::write(&path, long_doc()).unwrap();
+    let (v, cx) = open(vec![load(path.clone())]);
+    v.update(cx, |v, cx| v.scroll_to_anchor(None, "section-30", cx));
+    with_tab(&v, cx, |tab| {
+        tab.list.scroll_to(ListOffset {
+            item_ix: 61,
+            offset_in_item: px(7.),
+        })
+    });
+    redraw(&v, cx);
+    assert_eq!(top_heading(&v, cx), "Section 30");
+
+    // A heading and a paragraph inserted at the top.
+    let inserted = long_doc().replace("# Top\n\n", "# Top\n\n## New\n\nNew paragraph.\n\n");
+    std::fs::write(&path, &inserted).unwrap();
+    cx.dispatch_action(Reload);
+    assert_eq!(scroll_top(&v, cx), (63, 7.));
+    assert_eq!(top_heading(&v, cx), "Section 30");
+
+    // Two sections deleted, and an edit after the viewport.
+    let deleted = inserted
+        .replace(
+            "## Section 3\n\nSome text for paragraph 3, long enough to wrap maybe.\n\n",
+            "",
+        )
+        .replace(
+            "## Section 4\n\nSome text for paragraph 4, long enough to wrap maybe.\n\n",
+            "",
+        )
+        .replace("paragraph 50,", "paragraph fifty,");
+    std::fs::write(&path, &deleted).unwrap();
+    cx.dispatch_action(Reload);
+    assert_eq!(scroll_top(&v, cx), (59, 7.));
+    assert_eq!(top_heading(&v, cx), "Section 30");
+}
+
 #[test]
 fn anchors_scroll_to_headings() {
     let (v, cx) = open(vec![
