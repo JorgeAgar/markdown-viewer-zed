@@ -242,26 +242,24 @@ socket lives, the message format).
 
 **Where.** The socket is `mdview-2.sock` in `$XDG_RUNTIME_DIR`
 (`cli::runtime_dir`). The XDG spec makes that directory private to the user,
-but mdview doesn't take it on trust: before every use it checks (with
-`lstat`) that it's a real directory, not a symlink, owned by the current uid,
-with no group or other permission bits (mode 0700). When `XDG_RUNTIME_DIR`
-is unset (always on macOS, often over SSH), empty or relative, or fails that
-check (mdview then prints why), the socket is in `$TMPDIR/mdview-$UID/`
-instead (`cli::fallback_dir`). That directory is created with mode 0700 and
-gets the same check before every use. Its parent, the temp dir, is shared,
-so it's checked too: it must be owned by the current uid or root, and
-nobody else may write to it unless it has the sticky bit (like `/tmp`),
-because whoever can rename entries in it could swap `mdview-$UID` for their
-own directory between the check and the `connect`. Only the temp dir itself
-is checked, not its ancestors. If a check fails, mdview prints why and runs
-as a separate instance.
+but mdview doesn't take it on trust: before every use it strips any trailing
+`/` or `/.`, checks every ancestor up to `/` (owned by the current uid or
+root, and writable by nobody else unless sticky, with no `..` components or
+foreign-owned symlinks), and checks the directory itself with `lstat` (real
+directory, not a symlink, owned by the current uid, mode 0700). When
+`XDG_RUNTIME_DIR` is unset (always on macOS, often over SSH), empty or
+relative, or fails that check (mdview then prints why), the socket is in
+`$TMPDIR/mdview-$UID/` instead (`cli::fallback_dir`), with the same ancestor
+and `lstat` checks. If a check fails, mdview prints why and runs as a
+separate instance.
 
-Since the directory is private to the user, other users can't connect to
-the socket or plant one, even in the moment between `bind()` and the
-`chmod` that makes the socket mode 0600. The lock file is opened with
-`O_NOFOLLOW` and must be a regular file owned by the user with mode 0600.
-This protects against other users, not against processes running as the
-same user.
+Since the directory and its ancestors are safe from other users, other users
+can't connect to the socket or plant one, even in the moment between `bind()`
+and the `chmod` that makes the socket mode 0600. The lock file is opened with
+`O_NOFOLLOW | O_NONBLOCK`, verified via `fstat` as a regular file owned by
+the user with no group or other bits, and `fchmod`-ed to `0600` if a
+restrictive umask stripped owner permissions. This protects against other
+users, not against processes running as the same user.
 
 **Versions.** The `2` in `mdview-2.sock` (and `mdview-2.lock`) is the wire
 protocol version, bumped with every incompatible change to the message.

@@ -14,7 +14,7 @@ use std::{
         fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
         net::{UnixListener, UnixStream},
     },
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -81,14 +81,20 @@ fn find_socket_dir(
     uid: u32,
 ) -> io::Result<PathBuf> {
     if let Some(dir) = cli::runtime_dir(runtime) {
-        match lstat(&dir).and_then(|meta| check_private(&dir, &meta, uid, Kind::Dir)) {
+        // Strip trailing `/` and `/.` so `lstat` inspects the directory entry
+        // itself instead of following a trailing symlink.
+        let dir: PathBuf = dir.components().collect();
+        let check = check_ancestors(&dir, uid)
+            .and_then(|()| lstat(&dir))
+            .and_then(|meta| check_private(&dir, &meta, uid, Kind::Dir));
+        match check {
             Ok(()) => return Ok(dir),
             Err(e) => eprintln!("mdview: not using XDG_RUNTIME_DIR: {e}"),
         }
     }
-    let tmp = tmp();
-    shared_parent(&tmp, uid)?;
+    let tmp: PathBuf = tmp().components().collect();
     let dir = cli::fallback_dir(&tmp, uid);
+    check_ancestors(&dir, uid)?;
     private_dir(&dir, uid)?;
     Ok(dir)
 }
@@ -129,12 +135,35 @@ fn check_private(path: &Path, meta: &Metadata, uid: u32, kind: Kind) -> io::Resu
     }
 }
 
-/// Checks the temp dir that holds `mdview-$UID`. Whoever may rename or
+/// Checks every ancestor of `dir` up to `/` so no other user can swap any
+/// directory along the path between our check and `connect`/`bind`. Symlink
+/// ancestors owned by `uid` or root (such as `/var -> private/var` on macOS)
+/// are followed and their target directory is checked with [`shared_parent`].
+fn check_ancestors(dir: &Path, uid: u32) -> io::Result<()> {
+    if dir.components().any(|c| matches!(c, Component::ParentDir)) {
+        return unsafe_path(dir, "contains '..'");
+    }
+    for anc in dir.ancestors().skip(1) {
+        let lmeta = lstat(anc)?;
+        if lmeta.file_type().is_symlink() && lmeta.uid() != uid && lmeta.uid() != 0 {
+            return unsafe_path(
+                anc,
+                format!(
+                    "is a symlink owned by uid {}, not {uid} or root",
+                    lmeta.uid()
+                ),
+            );
+        }
+        shared_parent(anc, uid)?;
+    }
+    Ok(())
+}
+
+/// Checks one ancestor directory along the socket path. Whoever may rename or
 /// delete entries in it could swap our private directory for theirs between
 /// the check and the `connect`, so it must be owned by `uid` or root, and
 /// writable by nobody else unless it's sticky (like `/tmp`), where only an
-/// entry's owner can rename it. Only this directory is checked, not its
-/// ancestors.
+/// entry's owner can rename it.
 fn shared_parent(dir: &Path, uid: u32) -> io::Result<()> {
     let meta = fs::metadata(dir)
         .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", dir.display())))?;
@@ -169,7 +198,11 @@ fn private_dir(dir: &Path, uid: u32) -> io::Result<()> {
             lstat(dir)?
         }
     };
-    check_private(dir, &meta, uid, Kind::Dir)
+    check_private(dir, &meta, uid, Kind::Dir)?;
+    if meta.mode() & 0o700 != 0o700 {
+        fs::set_permissions(dir, Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 /// Holds `dir/LOCK` until the returned file is dropped. The file is never
@@ -187,7 +220,14 @@ fn lock(dir: &Path) -> io::Result<File> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(&path)
         .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
-    check_private(&path, &file.metadata()?, getuid(), Kind::File)?;
+    let meta = file.metadata()?;
+    check_private(&path, &meta, getuid(), Kind::File)?;
+    // A restrictive umask (e.g. 0777) can create the lock without owner r/w,
+    // which would keep cleanup and later launches from reopening it. Fix via
+    // the already-verified descriptor (`fchmod`).
+    if meta.mode() & 0o600 != 0o600 {
+        file.set_permissions(Permissions::from_mode(0o600))?;
+    }
     file.lock()?;
     Ok(file)
 }
@@ -1058,5 +1098,66 @@ mod tests {
         client.write_all(&message(&["/late.md"])).unwrap();
         let err = read_message(&mut server, Instant::now()).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn xdg_trailing_slash_symlink_and_unsafe_ancestors_are_rejected() {
+        let uid = getuid();
+        let root = TempDir::new("ipc-anc");
+        let real = root.join("real");
+        fs::create_dir(&real).unwrap();
+        fs::set_permissions(&real, Permissions::from_mode(0o700)).unwrap();
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let tmp = root.join("tmp");
+        fs::create_dir(&tmp).unwrap();
+        fs::set_permissions(&tmp, Permissions::from_mode(0o700)).unwrap();
+
+        // Trailing `/` or `/.` must not trick `lstat` into following a symlink.
+        for suffix in ["/", "/."] {
+            let mut raw = link.as_os_str().to_os_string();
+            raw.push(suffix);
+            let got = find_socket_dir(Some(raw), || tmp.clone(), uid).unwrap();
+            assert_eq!(got, cli::fallback_dir(&tmp, uid));
+        }
+
+        // `..` components are rejected.
+        let dotdot = real.join("..").join("real");
+        let got = find_socket_dir(Some(dotdot.into_os_string()), || tmp.clone(), uid).unwrap();
+        assert_eq!(got, cli::fallback_dir(&tmp, uid));
+
+        // A private directory inside a world-writable non-sticky ancestor is rejected.
+        let unsafe_anc = root.join("open");
+        fs::create_dir(&unsafe_anc).unwrap();
+        fs::set_permissions(&unsafe_anc, Permissions::from_mode(0o777)).unwrap();
+        let nested_xdg = unsafe_anc.join("xdg");
+        fs::create_dir(&nested_xdg).unwrap();
+        fs::set_permissions(&nested_xdg, Permissions::from_mode(0o700)).unwrap();
+        let got = find_socket_dir(Some(nested_xdg.into_os_string()), || tmp.clone(), uid).unwrap();
+        assert_eq!(got, cli::fallback_dir(&tmp, uid));
+
+        let nested_tmp = unsafe_anc.join("subtmp");
+        fs::create_dir(&nested_tmp).unwrap();
+        fs::set_permissions(&nested_tmp, Permissions::from_mode(0o700)).unwrap();
+        let err = find_socket_dir(None, || nested_tmp.clone(), uid).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn lock_restores_owner_rw_mode_via_fd() {
+        let dir = TempDir::new("ipc-umask");
+        let lock_path = dir.join(LOCK);
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o200)
+            .open(&lock_path)
+            .unwrap();
+        fs::set_permissions(&lock_path, Permissions::from_mode(0o200)).unwrap();
+        let held = lock(&dir).unwrap();
+        assert_eq!(mode(&lock_path), 0o600);
+        drop(held);
+        // Subsequent open still succeeds.
+        drop(lock(&dir).unwrap());
     }
 }
