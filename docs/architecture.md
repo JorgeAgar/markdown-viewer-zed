@@ -195,8 +195,10 @@ classDiagram
   the open dialog) handles them in order so the last path ends up active,
   whether it was already open or not (`Viewer::show_path`, used by
   `Viewer::new` and `Viewer::open_paths`).
-  `Viewer::open_paths` skips directories (whereas startup loads every CLI
-  argument, showing an error tab for a directory).
+  Paths delivered after startup skip directories (`viewer::openable`, used by
+  `Viewer::open_paths` and by `deliver_paths` when it recreates a closed
+  window), whereas startup loads every CLI argument, showing an error tab for
+  a directory.
 - Closing a tab keeps the active tab if it's still open. Closing the active
   tab activates its right neighbor, or its left one if it was the last
   (`Tabs::close`). Next/previous tab wrap around.
@@ -204,9 +206,13 @@ classDiagram
   position on the same block, even when earlier blocks grew or shrank
   (`Rows::remap_row`, see [rendering.md](rendering.md)). Live reload and
   `Ctrl+R` both use it.
-- The open-file dialog (`Ctrl+O` / `Cmd+O`) starts in the active tab's parent
-  directory, falling back to `last_open_dir` (in-memory only, updated as files
-  are opened) and then the process working directory.
+- The open-file dialog (`Ctrl+O` / `Cmd+O`, `viewer::prompt_open`) starts in
+  the active tab's parent directory, falling back to `last_open_dir`
+  (in-memory only, updated as files are opened) and then the process working
+  directory. The focused viewer handles `Open` and stops it there. When no
+  viewer does (no window, or focus elsewhere), an app-level handler in
+  `serve_paths` shows the same dialog from the working directory and sends
+  the chosen files down the path channel, like IPC.
 
 ## Threads
 
@@ -376,9 +382,16 @@ with an inaccessible title bar on small desktops.
 GPUI uses Metal and native macOS text rendering. `platform/mac.rs` registers
 LaunchServices file-open events and Dock reopen events before the application
 runs, queueing them on the same foreground channel as IPC. File URLs are
-decoded with the existing URL library. Event delivery reuses the current
-window; if it was closed, it creates the same Viewer again. Closing the last
-window keeps the macOS app running; Quit exits and cleans up its Unix socket.
+decoded with the existing URL library. Event delivery (`deliver_paths`)
+reuses the current window; if it was closed, it creates the same Viewer
+again, skipping directories as `Viewer::open_paths` does. Either way it calls
+`cx.activate(true)`, because raising a window doesn't bring the app in front
+of the Terminal or Finder that sent the paths (on Linux and Windows the call
+does nothing). Closing the last window keeps the macOS app running; Quit
+exits and cleans up its Unix socket. `File → Open…` and `Cmd+O` keep working
+then: `Open` also has an app-level handler, which keeps the menu item enabled
+and feeds the chosen files into the same channel, so the one tracked window
+handle is recreated once and reused by later Finder, Dock and IPC events.
 Event-registration hooks delegate to GPUI and let headless tests
 exercise event delivery. Shared `viewer_window_options` preserves the native
 window contract across initial opens and reopens. Command shortcuts and native
@@ -389,8 +402,12 @@ Helvetica Neue and Menlo are available as native font fallbacks.
 flowchart LR
     finder["Finder: file URLs"] --> events["Decode paths and queue event"]
     dock["Dock: reopen"] --> events
+    menu["File → Open… / Cmd+O<br/>with no focused viewer"] --> dialog["Open dialog"]
+    dialog -->|chosen files| events
     events --> foreground["Foreground event handler"]
     foreground --> exists{"Window exists?"}
-    exists -->|yes| reuse["Open tabs and activate"]
+    exists -->|yes| reuse["Open tabs"]
     exists -->|no| recreate["Create Viewer with requested files"]
+    reuse --> activate["Activate the app"]
+    recreate --> activate
 ```

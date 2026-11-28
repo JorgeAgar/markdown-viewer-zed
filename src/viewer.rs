@@ -57,6 +57,15 @@ fn needs_reload(loaded: Option<SystemTime>, now: Option<SystemTime>) -> bool {
     now.is_some() && now != loaded
 }
 
+/// The paths mdview can show, normalized: every entry point skips
+/// directories, so a folder never becomes an error tab.
+pub fn openable(paths: Vec<PathBuf>) -> impl Iterator<Item = PathBuf> {
+    paths
+        .into_iter()
+        .map(|p| normalize(&p))
+        .filter(|p| !p.is_dir())
+}
+
 pub fn normalize(p: &Path) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| {
         if p.is_absolute() {
@@ -397,6 +406,27 @@ fn resolve_open_directory(
         .map(Path::to_path_buf)
 }
 
+/// Shows the Open dialog starting in `directory`. Both the viewer and the
+/// app-level fallback (no window, or none focused) use the same options.
+pub fn prompt_open(
+    directory: Option<PathBuf>,
+    cx: &mut App,
+) -> impl std::future::Future<Output = Option<Vec<PathBuf>>> + use<> {
+    let rx = cx.prompt_for_paths(PathPromptOptions {
+        files: true,
+        directories: false,
+        multiple: true,
+        prompt: Some("Open Markdown".into()),
+        directory,
+    });
+    async move { rx.await.ok()?.ok()? }
+}
+
+/// Where the Open dialog starts when no viewer can suggest a directory.
+pub fn default_open_directory() -> Option<PathBuf> {
+    resolve_open_directory(None, None, std::env::current_dir().ok().as_deref())
+}
+
 pub struct Viewer {
     tabs: Tabs<Tab>,
     focus: FocusHandle,
@@ -486,11 +516,7 @@ impl Viewer {
     /// to its tab, a new one gets a tab. The last path ends up active, as at
     /// startup, whether it was open already or not.
     pub fn open_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        for p in paths {
-            let p = normalize(&p);
-            if p.is_dir() {
-                continue;
-            }
+        for p in openable(paths) {
             self.show_path(p, load);
         }
         cx.notify();
@@ -950,16 +976,12 @@ impl Render for Viewer {
             .font_family(self.fonts.ui.clone())
             .text_size(px(render::BASE_SIZE))
             .line_height(gpui::relative(1.6))
+            // Handling `Open` here stops it before the app-level handler in
+            // `main.rs`, so a focused viewer shows exactly one dialog.
             .on_action(cx.listener(|this, _: &Open, _, cx| {
-                let rx = cx.prompt_for_paths(PathPromptOptions {
-                    files: true,
-                    directories: false,
-                    multiple: true,
-                    prompt: Some("Open Markdown".into()),
-                    directory: this.open_dialog_directory(),
-                });
+                let chosen = prompt_open(this.open_dialog_directory(), cx);
                 cx.spawn(async move |this, cx| {
-                    if let Ok(Ok(Some(paths))) = rx.await {
+                    if let Some(paths) = chosen.await {
                         this.update(cx, |this, cx| this.open_paths(paths, cx)).ok();
                     }
                 })

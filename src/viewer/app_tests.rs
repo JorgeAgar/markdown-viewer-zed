@@ -643,6 +643,160 @@ fn platform_open_events_reuse_and_recreate_the_viewer() {
     });
 }
 
+/// Tab titles of the only window, which must hold a Viewer.
+fn only_window_titles(cx: &TestAppContext) -> Vec<String> {
+    cx.update(|cx| {
+        let windows = cx.windows();
+        assert_eq!(windows.len(), 1, "one viewer window");
+        let view = windows[0].downcast::<Viewer>().unwrap().entity(cx).unwrap();
+        let titles = view.read(cx).tabs.iter().map(|t| t.title.to_string());
+        titles.collect()
+    })
+}
+
+/// Issue #57: delivered paths skip directories whether the window is open or
+/// has to be recreated, and the app comes to the front either way.
+#[test]
+fn delivered_paths_skip_directories_and_activate_the_app() {
+    let dir = TempDir::new("deliver-dirs");
+    let a = dir.join("a.md");
+    let b = dir.join("b.md");
+    let sub = dir.join("sub");
+    std::fs::write(&a, "# A").unwrap();
+    std::fs::write(&b, "# B").unwrap();
+    std::fs::create_dir(&sub).unwrap();
+    let cx = TestAppContext::single();
+    let mut handle = cx.update(|cx| crate::open_viewer(Vec::new(), cx));
+    let close = |handle: gpui::WindowHandle<Viewer>, cx: &TestAppContext| {
+        cx.update(|cx| handle.update(cx, |_, w, _| w.remove_window()).unwrap());
+        assert!(cx.update(|cx| cx.windows().is_empty()));
+    };
+
+    cx.update(|cx| crate::deliver_paths(&mut handle, vec![sub.clone(), a.clone()], cx));
+    assert_eq!(
+        only_window_titles(&cx),
+        ["a.md"],
+        "reused window skips dirs"
+    );
+    assert_eq!(cx.activations(), [true], "reusing activates the app");
+
+    close(handle, &cx);
+    cx.update(|cx| crate::deliver_paths(&mut handle, vec![sub.clone()], cx));
+    assert!(
+        only_window_titles(&cx).is_empty(),
+        "only directories recreate an empty window, like a Dock reopen"
+    );
+    assert_eq!(
+        cx.activations(),
+        [true, true],
+        "recreating activates the app"
+    );
+
+    close(handle, &cx);
+    cx.update(|cx| crate::deliver_paths(&mut handle, vec![sub.clone(), b.clone()], cx));
+    assert_eq!(
+        only_window_titles(&cx),
+        ["b.md"],
+        "recreated window skips dirs"
+    );
+
+    // Dock reopen with the window open still brings the app forward.
+    cx.update(|cx| crate::deliver_paths(&mut handle, vec![], cx));
+    assert_eq!(only_window_titles(&cx), ["b.md"]);
+    assert_eq!(cx.activations(), [true, true, true, true]);
+}
+
+/// Issue #57: with every window closed (macOS keeps running), File → Open…
+/// still prompts, and its files reach the tracked window, so a later IPC or
+/// Finder delivery reuses that window instead of opening a second one.
+#[test]
+fn open_without_a_window_prompts_and_feeds_the_tracked_window() {
+    let dir = TempDir::new("open-no-window");
+    let [a, b, c] = ["a.md", "b.md", "c.md"].map(|n| {
+        let p = dir.join(n);
+        std::fs::write(&p, format!("# {n}")).unwrap();
+        normalize(&p)
+    });
+    let mut cx = TestAppContext::single();
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    cx.update(|cx| {
+        let handle = crate::open_viewer(Vec::new(), cx);
+        crate::serve_paths(handle, tx.clone(), rx, cx);
+        handle.update(cx, |_, w, _| w.remove_window()).unwrap();
+    });
+    cx.run_until_parked();
+    assert!(cx.update(|cx| cx.windows().is_empty()));
+
+    // What the menu bar does: dispatch to the key window, or else the app.
+    cx.update(|cx| cx.dispatch_action(&Open));
+    cx.run_until_parked();
+    assert_eq!(cx.pending_paths_prompts(), 1);
+    // A Finder open while the dialog is up recreates the window...
+    tx.unbounded_send(vec![b.clone()]).unwrap();
+    cx.run_until_parked();
+    assert_eq!(only_window_titles(&cx), ["b.md"]);
+    // ...and the dialog's files then go into that same window.
+    cx.simulate_paths_selection(|options| {
+        assert!(options.files && !options.directories && options.multiple);
+        assert_eq!(
+            options.prompt.as_ref().map(|p| p.as_ref()),
+            Some("Open Markdown")
+        );
+        assert_eq!(options.directory, default_open_directory());
+        Some(vec![a.clone()])
+    });
+    cx.run_until_parked();
+    assert_eq!(only_window_titles(&cx), ["b.md", "a.md"]);
+    assert_eq!(cx.activations(), [true, true]);
+
+    // Now the focused viewer handles Open: exactly one dialog, starting in
+    // the active tab's directory rather than the app-level default.
+    cx.update(|cx| cx.dispatch_action(&Open));
+    cx.run_until_parked();
+    assert_eq!(cx.pending_paths_prompts(), 1, "no second, app-level dialog");
+    cx.simulate_paths_selection(|options| {
+        assert_eq!(options.directory.as_deref(), a.parent());
+        Some(vec![c.clone()])
+    });
+    cx.run_until_parked();
+    assert_eq!(cx.pending_paths_prompts(), 0);
+    assert_eq!(only_window_titles(&cx), ["b.md", "a.md", "c.md"]);
+    assert_eq!(cx.activations(), [true, true], "the viewer opened c itself");
+
+    // Cancelling the dialog changes nothing.
+    cx.update(|cx| cx.dispatch_action(&Open));
+    cx.run_until_parked();
+    cx.simulate_paths_selection(|_| None);
+    cx.run_until_parked();
+    assert_eq!(only_window_titles(&cx), ["b.md", "a.md", "c.md"]);
+}
+
+/// Issue #57: a window that isn't key (minimized, or behind another app's)
+/// gets `Open` from the app-level handler, which reuses it.
+#[test]
+fn open_without_a_key_window_reuses_the_open_one() {
+    let dir = TempDir::new("open-unfocused");
+    let a = normalize(&dir.join("a.md"));
+    std::fs::write(&a, "# A").unwrap();
+    let mut cx = TestAppContext::single();
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    cx.update(|cx| {
+        let handle = crate::open_viewer(Vec::new(), cx);
+        crate::serve_paths(handle, tx, rx, cx);
+        assert!(cx.active_window().is_none(), "no key window");
+        cx.dispatch_action(&Open);
+    });
+    cx.run_until_parked();
+    assert_eq!(cx.pending_paths_prompts(), 1);
+    cx.simulate_paths_selection(|options| {
+        assert_eq!(options.directory, default_open_directory());
+        Some(vec![a.clone()])
+    });
+    cx.run_until_parked();
+    assert_eq!(only_window_titles(&cx), ["a.md"]);
+    assert_eq!(cx.activations(), [true]);
+}
+
 #[test]
 fn open_dialog_directory_prefers_active_tab_then_last_opened_then_cwd() {
     let dir = TempDir::new("open-dialog-dir");

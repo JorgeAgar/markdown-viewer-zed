@@ -64,7 +64,7 @@ fn main() {
     // Parse in parallel with GPUI start-up.
     let preload = std::thread::spawn(move || paths.into_iter().map(viewer::load).collect());
 
-    let (tx, mut rx) = mpsc::unbounded::<Vec<PathBuf>>();
+    let (tx, rx) = mpsc::unbounded::<Vec<PathBuf>>();
     let app = Application::new().with_http_client(std::sync::Arc::new(http::ImageHttpClient));
     #[cfg(target_os = "macos")]
     platform::mac::configure(
@@ -112,9 +112,10 @@ fn main() {
         .detach();
 
         let loaded = preload.join().unwrap_or_default();
-        let mut window = open_viewer(loaded, cx);
+        let window = open_viewer(loaded, cx);
         #[cfg(target_os = "macos")]
         cx.activate(true);
+        serve_paths(window, tx.clone(), rx, cx);
 
         // Single-instance server: other `mdview` invocations send us paths.
         if let Some(listener) = listener {
@@ -122,12 +123,6 @@ fn main() {
                 listener.serve(|paths| tx.unbounded_send(paths).is_ok());
             });
         }
-        cx.spawn(async move |cx| {
-            while let Some(paths) = rx.next().await {
-                cx.update(|cx| deliver_paths(&mut window, paths, cx)).ok();
-            }
-        })
-        .detach();
     });
 
     if owns_socket {
@@ -135,7 +130,40 @@ fn main() {
     }
 }
 
-/// Reuse the current window, or recreate it after a macOS window close.
+/// Every source of paths after startup (IPC, Finder, the Dock, and the Open
+/// dialog when no viewer handles `Open`) goes through `rx`, so one handle
+/// tracks the window and none of them opens a second one.
+fn serve_paths(
+    mut window: WindowHandle<Viewer>,
+    tx: mpsc::UnboundedSender<Vec<PathBuf>>,
+    mut rx: mpsc::UnboundedReceiver<Vec<PathBuf>>,
+    cx: &mut App,
+) {
+    // A focused viewer handles `Open` itself. This runs when none does: on
+    // macOS after the last window closed (File → Open… and Cmd+O stay in the
+    // menu bar), or when focus left the viewer.
+    cx.on_action(move |_: &Open, cx| {
+        let chosen = viewer::prompt_open(viewer::default_open_directory(), cx);
+        let tx = tx.clone();
+        cx.spawn(async move |_| {
+            if let Some(paths) = chosen.await {
+                tx.unbounded_send(paths).ok();
+            }
+        })
+        .detach();
+    });
+    cx.spawn(async move |cx| {
+        while let Some(paths) = rx.next().await {
+            cx.update(|cx| deliver_paths(&mut window, paths, cx)).ok();
+        }
+    })
+    .detach();
+}
+
+/// Reuse the current window, or recreate it after a macOS window close, and
+/// bring the app to the front either way. Directories are skipped in both
+/// cases, so a window recreated with nothing to show (a Dock reopen, or only
+/// folders) is empty.
 fn deliver_paths(window: &mut WindowHandle<Viewer>, paths: Vec<PathBuf>, cx: &mut App) {
     if window
         .update(cx, |viewer, window, cx| {
@@ -144,12 +172,12 @@ fn deliver_paths(window: &mut WindowHandle<Viewer>, paths: Vec<PathBuf>, cx: &mu
         })
         .is_err()
     {
-        let loaded = paths
-            .into_iter()
-            .map(|p| viewer::load(viewer::normalize(&p)))
-            .collect();
+        let loaded = viewer::openable(paths).map(viewer::load).collect();
         *window = open_viewer(loaded, cx);
     }
+    // Raising the window alone doesn't bring a macOS app in front of the
+    // Terminal or Finder that sent the paths. A no-op on Linux and Windows.
+    cx.activate(true);
 }
 
 /// All entry points (CLI, Finder and Dock) create the same viewer.

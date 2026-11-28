@@ -292,6 +292,25 @@ impl TestAppContext {
     }
 
     /// Simulates reading from the platform clipboard.
+    // mdview: test hooks for `prompt_for_paths` and `activate`.
+    /// How many open-file prompts (`prompt_for_paths`) are still unanswered.
+    pub fn pending_paths_prompts(&self) -> usize {
+        self.test_platform.pending_paths_prompts()
+    }
+
+    /// Simulates choosing files in the oldest pending open-file prompt.
+    pub fn simulate_paths_selection(
+        &self,
+        select_paths: impl FnOnce(&crate::PathPromptOptions) -> Option<Vec<std::path::PathBuf>>,
+    ) {
+        self.test_platform.simulate_paths_selection(select_paths);
+    }
+
+    /// The `ignoring_other_apps` argument of every `App::activate` call so far.
+    pub fn activations(&self) -> Vec<bool> {
+        self.test_platform.activations.borrow().clone()
+    }
+
     /// This will return the most recent value from `write_to_clipboard`.
     pub fn read_from_clipboard(&self) -> Option<ClipboardItem> {
         self.test_platform.read_from_clipboard()

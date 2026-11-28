@@ -76,6 +76,18 @@ can animate the scroll itself with `ListState::scroll_by`.
 measured and their height, so a scrollbar can estimate the rest. No startup
 cost: nothing runs until a scroll event or a scrollbar is drawn.
 
+## 7. Test hooks for open dialogs and app activation
+
+`platform/test/platform.rs`, `app/test_context.rs`
+
+Upstream `TestPlatform::prompt_for_paths` panics and `activate` does nothing,
+so headless tests can't cover an Open dialog or check that the app comes to
+the front. `prompt_for_paths` now queues the prompt with its options, like
+`prompt_for_new_path` does; `TestAppContext::pending_paths_prompts` counts the
+unanswered ones and `simulate_paths_selection` answers the oldest.
+`activate` records its argument, read back with `TestAppContext::activations`.
+Test support only: release builds don't compile any of it.
+
 ## Measurements
 
 Time from `main()` to the first frame submitted and presented. Medians;
