@@ -526,21 +526,42 @@ impl Parser<'_> {
             "not" => {
                 // `\not=` → ≠, `\not\in` → ∉, otherwise a combining slash.
                 // Spaces don't separate `\not` from what it negates
-                // (`\not =` is ≠), but the end of a group or a cell does:
-                // that token isn't consumed.
+                // (`\not =` is ≠), but structural delimiters (`}`, `]`, `&`,
+                // `\\`, `\cr`, `\newline`, `\end`) do: those aren't consumed.
                 self.skip_spaces();
                 let mut g = w.sub();
-                if !matches!(self.peek(), None | Some(T::Close | T::Amp))
-                    && !matches!(self.peek(), Some(T::Cmd(c)) if c == "end")
+                if !matches!(self.peek(), None | Some(T::Close | T::Amp | T::Ch(']')))
+                    && !matches!(
+                        self.peek(),
+                        Some(T::Cmd(c)) if matches!(c.as_str(), "end" | "\\" | "cr" | "newline")
+                    )
                 {
                     self.item(&mut g);
                 }
                 let target = g.s.trim();
-                let s = match negated(target) {
-                    Some(n) => n.to_string(),
-                    None => format!("{target}\u{338}"),
-                };
-                w.sym(&s, Class::Rel);
+                if let Some(n) = negated(target) {
+                    w.sym(n, Class::Rel);
+                } else {
+                    if !w.script && !w.s.ends_with(' ') && !w.s.is_empty() {
+                        w.s.push(' ');
+                    }
+                    let lead = g.s.len() - g.s.trim_start().len();
+                    let base = w.s.len();
+                    w.s.push_str(target);
+                    w.s.push('\u{338}');
+                    let max = target.len();
+                    for r in g.italic {
+                        let start = r.start.saturating_sub(lead).min(max);
+                        let end = r.end.saturating_sub(lead).min(max);
+                        if start < end {
+                            w.italic.push(base + start..base + end);
+                        }
+                    }
+                    if !w.script {
+                        w.s.push(' ');
+                    }
+                    w.last = Some(Class::Rel);
+                }
             }
             "tag" => {
                 let s = self.raw_arg();
@@ -671,10 +692,12 @@ fn fraction(w: &mut W, a: W, b: W) {
 fn wrap(w: &mut W, g: W) {
     let t = g.s.trim();
     let simple = t.chars().count() <= 1
-        || !t.chars().any(|c| {
-            c.is_whitespace() || matches!(c, '+' | '−' | '/' | '=' | '·' | '⋅' | '×' | '±' | ',')
-        })
-        || enclosed_in_parens(t);
+        || enclosed_in_parens(t)
+        || (!t.starts_with('(')
+            && !t.chars().any(|c| {
+                c.is_whitespace()
+                    || matches!(c, '+' | '−' | '/' | '=' | '·' | '⋅' | '×' | '±' | ',')
+            }));
     if simple {
         w.append(g);
     } else {
@@ -1476,5 +1499,30 @@ mod tests {
         let m = to_unicode(r"\mathit{xy} + \mathit{\alpha 1}");
         assert_eq!(m.text, "xy + α1");
         assert_eq!(m.italic, [0..2, 5..8]);
+    }
+
+    #[test]
+    fn wrap_parenthesizes_compact_parenthesized_products() {
+        assert_eq!(u(r"\frac{1}{(a)(b)}"), "1/((a)(b))");
+        assert_eq!(u(r"\frac{1}{(a)b}"), "1/((a)b)");
+        assert_eq!(u(r"\frac{f(x)}{g(x)}"), "f(x)/g(x)");
+    }
+
+    #[test]
+    fn not_preserves_delimiters_and_target_italics() {
+        // Optional-arg bracket and matrix row breaks must not be consumed.
+        assert_eq!(u(r"\sqrt[3\not ]{x}"), "(3 \u{338})√x");
+        assert_eq!(
+            u(r"\begin{pmatrix}a \not \\ b\end{pmatrix}"),
+            "(a \u{338} ; b)"
+        );
+
+        // Negating a variable keeps its italic range intact.
+        for tex in [r"\not a", r"\not {a}"] {
+            let m = to_unicode(tex);
+            assert_eq!(m.text, "a\u{338}", "{tex}");
+            let it: Vec<&str> = m.italic.iter().map(|r| &m.text[r.clone()]).collect();
+            assert_eq!(it, ["a"], "{tex}");
+        }
     }
 }
