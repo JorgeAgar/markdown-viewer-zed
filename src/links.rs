@@ -134,14 +134,15 @@ fn fold(s: &str) -> impl Iterator<Item = char> + '_ {
 fn find(blocks: &[Block], is: &dyn Fn(&Block) -> bool) -> Option<Place> {
     blocks.iter().enumerate().find_map(|(block, b)| {
         let child = match b {
-            _ if is(b) => None,
+            // `is` only picks headings and footnotes, never a container.
             Block::Quote { blocks, .. } => Some(blocks.iter().position(|c| contains(c, is))?),
             Block::List { items, .. } => Some(
                 items
                     .iter()
                     .position(|i| i.blocks.iter().any(|c| contains(c, is)))?,
             ),
-            // A footnote's body is drawn in the footnote's row.
+            // The block itself, or something in a footnote's body, which
+            // is drawn in the footnote's row.
             _ if contains(b, is) => None,
             _ => return None,
         };
