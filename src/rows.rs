@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     highlight::Highlight,
-    markdown::{Block, Document},
+    markdown::{Block, Callout, Document},
 };
 
 /// Maximum lines kept in a single list row for a fenced/indented code block.
@@ -369,8 +369,9 @@ fn match_changed<T: Hash + Eq>(old: &[T], new: &[T], ix: usize) -> Moved {
 
 /// Where row `sub` of a top-level block that was edited (`old` became
 /// `new`) went, for blocks split into rows by their parts: table body rows,
-/// list items, and the child blocks of a quote. `None` for other blocks, or
-/// when the block changed shape.
+/// list items, and the child blocks of a quote (a quote of one block, which
+/// is one row, counts as that block). `None` for other blocks, or when the
+/// block changed kind.
 fn sub_row(old: &Block, new: &Block, sub: usize) -> Option<Moved> {
     // `parts` of a block starting at row `head` (after a header row).
     let shift = |m: Moved, head: usize| match m {
@@ -402,10 +403,10 @@ fn sub_row(old: &Block, new: &Block, sub: usize) -> Option<Moved> {
                 callout: new_callout,
                 blocks: new_children,
             },
-        ) if old_children.len() > 1 && new_children.len() > 1 => {
+        ) => {
             let (old_head, new_head) = (
-                usize::from(old_callout.is_some()),
-                usize::from(new_callout.is_some()),
+                quote_head(*old_callout, old_children),
+                quote_head(*new_callout, new_children),
             );
             if sub < old_head {
                 return Some(Moved::Edited(0));
@@ -417,6 +418,12 @@ fn sub_row(old: &Block, new: &Block, sub: usize) -> Option<Moved> {
         }
         _ => None,
     }
+}
+
+/// Rows before the first child block of a quote: its callout title, which
+/// only has a row of its own when the quote is split (see `from_blocks`).
+fn quote_head(callout: Option<Callout>, children: &[Block]) -> usize {
+    usize::from(callout.is_some() && children.len() > 1)
 }
 
 fn row_shrank_or_changed(old: &Row, new: &Row) -> bool {
@@ -1284,6 +1291,14 @@ mod tests {
         assert_eq!(table(&["new", "a", "b", "c"]).remap(&old, 3), same(4));
         assert_eq!(table(&["new", "a", "b", "c"]).remap(&old, 0), same(0));
         assert_eq!(table(&["b", "c"]).remap(&old, 2), same(1));
+        // Removed: the row that followed it, from its top.
+        assert_eq!(
+            table(&["a", "c"]).remap(&old, 2),
+            RemappedRow {
+                item_ix: 2,
+                reset_offset: true
+            }
+        );
 
         let quote = |callout: &str, children: &[&str]| {
             let body = children
@@ -1295,6 +1310,10 @@ mod tests {
         };
         // Rows: 0 callout header, 1.. children.
         let old = quote("> [!NOTE]\n", &["a", "b", "c"]);
+        assert_eq!(
+            quote("> [!NOTE]\n", &["new", "a", "b", "c"]).remap(&old, 1),
+            same(2)
+        );
         assert_eq!(
             quote("> [!NOTE]\n", &["new", "a", "b", "c"]).remap(&old, 2),
             same(3)
@@ -1318,6 +1337,21 @@ mod tests {
                 item_ix: 0,
                 reset_offset: true
             }
+        );
+        // A one-block callout (one row, no title row of its own) counts as
+        // its block: split by a block added above, the row is that block's.
+        let single = quote("> [!NOTE]\n", &["a"]);
+        assert_eq!(
+            quote("> [!NOTE]\n", &["new", "a"]).remap(&single, 0),
+            RemappedRow {
+                item_ix: 2,
+                reset_offset: true
+            }
+        );
+        // Edited, still one block: its row, keeping the offset.
+        assert_eq!(
+            quote("> [!NOTE]\n", &["a, edited"]).remap(&single, 0),
+            same(0)
         );
     }
 

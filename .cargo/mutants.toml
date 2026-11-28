@@ -4,6 +4,14 @@
 # Exact mutation names keep exclusions scoped to reviewed equivalent substitutions.
 exclude_re = [
 
+    # `anchor(ix)` is known to be None when the scan for the next anchor
+    # starts, so starting it at `ix` instead of `ix + 1` finds the same one.
+    '''^src/rows\.rs:344:21: replace \+ with \* in match_changed$''',
+
+    # The margin's boundary: an image mtime plus the margin equal to the
+    # wall-clock load time, to the nanosecond, can't be produced or observed.
+    '''^src/viewer\.rs:399:62: replace < with <= in forget_images$''',
+
     # Rust handles single quotes as characters/lifetimes before consulting quotes;
     # BASE only adds single quotes.
     '''^crates/mdview-core/src/highlight\.rs:162:9: delete field quotes from struct Lang expression in lang_def$''',
