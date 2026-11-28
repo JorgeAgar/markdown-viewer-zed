@@ -15,7 +15,7 @@
 │   ├── rows.rs        `Rows`: splits large top-level blocks into virtualized list rows (GUI-free, unit-tested)
 │   ├── scroll.rs      Smooth wheel glides, touchpad flings, scrollbar geometry (GUI-free, unit-tested)
 │   ├── http.rs        Lazy HTTP(S) image transport on the blocking pool
-│   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor lookup (`heading_place`) (GUI-free)
+│   ├── links.rs       Link routing (`classify_link`), percent-decoding, anchor and footnote lookup (GUI-free)
 │   └── theme.rs       Light and dark palettes
 ├── crates/mdview-core/  The GUI-free core, a separate crate so it can't depend on GPUI
 │   └── src/
@@ -48,7 +48,7 @@ flowchart TD
     render["render.rs<br/>render_row() → AnyElement"]
     rows["rows.rs<br/>Rows::from_document()"]
     scroll["scroll.rs<br/>Motion, thumb(), locate()"]
-    links["links.rs<br/>classify_link() → LinkTarget<br/>heading_place() → Place"]
+    links["links.rs<br/>classify_link() → LinkTarget<br/>heading_place(), footnote_place() → Place"]
     theme["theme.rs<br/>Theme"]
     gpui[("crates/gpui<br/>GPUI (vendored)")]
     cmark[("pulldown-cmark")]
@@ -137,7 +137,12 @@ classDiagram
     class RichText {
         text: String
         spans: Vec~Span~
-        links: Vec~String~
+        links: Vec~Link~
+    }
+    class Link {
+        <<enum>>
+        Url(String)
+        Footnote(label)
     }
     class Span {
         range: Range~usize~
@@ -149,6 +154,7 @@ classDiagram
     Block --> RichText
     ListItem --> Block
     RichText --> Span
+    RichText --> Link
 ```
 
 Top-level blocks are projected into display rows by `rows.rs` (see
@@ -277,7 +283,12 @@ for benchmarks and debugging.
 
 ## Links
 
-`links::classify_link` decides what clicking a link does (it returns a
+A clickable span of a `RichText` points into its `links`, a list of
+`markdown::Link`s. Clicking a `Link::Footnote(label)` (a footnote
+reference, `[^label]`) scrolls the current tab to that footnote's
+definition, wherever it's nested (`links::footnote_place`, which matches
+labels ignoring case, like pulldown-cmark). For a `Link::Url`,
+`links::classify_link` decides what clicking it does (it returns a
 `LinkTarget`, which `render::open_link` acts on):
 
 | Link | Action |
@@ -302,7 +313,9 @@ holds the heading, because `rows.rs` gives each of those its own row.
 `Rows::row_for_place` turns that into the row to scroll to, so a heading in
 the fifth item of a list lands on that item, not on the top of the list.
 Deeper nesting is drawn inside that row. A link to another file's anchor
-(`other.md#inside`) goes through the same lookup once the tab is open. The path and the anchor are percent-decoded separately, so
+(`other.md#inside`) goes through the same lookup once the tab is open.
+Footnote definitions are found the same way, and separately from headings,
+so `[^why]` and a `# Why` heading never shadow each other. The path and the anchor are percent-decoded separately, so
 `a%23b.md` is a file named `a#b.md`. Only `://` and `mailto:` count as
 external; a query string (`b.md?x=1`) stays part of the file name.
 

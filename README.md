@@ -50,8 +50,10 @@ Standalone images load from local files or HTTP(S) URLs in the background,
 with alt text shown if loading fails.
 
 You can also drag files onto the window. Clicking a link to a local `.md` file
-opens it in a new tab, and `#anchor` links scroll to the matching heading. Open
-files reload automatically when they change on disk.
+opens it in a new tab, `#anchor` links scroll to the matching heading (repeated
+headings are `#name-1`, `#name-2`…, as on GitHub), and footnote references
+jump to their footnote. Open files reload automatically when they change on
+disk.
 
 `-n` / `--new` starts a separate instance. `MDVIEW_FONT` and `MDVIEW_MONO_FONT`
 override the fonts. macOS prefers Helvetica Neue when Inter and IBM Plex Sans

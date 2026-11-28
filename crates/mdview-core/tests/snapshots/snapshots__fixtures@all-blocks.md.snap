@@ -47,7 +47,8 @@ table aligns=[none, right]
     "1"
     "2"
 paragraph
-  "Footnote use⟦L|[n]⟧."
+  "Footnote use⟦L0|[n]⟧."
+  link 0 → footnote [^n]
 footnote [^n]
   paragraph
     "The footnote."

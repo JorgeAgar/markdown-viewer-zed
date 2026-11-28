@@ -31,15 +31,34 @@ pub struct Span {
     pub link: Option<u32>,
 }
 
+/// What clicking a span of a [`RichText`] does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Link {
+    /// A link's destination as written (`https://…`, `other.md#x`, `#x`,
+    /// an image's URL), routed by `links::classify_link` in the app.
+    Url(String),
+    /// A footnote reference (`[^label]`): jumps to the `Block::Footnote`
+    /// with that label, matched as pulldown-cmark matches them (ignoring
+    /// case). A variant of its own, so it can't be mistaken for a heading
+    /// anchor or a URL, whatever the label says.
+    Footnote(String),
+}
+
 /// A run of styled text (paragraph, heading, table cell...).
 #[derive(Clone, Debug, Default)]
 pub struct RichText {
     pub text: String,
     pub spans: Vec<Span>,
-    pub links: Vec<String>,
+    pub links: Vec<Link>,
 }
 
 impl RichText {
+    /// Adds `link` to `links` and returns its index for a span.
+    fn add_link(&mut self, link: Link) -> Option<u32> {
+        self.links.push(link);
+        Some(self.links.len() as u32 - 1)
+    }
+
     fn push(&mut self, s: &str, style: u8, link: Option<u32>) {
         if s.is_empty() {
             return;
@@ -530,8 +549,7 @@ impl<'a> P<'a> {
                         };
                         let label = format!("[{label}]");
                         if link.is_none() {
-                            rich.links.push(img.url.clone());
-                            let l = Some(rich.links.len() as u32 - 1);
+                            let l = rich.add_link(Link::Url(img.url.clone()));
                             rich.push(&label, style | LINK, l);
                         } else {
                             rich.push(&label, style, link);
@@ -566,7 +584,12 @@ impl<'a> P<'a> {
                 Event::SoftBreak => rich.push(" ", style, link),
                 Event::HardBreak => rich.push("\n", style, link),
                 Event::FootnoteReference(l) => {
-                    rich.push(&format!("[{l}]"), style | LINK, link);
+                    // Its own link even inside another link, so it always
+                    // jumps to the footnote; the enclosing link carries on
+                    // after it. (pulldown-cmark doesn't nest them today.)
+                    let text = format!("[{l}]");
+                    let l = rich.add_link(Link::Footnote(l.into_string()));
+                    rich.push(&text, style | LINK, l);
                 }
                 Event::TaskListMarker(c) => {
                     rich.push(if c { "☑ " } else { "☐ " }, style, link);
@@ -584,12 +607,11 @@ impl<'a> P<'a> {
                 }) => {
                     // `<me@example.com>` comes without its scheme; without
                     // one, `render::open_link` would look for a local file.
-                    rich.links.push(if link_type == LinkType::Email {
+                    link = rich.add_link(Link::Url(if link_type == LinkType::Email {
                         format!("mailto:{dest_url}")
                     } else {
                         dest_url.to_string()
-                    });
-                    link = Some(rich.links.len() as u32 - 1);
+                    }));
                     style |= LINK;
                 }
                 Event::End(TagEnd::Link) => {
@@ -725,6 +747,17 @@ pub fn slugify(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// `rt.links`, with footnotes written as `[^label]`.
+    fn links(rt: &RichText) -> Vec<String> {
+        rt.links
+            .iter()
+            .map(|l| match l {
+                Link::Url(u) => u.clone(),
+                Link::Footnote(f) => format!("[^{f}]"),
+            })
+            .collect()
+    }
+
     #[test]
     fn parses_basic_document() {
         let doc = parse(
@@ -760,7 +793,7 @@ mod tests {
         }
         if let Block::Paragraph(p) = &doc.blocks[1] {
             assert_eq!(p.text, "Hello bold and code link.");
-            assert_eq!(p.links, ["https://x.y"]);
+            assert_eq!(links(p), ["https://x.y"]);
         }
     }
 
@@ -864,7 +897,7 @@ mod tests {
             panic!("expected a paragraph")
         };
         assert_eq!(p.text, "see [a b] [c] d");
-        assert_eq!(p.links, ["i.png", "u"]);
+        assert_eq!(links(p), ["i.png", "u"]);
     }
 
     #[test]
@@ -878,7 +911,7 @@ mod tests {
             "me@example.com mailto:you@example.com https://x.y m"
         );
         assert_eq!(
-            p.links,
+            links(p),
             [
                 "mailto:me@example.com",
                 "mailto:you@example.com",
@@ -1057,6 +1090,102 @@ mod tests {
             all_slugs("# ???\n## !\n#\n# -1\n"),
             ["", "-1", "-2", "-1-1"]
         );
+    }
+
+    /// `(text, link)` of each span, with the link written as in `links`.
+    fn linked_spans(rt: &RichText) -> Vec<(&str, Option<String>)> {
+        let all = links(rt);
+        rt.spans
+            .iter()
+            .map(|s| {
+                (
+                    &rt.text[s.range.clone()],
+                    s.link.map(|l| all[l as usize].clone()),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn footnote_references_link_to_their_footnote() {
+        // Issue #23: references were styled as links but led nowhere.
+        let doc =
+            parse("A[^n] b[^Why] [w](#why) c[^missing].\n\n[^n]: N.\n\n[^why]: W.\n\n# why\n");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected a paragraph")
+        };
+        assert_eq!(p.text, "A[n] b[Why] w c[^missing].");
+        assert_eq!(
+            p.links,
+            [
+                Link::Footnote("n".into()),
+                Link::Footnote("Why".into()),
+                Link::Url("#why".into()),
+            ]
+        );
+        assert_eq!(
+            linked_spans(p),
+            [
+                ("A", None),
+                ("[n]", Some("[^n]".into())),
+                (" b", None),
+                ("[Why]", Some("[^Why]".into())),
+                (" ", None),
+                ("w", Some("#why".into())),
+                // Without a definition it's plain text (pulldown-cmark).
+                (" c[^missing].", None),
+            ]
+        );
+        assert!(p.spans[1].style & LINK != 0);
+    }
+
+    #[test]
+    fn footnote_reference_inside_a_link_keeps_its_own_target() {
+        // GFM (and pulldown-cmark) don't let a link contain a footnote
+        // reference: the brackets stay text, and only the reference is a
+        // link.
+        let doc = parse("[see note[^1]](https://example.com)\n\n[^1]: x\n");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected a paragraph")
+        };
+        assert_eq!(p.text, "[see note[1]](https://example.com)");
+        assert_eq!(links(p), ["[^1]"]);
+
+        // Should a parser ever emit one inside a link, the reference still
+        // jumps to its footnote and the rest of the link text still goes to
+        // the URL, styles and all.
+        let link = Event::Start(Tag::Link {
+            link_type: LinkType::Inline,
+            dest_url: "https://example.com".into(),
+            title: "".into(),
+            id: "".into(),
+        });
+        let mut p = P {
+            ev: vec![
+                Event::Start(Tag::Strong),
+                link,
+                Event::Text("see ".into()),
+                Event::FootnoteReference("1".into()),
+                Event::Text(" more".into()),
+                Event::End(TagEnd::Link),
+                Event::Text(" after".into()),
+                Event::End(TagEnd::Strong),
+            ],
+            i: 0,
+            slugs: HashMap::new(),
+        };
+        let (rt, _) = p.inlines(false);
+        assert_eq!(
+            linked_spans(&rt),
+            [
+                ("see ", Some("https://example.com".into())),
+                ("[1]", Some("[^1]".into())),
+                (" more", Some("https://example.com".into())),
+                (" after", None),
+            ]
+        );
+        let styles: Vec<u8> = rt.spans.iter().map(|s| s.style).collect();
+        assert_eq!(styles, [BOLD | LINK, BOLD | LINK, BOLD | LINK, BOLD]);
     }
 
     #[test]

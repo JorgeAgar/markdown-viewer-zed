@@ -8,6 +8,9 @@
 //! heading h2 #slug
 //!   "Some ⟦B|bold⟧ text with a ⟦L0|link⟧"
 //!   link 0: https://example.com
+//! paragraph
+//!   "See ⟦L0|[note]⟧"
+//!   link 0 → footnote [^note]
 //! code rust
 //!   |⟦kw|fn⟧ ⟦fn|main⟧() {}
 //! ```
@@ -27,7 +30,7 @@ use std::fmt::Write;
 
 use mdview_core::{
     highlight::{Highlight, Tok},
-    markdown::{Align, BOLD, Block, CODE, Document, ITALIC, LINK, RichText, STRIKE},
+    markdown::{Align, BOLD, Block, CODE, Document, ITALIC, LINK, Link, RichText, STRIKE},
 };
 
 pub fn document(doc: &Document) -> String {
@@ -154,7 +157,10 @@ fn block(out: &mut String, b: &Block, d: usize) {
 pub fn rich(out: &mut String, rt: &RichText, d: usize) {
     line(out, d, &format!("\"{}\"", styled(rt)));
     for (i, l) in rt.links.iter().enumerate() {
-        line(out, d, &format!("link {i}: {l}"));
+        match l {
+            Link::Url(url) => line(out, d, &format!("link {i}: {url}")),
+            Link::Footnote(label) => line(out, d, &format!("link {i} → footnote [^{label}]")),
+        }
     }
 }
 

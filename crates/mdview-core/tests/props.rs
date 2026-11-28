@@ -18,7 +18,7 @@ use common::{
 };
 use mdview_core::{
     latex,
-    markdown::{BOLD, Block, CODE, ITALIC, LINK, STRIKE, parse, slugify},
+    markdown::{BOLD, Block, CODE, ITALIC, LINK, Link, STRIKE, parse, slugify},
 };
 use proptest::{prelude::*, sample::select};
 
@@ -380,11 +380,11 @@ proptest! {
                 4 => (format!("~~{w}~~"), STRIKE, None),
                 5 => (format!("`{w}`"), CODE, None),
                 6 => {
-                    links.push(url.clone());
+                    links.push(Link::Url(url.clone()));
                     (format!("[{w}]({url})"), LINK, Some(links.len() as u32 - 1))
                 }
                 _ => {
-                    links.push(url.clone());
+                    links.push(Link::Url(url.clone()));
                     (format!("**[{w}]({url})**"), BOLD | LINK, Some(links.len() as u32 - 1))
                 }
             };

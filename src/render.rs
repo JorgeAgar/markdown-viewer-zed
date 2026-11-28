@@ -22,7 +22,7 @@ use crate::{
     highlight::{Highlight, Tok},
     links::{LinkTarget, classify_link, percent_decode},
     markdown::{
-        Align, BOLD, Block, CODE, Callout, Document, ITALIC, Image, LINK, ListItem, RichText,
+        Align, BOLD, Block, CODE, Callout, Document, ITALIC, Image, LINK, Link, ListItem, RichText,
         STRIKE,
     },
     rows::{self, Row},
@@ -801,11 +801,30 @@ fn rich_text(
     let base = rcx.base_dir.clone();
     InteractiveText::new(ids.next(), styled)
         .on_click(ranges, move |ix, window, cx| {
-            if let Some(url) = link_ids.get(ix).and_then(|i| links.get(*i as usize)) {
-                open_link(&viewer, &base, url, window, cx);
+            if let Some(link) = link_ids.get(ix).and_then(|i| links.get(*i as usize)) {
+                follow_link(&viewer, &base, link, window, cx);
             }
         })
         .into_any_element()
+}
+
+/// What clicking a span with `link` does: a URL is routed by
+/// [`open_link`], a footnote reference scrolls to its definition.
+pub(crate) fn follow_link(
+    viewer: &WeakEntity<Viewer>,
+    base: &Path,
+    link: &Link,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    match link {
+        Link::Url(url) => open_link(viewer, base, url, window, cx),
+        Link::Footnote(label) => {
+            viewer
+                .update(cx, |v, cx| v.scroll_to_footnote(label, cx))
+                .ok();
+        }
+    }
 }
 
 pub(crate) fn open_link(

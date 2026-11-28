@@ -437,6 +437,50 @@ fn anchors_land_on_the_row_of_nested_and_repeated_headings() {
     assert_eq!(follow(cx, "index.md#in-list"), (6, 0.));
 }
 
+#[test]
+fn clicking_footnote_references_scrolls_to_their_definitions() {
+    // Issue #23: footnote references looked like links but did nothing.
+    // They jump to their definition, even one inside a list item, and
+    // never get confused with a heading of the same name.
+    let filler = "Filler paragraph.\n\n".repeat(80);
+    let src = [
+        "# Why\n\n",                                // row 0
+        "Refs[^why] and [^N] and [why](#why).\n\n", // row 1
+        &filler,                                    // rows 2..=81
+        "[^why]: Because.\n\n",                     // row 82
+        &filler,                                    // rows 83..=162
+        "- a\n- b\n- c\n\n  [^n]: In a list.\n\n",  // rows 163..=165
+        &filler,
+    ]
+    .concat();
+    let base = PathBuf::from("/x");
+    let (v, cx) = open(vec![(base.join("f.md"), parsed(&src))]);
+    let refs = cx.update(
+        |_, cx| match &v.read(cx).tabs.active().unwrap().doc.blocks[1] {
+            Block::Paragraph(p) => p.links.clone(),
+            other => panic!("expected a paragraph, got {other:?}"),
+        },
+    );
+    let weak = v.downgrade();
+    let follow = |cx: &mut VisualTestContext, link: &markdown::Link| {
+        cx.update(|window, cx| render::follow_link(&weak, &base, link, window, cx));
+        cx.run_until_parked();
+        scroll_top(&v, cx)
+    };
+    let [why, n, heading] = &refs[..] else {
+        panic!("expected three links, got {refs:?}")
+    };
+    assert_eq!(follow(cx, why), (82, 0.));
+    // The label's case doesn't matter, and the definition can be nested.
+    assert_eq!(follow(cx, n), (165, 0.));
+    // `#why` is the heading, not the footnote `[^why]`.
+    assert_eq!(follow(cx, heading), (0, 0.));
+    assert_eq!(follow(cx, why), (82, 0.));
+    // A label without a definition doesn't move.
+    let dangling = markdown::Link::Footnote("nope".into());
+    assert_eq!(follow(cx, &dangling), (82, 0.));
+}
+
 /// Markdown that stresses rendering: multibyte text around styled spans
 /// and links, links nested in lists/quotes/tables/footnotes (each needs its
 /// own ElementId), code, images, math and diagrams.

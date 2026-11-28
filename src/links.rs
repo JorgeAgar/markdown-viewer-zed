@@ -104,6 +104,29 @@ pub fn heading_place(blocks: &[Block], anchor: &str) -> Option<Place> {
     )
 }
 
+/// Where the definition of the footnote `label` is drawn: the first
+/// `Block::Footnote` whose label matches, at any depth (pulldown-cmark also
+/// accepts definitions inside quotes and list items). Labels are compared
+/// the way pulldown-cmark pairs references with definitions, ignoring case
+/// with full Unicode case folding (`ß` matches `SS`, `ς` matches `Σ`);
+/// pulldown-cmark has already collapsed their whitespace. Footnotes and
+/// headings are looked up separately, so `[^why]` never lands on a
+/// `# why` heading, nor `#why` on the footnote.
+pub fn footnote_place(blocks: &[Block], label: &str) -> Option<Place> {
+    find(
+        blocks,
+        &|b| matches!(b, Block::Footnote { label: l, .. } if fold(l).eq(fold(label))),
+    )
+}
+
+/// `s` case-folded, close enough to Unicode's full folding for labels:
+/// uppercasing first turns `ß` into `SS` and `ς` into `Σ`.
+fn fold(s: &str) -> impl Iterator<Item = char> + '_ {
+    s.chars()
+        .flat_map(char::to_uppercase)
+        .flat_map(char::to_lowercase)
+}
+
 /// The first block that `is` picks, in document order, at any depth, as the
 /// [`Place`] whose row draws it. A list or multi-block quote is split into
 /// a row per item or child (see `rows.rs`), so a target inside one lands on
@@ -440,6 +463,55 @@ mod tests {
         // Text that isn't a heading isn't a target.
         assert_eq!(heading_place(blocks, "first"), None);
         assert_eq!(heading_place(blocks, "z"), None);
+    }
+
+    #[test]
+    fn footnote_lookup() {
+        // Issue #23.
+        let doc = markdown::parse(concat!(
+            "Refs[^a] [^Nested] [^ß] [^ς] [^x y].\n\n",    // 0
+            "[^a]: First.\n\n",                            // 1
+            "- one\n- two\n\n  [^nested]: In a list.\n\n", // 2, item 1
+            "> Quote\n>\n> [^ss]: In a quote.\n\n",        // 3, child 1
+            "[^σ]: Sigma.\n\n",                            // 4
+            "[^a]: Repeated.\n\n",                         // 5
+            "[^x  y]: Spaces.\n",                          // 6
+        ));
+        let blocks = &doc.blocks;
+        assert_eq!(footnote_place(blocks, "a"), top(1), "the first one wins");
+        assert_eq!(footnote_place(blocks, "A"), top(1));
+        assert_eq!(footnote_place(blocks, "Nested"), child(2, 1));
+        assert_eq!(footnote_place(blocks, "ß"), child(3, 1));
+        assert_eq!(footnote_place(blocks, "SS"), child(3, 1));
+        assert_eq!(footnote_place(blocks, "ς"), top(4));
+        assert_eq!(footnote_place(blocks, "Σ"), top(4));
+        // pulldown-cmark collapses the definition's whitespace.
+        assert_eq!(footnote_place(blocks, "x y"), top(6));
+        // No definition: nothing to jump to.
+        assert_eq!(footnote_place(blocks, "missing"), None);
+        assert_eq!(footnote_place(blocks, "s"), None);
+        assert_eq!(footnote_place(blocks, ""), None);
+        assert_eq!(footnote_place(&[], "a"), None);
+    }
+
+    #[test]
+    fn footnotes_and_headings_do_not_shadow_each_other() {
+        let doc = markdown::parse(concat!(
+            "Ref[^why] [^fn-1].\n\n", // 0
+            "# Why\n\n",              // 1
+            "[^why]: Because.\n\n",   // 2
+            "# fn-1\n\n",             // 3
+            "[^fn-1]: Note.\n\n",     // 4
+            "[^only]: Note.\n",       // 5
+        ));
+        let blocks = &doc.blocks;
+        assert_eq!(heading_place(blocks, "why"), top(1));
+        assert_eq!(footnote_place(blocks, "why"), top(2));
+        assert_eq!(heading_place(blocks, "fn-1"), top(3));
+        assert_eq!(footnote_place(blocks, "fn-1"), top(4));
+        // A footnote isn't a heading anchor, and a heading isn't a footnote.
+        assert_eq!(heading_place(blocks, "only"), None);
+        assert_eq!(footnote_place(blocks, "Why"), top(2));
     }
 
     #[test]

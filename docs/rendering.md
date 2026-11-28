@@ -35,6 +35,12 @@ small recursive-descent parser (`struct P`):
   (`Item, Paragraph, TaskListMarker`).
 - A paragraph made only of images becomes `Block::Images`. In any other
   paragraph, an image appears inline as `[alt]` and links to the image.
+- A footnote reference (`[^note]`) appears as `[note]` and gets its own
+  `Link::Footnote(label)` entry in `RichText::links`, even inside another
+  link (whose text carries on with the outer URL after it). URLs are
+  `Link::Url`, so a footnote can't be mistaken for a `#heading` anchor.
+  pulldown-cmark only emits references that have a definition; any other
+  `[^label]` stays text.
 - HTML blocks and front matter (YAML `---` or TOML `+++`) are skipped.
 - Fenced code blocks are highlighted here, once, by `highlight::highlight`
   (see [Syntax highlighting](#syntax-highlighting)).
@@ -144,7 +150,10 @@ GPUI's `HighlightStyle` can't change the font family, and inline code needs
 the monospace font. So `rich_text()` builds explicit `TextRun`s instead (each
 run has its own `Font`, color, background, underline and strikethrough), then
 calls `StyledText::with_runs`. If the text contains links, it's wrapped in
-`InteractiveText` with one clickable range per link span.
+`InteractiveText` with one clickable range per link span. A click goes to
+`render::follow_link`: a `Link::Url` is routed by `open_link` (see
+[Links](architecture.md#links)), a `Link::Footnote` calls
+`Viewer::scroll_to_footnote`.
 
 `InteractiveText` needs an `ElementId` that's unique within the row.
 `IdGen(ix * 100_000)` generates them: row `ix` gets ids starting at

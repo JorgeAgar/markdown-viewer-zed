@@ -47,7 +47,8 @@ heading h2 #leading-spaces
 heading h1 #
   ""
 heading h2 #footnote-ref-in-heading1
-  "Footnote ref in heading⟦L|[1]⟧"
+  "Footnote ref in heading⟦L0|[1]⟧"
+  link 0 → footnote [^1]
 heading h2 #math-x²-in-heading
   "Math ⟦I|x⟧² in heading"
 footnote [^1]
