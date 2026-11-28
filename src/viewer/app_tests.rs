@@ -2334,3 +2334,113 @@ fn going_down_right_after_bottom_is_already_at_the_end() {
         "500 px above the end: {end}"
     );
 }
+
+#[test]
+fn going_up_right_after_bottom_with_measured_tall_tail_is_not_lost() {
+    // Visit the bottom first so the tall final paragraph is already measured,
+    // then jump to Bottom and press Up in the same update (before layout
+    // resolves the end sentinel). The Up step must not be consumed against the
+    // sentinel and lost when GPUI positions the viewport at the end.
+    let mut md = String::new();
+    for i in 0..40 {
+        md.push_str(&format!("Short paragraph {i}.\n\n"));
+    }
+    md.push_str(&"very long final paragraph words ".repeat(300));
+    let (v, cx) = open(vec![(PathBuf::from("/x/tall-last.md"), parsed(&md))]);
+    cx.dispatch_action(Bottom);
+    cx.run_until_parked();
+    let at_end = scroll_top(&v, cx);
+
+    in_one_update(&v, cx, |v, cx| {
+        v.tabs.active_mut().unwrap().scroll_to_end();
+        v.scroll(-60., cx);
+        assert_eq!(
+            v.tabs.active().unwrap().scroll_rest,
+            -60.,
+            "sentinel must defer upward scroll until layout"
+        );
+    });
+    cx.run_until_parked();
+    let after_up = scroll_top(&v, cx);
+    assert!(
+        after_up.0 < at_end.0 || after_up.1 < at_end.1 - 30.,
+        "Up after warm Bottom was lost: at_end={at_end:?}, after_up={after_up:?}"
+    );
+}
+
+#[test]
+fn leaving_the_bottom_thumb_pin_by_one_pixel_does_not_jump_back() {
+    let (v, cx) = tall_end_doc();
+    let (w, h, thumb) = thumb_now(&v, cx);
+    let track = h - TAB_BAR_HEIGHT;
+    let room = track - thumb.len;
+    let x = px(w - 5.);
+    let grab_y = TAB_BAR_HEIGHT + thumb.len / 2.;
+    cx.simulate_mouse_down(point(x, px(grab_y)), MouseButton::Left, Default::default());
+
+    // Drag to the bottom end and let layout measure the tall final rows.
+    cx.simulate_mouse_move(
+        point(x, px(grab_y + room + 10.)),
+        Some(MouseButton::Left),
+        Default::default(),
+    );
+    cx.run_until_parked();
+    let pinned = scroll_top(&v, cx);
+    assert!(pinned.0 >= 390, "expected to reach tall tail: {pinned:?}");
+
+    // Move just 1 px up from the bottom pin: must stay near the end instead
+    // of jumping back to the stale drag-start estimate (~row 375).
+    cx.simulate_mouse_move(
+        point(x, px(grab_y + room - 1.)),
+        Some(MouseButton::Left),
+        Default::default(),
+    );
+    cx.run_until_parked();
+    let left_pin = scroll_top(&v, cx);
+    assert!(
+        left_pin.0 >= pinned.0.saturating_sub(2),
+        "leaving bottom pin by 1px jumped from {pinned:?} to {left_pin:?}"
+    );
+    cx.simulate_mouse_up(
+        point(x, px(grab_y + room - 1.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+}
+
+#[test]
+fn pending_scroll_waits_for_resize_layout_before_consuming_distance() {
+    // Queue a pending upward scroll, then narrow the window before the next
+    // frame. `Viewer::render` must defer consuming `scroll_rest` on the resize
+    // frame while GPUI still holds stale heights from the old width.
+    let mut md = String::new();
+    for i in 0..80 {
+        md.push_str(&format!(
+            "Paragraph {i}: {}\n\n",
+            "wrapping text ".repeat(20)
+        ));
+    }
+    let (v, cx) = open(vec![(PathBuf::from("/x/resize-pending.md"), parsed(&md))]);
+    cx.dispatch_action(Bottom);
+    cx.run_until_parked();
+    let handle = cx.window_handle();
+
+    // Queue an upward scroll and resize narrower before the deferred refresh.
+    cx.update(|window, cx| {
+        v.update(cx, |this, cx| {
+            this.tabs.active_mut().unwrap().scroll_rest = -200.;
+            cx.notify();
+        });
+        window.resize(size(px(360.), px(600.)));
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        with_tab(&v, cx, |t| t.scroll_rest),
+        0.,
+        "pending scroll must still finish after resize layout"
+    );
+    // Verify we landed cleanly near the bottom without jumping to row 0.
+    let top = scroll_top(&v, cx);
+    assert!(top.0 > 40, "unexpected jump after resize: {top:?}");
+    let _ = handle;
+}

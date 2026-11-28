@@ -107,6 +107,9 @@ struct ThumbDrag {
     /// ends of the track, which go to the ends of the document.
     avg: f32,
     content: f32,
+    /// Set while the drag is pinned to an end of the track so leaving the end
+    /// rebases the frozen estimate onto the newly measured endpoint.
+    pinned_end: Option<scroll::End>,
 }
 
 /// Source of `Tab::id`.
@@ -173,22 +176,32 @@ impl Tab {
     /// of unmeasured rows above it), keeping the viewport inside them going
     /// down. Nothing at all while the row at the scroll top has no height.
     fn room(&self) -> Room {
+        let top = self.list.logical_scroll_top();
+        let count = self.list.item_count();
+        if top.item_ix >= count {
+            // Either empty, or `scroll_to_end()` just parked past the last row
+            // waiting for GPUI's next layout to position the viewport from the
+            // end. Treat it as zero room either way until layout resolves it,
+            // while still reporting `bottom: true` so downward input is dropped.
+            return Room {
+                up: 0.,
+                down: 0.,
+                top: count == 0,
+                bottom: true,
+            };
+        }
         if self.unmeasured() {
             return Room::default();
         }
-        let top = self.list.logical_scroll_top();
-        let run = scroll::measured_run(top.item_ix, self.list.item_count(), |ix| {
-            measured(&self.list, ix).measured
-        });
+        let run = scroll::measured_run(top.item_ix, count, |ix| measured(&self.list, ix).measured);
         let height = |ix| measured(&self.list, ix).height;
         let now = height(top.item_ix) + f32::from(top.offset_in_item);
         let viewport = f32::from(self.list.viewport_bounds().size.height);
         Room {
             up: (now - height(run.start)).max(0.),
-            // Never pulled back: `Bottom` parks the top past the last row.
             down: (height(run.end) - viewport - now).max(0.),
             top: run.start == 0,
-            bottom: run.end == self.list.item_count(),
+            bottom: run.end == count,
         }
     }
 
@@ -594,6 +607,7 @@ impl Viewer {
             thumb,
             avg,
             content,
+            pinned_end: None,
         });
         cx.notify();
     }
@@ -613,9 +627,24 @@ impl Viewer {
         match scroll::thumb_end(drag.thumb.top, room) {
             // The frozen estimate maps the ends of the track to a guess, which
             // falls short when the rows there are taller than the average.
-            Some(scroll::End::Top) => tab.scroll_to_top(),
-            Some(scroll::End::Bottom) => tab.scroll_to_end(),
+            Some(scroll::End::Top) => {
+                drag.pinned_end = Some(scroll::End::Top);
+                tab.scroll_to_top();
+            }
+            Some(scroll::End::Bottom) => {
+                drag.pinned_end = Some(scroll::End::Bottom);
+                tab.scroll_to_end();
+            }
             None => {
+                if drag.pinned_end.take().is_some() {
+                    // Rebase the frozen estimate onto the freshly measured end
+                    // so leaving a pinned endpoint starts smoothly from there.
+                    let (_, content, avg) = tab.extent();
+                    if content > 0. {
+                        drag.avg = avg;
+                        drag.content = content;
+                    }
+                }
                 let pos = scroll::position_for_thumb(
                     drag.thumb.top,
                     drag.thumb.len,
@@ -850,8 +879,9 @@ impl Render for Viewer {
             self.window_title = title;
         }
 
-        // The document's height: the window minus the tab bar.
-        let viewport = f32::from(window.viewport_size().height) - TAB_BAR_HEIGHT;
+        // The document's size: the window minus the tab bar.
+        let win_size = window.viewport_size();
+        let viewport = (f32::from(win_size.height) - TAB_BAR_HEIGHT).max(0.);
         let active = self.tabs.active_index();
         for (ix, tab) in self.tabs.iter_mut().enumerate() {
             if ix != active {
@@ -860,18 +890,34 @@ impl Render for Viewer {
             }
         }
         if let Some(tab) = self.tabs.active_mut() {
-            if tab.continue_scroll() {
-                // Draw again after this frame's layout to take the next step.
-                // (`window.refresh()` is ignored while the window draws.)
-                window.defer(cx, |window, _| window.refresh());
-            }
-            if tab.advance_motion(Instant::now()) {
-                window.request_animation_frame();
-            }
-            if tab.unmeasured() {
-                // Nothing laid out yet: draw once more so the scrollbar
-                // is sized from measured rows, not a blind guess.
-                window.request_animation_frame();
+            let last_bounds = tab.list.viewport_bounds().size;
+            let bounds_changed = (f32::from(last_bounds.width) - f32::from(win_size.width)).abs()
+                > 0.5
+                || (f32::from(last_bounds.height) - viewport).abs() > 0.5;
+            if bounds_changed {
+                // GPUI invalidates cached row heights on width change (and
+                // updates viewport height for bottom-room checks) in prepaint
+                // later in this frame. Defer pending scrolls until after layout.
+                if tab.scroll_rest != 0. {
+                    window.defer(cx, |window, _| window.refresh());
+                }
+                if tab.motion.is_active() || tab.unmeasured() {
+                    window.request_animation_frame();
+                }
+            } else {
+                if tab.continue_scroll() {
+                    // Draw again after this frame's layout to take the next step.
+                    // (`window.refresh()` is ignored while the window draws.)
+                    window.defer(cx, |window, _| window.refresh());
+                }
+                if tab.advance_motion(Instant::now()) {
+                    window.request_animation_frame();
+                }
+                if tab.unmeasured() {
+                    // Nothing laid out yet: draw once more so the scrollbar
+                    // is sized from measured rows, not a blind guess.
+                    window.request_animation_frame();
+                }
             }
         }
 
