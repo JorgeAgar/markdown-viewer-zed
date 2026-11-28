@@ -86,6 +86,8 @@ struct Lang {
     constants: &'static str,
     line_comments: &'static [&'static str],
     block_comment: Option<(&'static str, &'static str)>,
+    /// Block comments nest (Rust, Swift, Kotlin, Scala, Dart, Haskell).
+    nested_comments: bool,
     /// Quote characters that start a string.
     quotes: &'static [u8],
     /// `"""` / `'''` strings (Python, Kotlin, Swift...).
@@ -119,6 +121,7 @@ const BASE: Lang = Lang {
     constants: "true false null",
     line_comments: &[],
     block_comment: None,
+    nested_comments: false,
     quotes: b"\"'",
     triple_quotes: false,
     raw_triple_quotes: false,
@@ -163,6 +166,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false self Self super None Some Ok Err",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         quotes: b"\"",
         caps_are_types: true,
         rust: true,
@@ -237,6 +241,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false null this it",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         triple_quotes: true,
         raw_triple_quotes: true,
         caps_are_types: true,
@@ -253,6 +258,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false nil self Self super",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         quotes: b"\"",
         triple_quotes: true,
         caps_are_types: true,
@@ -269,6 +275,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false null this",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         triple_quotes: true,
         caps_are_types: true,
         at_attrs: true,
@@ -281,6 +288,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "true false null this",
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
+        nested_comments: true,
         triple_quotes: true,
         raw_triple_quotes: true,
         caps_are_types: true,
@@ -397,6 +405,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         constants: "True False Nothing Just",
         line_comments: &["--"],
         block_comment: Some(("{-", "-}")),
+        nested_comments: true,
         quotes: b"\"",
         caps_are_types: true,
         ..BASE
@@ -565,6 +574,30 @@ fn triple_end(b: &[u8], i: usize, q: u8, escapes: bool) -> usize {
     b.len()
 }
 
+/// End of a block comment whose opening delimiter ends at `from`: after
+/// its closing delimiter, or the end of the code. With `nested`, each inner
+/// opening delimiter needs its own closing one (`/* a /* b */ c */`).
+fn block_comment_end(b: &[u8], from: usize, delims: (&str, &str), nested: bool) -> usize {
+    let (open, close) = (delims.0.as_bytes(), delims.1.as_bytes());
+    let mut depth = 1;
+    let mut j = from;
+    while j < b.len() {
+        if b[j..].starts_with(close) {
+            depth -= 1;
+            j += close.len();
+            if depth == 0 {
+                return j;
+            }
+        } else if nested && b[j..].starts_with(open) {
+            depth += 1;
+            j += open.len();
+        } else {
+            j += 1;
+        }
+    }
+    b.len()
+}
+
 fn find(b: &[u8], from: usize, pat: &str) -> Option<usize> {
     let p = pat.as_bytes();
     if p.is_empty() || from > b.len() {
@@ -614,7 +647,7 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
         if let Some((open, close)) = l.block_comment
             && b[i..].starts_with(open.as_bytes())
         {
-            let end = find(b, i + open.len(), close).map_or(b.len(), |e| e + close.len());
+            let end = block_comment_end(b, i + open.len(), (open, close), l.nested_comments);
             out.push(i..end, Tok::Comment);
             i = end;
             continue;

@@ -325,6 +325,109 @@ fn rust_unicode_lifetimes_and_char_literals() {
     }
 }
 
+/// Block comments nest in some languages (#27: Rust used to end the
+/// comment at the inner `*/`), and not in others.
+#[test]
+fn nested_block_comments() {
+    assert_eq!(
+        toks(
+            "rust",
+            "/* outer /* inner */ let hidden = 1; */\nfn main() {}"
+        ),
+        [
+            t("/* outer /* inner */ let hidden = 1; */", Tok::Comment),
+            t("fn", Tok::Keyword),
+            t("main", Tok::Function),
+        ]
+    );
+    let nesting = ["rust", "swift", "kotlin", "scala", "dart", "haskell"];
+    let mut checked = BTreeSet::new();
+    for group in LANG_GROUPS {
+        let lang = group[0];
+        let (open, close) = match lang {
+            "haskell" => ("{-", "-}"),
+            "lua" => ("--[[", "]]"),
+            _ => ("/*", "*/"),
+        };
+        let code = format!("{open} a {open} b {close} 1 {close} 2");
+        if highlight(lang, &code).first().map(|h| h.tok) != Some(Tok::Comment) {
+            continue; // no block comments
+        }
+        checked.insert(lang);
+        let want = if nesting.contains(&lang) {
+            vec![
+                t(
+                    &format!("{open} a {open} b {close} 1 {close}"),
+                    Tok::Comment,
+                ),
+                t("2", Tok::Number),
+            ]
+        } else {
+            vec![
+                t(&format!("{open} a {open} b {close}"), Tok::Comment),
+                t("1", Tok::Number),
+                t("2", Tok::Number),
+            ]
+        };
+        assert_eq!(toks(lang, &code), want, "{lang}");
+    }
+    assert_eq!(
+        checked.into_iter().collect::<Vec<_>>(),
+        [
+            "c",
+            "cpp",
+            "csharp",
+            "css",
+            "dart",
+            "go",
+            "haskell",
+            "java",
+            "javascript",
+            "json",
+            "kotlin",
+            "lua",
+            "nix",
+            "php",
+            "rust",
+            "scala",
+            "sql",
+            "swift",
+            "typescript"
+        ]
+    );
+    for lang in nesting {
+        let (open, close) = if lang == "haskell" {
+            ("{-", "-}")
+        } else {
+            ("/*", "*/")
+        };
+        // Three levels, then an unclosed inner comment: the rest of the code.
+        let deep = format!("{open}{open}{open} a {close}{close}{close} 1");
+        let unclosed = format!("{open} a {open} b {close} 1");
+        assert_eq!(
+            toks(lang, &deep),
+            [
+                t(
+                    &format!("{open}{open}{open} a {close}{close}{close}"),
+                    Tok::Comment
+                ),
+                t("1", Tok::Number),
+            ],
+            "{lang}"
+        );
+        assert_eq!(
+            toks(lang, &unclosed),
+            [t(&unclosed, Tok::Comment)],
+            "{lang}"
+        );
+    }
+    // `/*/` opens a comment and doesn't close it; `*/*` closes it.
+    assert_eq!(
+        toks("rust", "/*/ a */* 1"),
+        [t("/*/ a */", Tok::Comment), t("1", Tok::Number)]
+    );
+}
+
 #[test]
 fn shell_details() {
     assert_eq!(
