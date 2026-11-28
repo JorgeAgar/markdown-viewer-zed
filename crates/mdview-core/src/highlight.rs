@@ -678,52 +678,25 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
 
         // Rust specifics.
         if l.rust {
-            if c == b'#' && matches!(b.get(i + 1), Some(b'[') | Some(b'!')) {
-                // `#[...]` / `#![...]`, with nested brackets.
-                let mut j = i + 1;
-                let mut d = 0;
-                while j < b.len() {
-                    match b[j] {
-                        b'[' => d += 1,
-                        b']' => {
-                            d -= 1;
-                            if d == 0 {
-                                j += 1;
-                                break;
-                            }
-                        }
-                        b'\n' if d == 0 => break,
-                        _ => {}
-                    }
-                    j += 1;
-                }
-                out.push(i..j, Tok::Attr);
-                i = j;
-                continue;
-            }
-            // Raw strings: r"..", r#".."#, br"..".
-            let r = if c == b'b' && b.get(i + 1) == Some(&b'r') {
-                Some(i + 2)
-            } else if c == b'r' {
-                Some(i + 1)
-            } else {
-                None
-            };
-            if let Some(mut j) = r
-                && (i == 0 || !is_ident(b[i - 1]))
-            {
-                let mut hashes = 0;
-                while b.get(j) == Some(&b'#') {
-                    hashes += 1;
-                    j += 1;
-                }
-                if b.get(j) == Some(&b'"') {
-                    let close = format!("\"{}", "#".repeat(hashes));
-                    let end = find(b, j + 1, &close).map_or(b.len(), |e| e + close.len());
-                    out.push(i..end, Tok::String);
+            if c == b'#' {
+                let end = if b[i + 1..].starts_with(b"[") || b[i + 1..].starts_with(b"![") {
+                    Some(rust_attr_end(code, i))
+                } else if i == 0 && b.get(1) == Some(&b'!') {
+                    // A shebang line.
+                    Some(line_end(b, 0))
+                } else {
+                    None
+                };
+                if let Some(end) = end {
+                    out.push(i..end, Tok::Attr);
                     i = end;
                     continue;
                 }
+            }
+            if let Some(end) = rust_raw_string_end(b, i) {
+                out.push(i..end, Tok::String);
+                i = end;
+                continue;
             }
             if c == b'\'' {
                 if let Some(end) = rust_char_end(code, i) {
@@ -871,6 +844,79 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
         // Skip one (possibly multi-byte) character.
         i += utf8_len(c);
     }
+}
+
+/// End of the Rust attribute (`#[...]` / `#![...]`) starting at `i`: after
+/// the `]` that balances its first `[`, or the end of the code. Brackets in
+/// strings, character literals and comments don't count.
+fn rust_attr_end(code: &str, i: usize) -> usize {
+    let b = code.as_bytes();
+    let mut depth = 0;
+    let mut j = i;
+    while j < b.len() {
+        let skip = match b[j] {
+            b'"' => Some(rust_string_end(b, j)),
+            b'\'' => rust_char_end(code, j),
+            b'/' if b.get(j + 1) == Some(&b'/') => Some(line_end(b, j)),
+            b'/' if b.get(j + 1) == Some(&b'*') => {
+                Some(block_comment_end(b, j + 2, ("/*", "*/"), true))
+            }
+            _ => rust_raw_string_end(b, j),
+        };
+        if let Some(end) = skip {
+            j = end;
+            continue;
+        }
+        match b[j] {
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return j + 1;
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    b.len()
+}
+
+/// End of the Rust string starting at `i` (a `"`): after the closing quote,
+/// which may be on a later line, or the end of the code.
+fn rust_string_end(b: &[u8], i: usize) -> usize {
+    let mut j = i + 1;
+    while j < b.len() {
+        match b[j] {
+            b'\\' => j += 2,
+            b'"' => return j + 1,
+            _ => j += 1,
+        }
+    }
+    b.len()
+}
+
+/// End of the Rust raw string (`r".."`, `r#".."#`, `br".."`) starting at
+/// `i`, if one starts there.
+fn rust_raw_string_end(b: &[u8], i: usize) -> Option<usize> {
+    let mut j = match b[i] {
+        b'b' if b.get(i + 1) == Some(&b'r') => i + 2,
+        b'r' => i + 1,
+        _ => return None,
+    };
+    if i > 0 && is_ident(b[i - 1]) {
+        return None;
+    }
+    let mut hashes = 0;
+    while b.get(j) == Some(&b'#') {
+        hashes += 1;
+        j += 1;
+    }
+    if b.get(j) != Some(&b'"') {
+        return None;
+    }
+    let close = format!("\"{}", "#".repeat(hashes));
+    Some(find(b, j + 1, &close).map_or(b.len(), |e| e + close.len()))
 }
 
 /// End of the Rust character literal starting at `i` (a `'`), or `None`

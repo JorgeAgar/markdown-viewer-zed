@@ -278,6 +278,91 @@ fn rust_details() {
     assert!(!got.iter().any(|(s, _)| s.starts_with("a!")), "{got:#?}");
 }
 
+/// An attribute is `#[...]` or `#![...]` and ends at the `]` that balances
+/// its first `[` (#43). Brackets in strings, character literals and
+/// comments don't count; `#!` without `[` is only a shebang at the start.
+#[test]
+fn rust_attributes() {
+    for attr in [
+        "#[doc = \"[\"]",
+        "#[doc = \"]\"]",
+        "#[doc = \"\\\"]\"]",
+        "#[doc = \"\\\\\"]",
+        "#[doc = \"a\n]b\"]",
+        "#[doc = r\"]\"]",
+        "#[doc = r#\"[\"#]",
+        "#[doc = r#\"]\"]\"#]",
+        "#[x = br\"]\"]",
+        "#[x = b\"[\"]",
+        "#[x = '[']",
+        "#[x = ']']",
+        "#[x = '\\'']",
+        "#[x('a, ']')]",
+        "#[derive(\n    Debug, // ]\n)]",
+        "#[cfg(/* ] */ unix)]",
+        "#[cfg(/* /* ] */ ] */ unix)]",
+        "#[x(a / b)]",
+        "#[a[b][c]]",
+        "#![doc = \"[\"]",
+    ] {
+        assert_eq!(
+            toks("rust", &format!("{attr}\nfn main() {{}}")),
+            [
+                t(attr, Tok::Attr),
+                t("fn", Tok::Keyword),
+                t("main", Tok::Function)
+            ],
+            "{attr}"
+        );
+        // Not at the start of the code, and right after another token.
+        assert_eq!(
+            toks("rust", &format!("x;{attr} fn")),
+            [t(attr, Tok::Attr), t("fn", Tok::Keyword)],
+            "{attr}"
+        );
+    }
+    // `#!` without `[` isn't an attribute (it used to take the `]` as
+    // depth -1 and swallow the rest of the code).
+    for code in [
+        "let x = [a#!];\nfn main() {}",
+        "let x = [a#!]; fn main() {}",
+    ] {
+        assert_eq!(
+            toks("rust", code),
+            [
+                t("let", Tok::Keyword),
+                t("fn", Tok::Keyword),
+                t("main", Tok::Function)
+            ],
+            "{code:?}"
+        );
+    }
+    assert_eq!(toks("rust", "x #!] fn"), [t("fn", Tok::Keyword)]);
+    // A shebang line, only at the very start.
+    assert_eq!(
+        toks("rust", "#!/usr/bin/env -S cargo -Zscript [x]\nfn main() {}"),
+        [
+            t("#!/usr/bin/env -S cargo -Zscript [x]", Tok::Attr),
+            t("fn", Tok::Keyword),
+            t("main", Tok::Function),
+        ]
+    );
+    assert_eq!(
+        toks("rust", "#!/bin/x\nlet a = b #!c;"),
+        [t("#!/bin/x", Tok::Attr), t("let", Tok::Keyword)]
+    );
+    // An inner attribute at the start isn't a shebang.
+    assert_eq!(
+        toks("rust", "#![no_std] fn"),
+        [t("#![no_std]", Tok::Attr), t("fn", Tok::Keyword)]
+    );
+    // Unbalanced: the rest of the code.
+    assert_eq!(
+        toks("rust", "#[a(\"]\"\nfn x() {}"),
+        [t("#[a(\"]\"\nfn x() {}", Tok::Attr)]
+    );
+}
+
 /// A character literal is one character (or an escape) and a closing quote;
 /// anything else after `'` is a lifetime or label, including non-ASCII
 /// ones (#26: `'é>(s: &'` used to be one character literal).
