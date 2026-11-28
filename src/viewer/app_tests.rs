@@ -388,6 +388,99 @@ fn clicking_links_opens_tabs_and_scrolls() {
     assert_eq!(titles(&v, cx).len(), 2);
 }
 
+#[test]
+fn anchors_land_on_the_row_of_nested_and_repeated_headings() {
+    // Issues #20 and #21: headings inside lists, quotes and footnotes are
+    // targets, each lands on the row of the item or quote child that
+    // holds it, and repeats are reached by their numbered slugs.
+    let dir = TempDir::new("nested-anchors");
+    let base = normalize(&dir);
+    let filler = "Filler paragraph.\n\n".repeat(80);
+    let index = [
+        "# Index\n\n",                                                 // row 0
+        "## Setup\n\n",                                                // row 1
+        "- one\n- ## Setup\n- three\n- four\n- ## In List\n- six\n\n", // rows 2..=7
+        "> [!NOTE]\n> First\n>\n> Second\n>\n> ## In Quote\n\n",       // rows 8..=11
+        "Note[^n].\n\n",                                               // row 12
+        &filler,                                                       // rows 13..=92
+        "[^n]: ### In Footnote\n\n",                                   // row 93
+        &filler,
+    ]
+    .concat();
+    std::fs::write(base.join("index.md"), index).unwrap();
+    std::fs::write(base.join("other.md"), "[back](index.md#In-Quote)\n").unwrap();
+    let (v, cx) = open(vec![
+        load(base.join("index.md")),
+        load(base.join("other.md")),
+    ]);
+    let weak = v.downgrade();
+    let follow = |cx: &mut VisualTestContext, url: &str| {
+        cx.update(|window, cx| render::open_link(&weak, &base, url, window, cx));
+        cx.run_until_parked();
+        scroll_top(&v, cx)
+    };
+    // From another file: switches to the open tab and finds the heading
+    // the same way.
+    assert_eq!(follow(cx, "index.md#In-Quote"), (11, 0.));
+    assert_eq!(active(&v, cx).as_deref(), Some("index.md"));
+    assert_eq!(follow(cx, "#setup"), (1, 0.));
+    assert_eq!(follow(cx, "#setup-1"), (3, 0.));
+    assert_eq!(follow(cx, "#in-list"), (6, 0.));
+    assert_eq!(follow(cx, "#in-footnote"), (93, 0.));
+    assert_eq!(
+        follow(cx, "#setup-2"),
+        (93, 0.),
+        "unknown anchors don't move"
+    );
+    assert_eq!(follow(cx, "#"), (93, 0.), "a bare # doesn't move");
+    assert_eq!(follow(cx, "other.md"), (0, 0.));
+    assert_eq!(follow(cx, "index.md#in-list"), (6, 0.));
+}
+
+#[test]
+fn clicking_footnote_references_scrolls_to_their_definitions() {
+    // Issue #23: footnote references looked like links but did nothing.
+    // They jump to their definition, even one inside a list item, and
+    // never get confused with a heading of the same name.
+    let filler = "Filler paragraph.\n\n".repeat(80);
+    let src = [
+        "# Why\n\n",                                // row 0
+        "Refs[^why] and [^N] and [why](#why).\n\n", // row 1
+        &filler,                                    // rows 2..=81
+        "[^why]: Because.\n\n",                     // row 82
+        &filler,                                    // rows 83..=162
+        "- a\n- b\n- c\n\n  [^n]: In a list.\n\n",  // rows 163..=165
+        &filler,
+    ]
+    .concat();
+    let base = PathBuf::from("/x");
+    let (v, cx) = open(vec![(base.join("f.md"), parsed(&src))]);
+    let refs = cx.update(
+        |_, cx| match &v.read(cx).tabs.active().unwrap().doc.blocks[1] {
+            Block::Paragraph(p) => p.links.clone(),
+            other => panic!("expected a paragraph, got {other:?}"),
+        },
+    );
+    let weak = v.downgrade();
+    let follow = |cx: &mut VisualTestContext, link: &markdown::Link| {
+        cx.update(|window, cx| render::follow_link(&weak, &base, link, window, cx));
+        cx.run_until_parked();
+        scroll_top(&v, cx)
+    };
+    let [why, n, heading] = &refs[..] else {
+        panic!("expected three links, got {refs:?}")
+    };
+    assert_eq!(follow(cx, why), (82, 0.));
+    // The label's case doesn't matter, and the definition can be nested.
+    assert_eq!(follow(cx, n), (165, 0.));
+    // `#why` is the heading, not the footnote `[^why]`.
+    assert_eq!(follow(cx, heading), (0, 0.));
+    assert_eq!(follow(cx, why), (82, 0.));
+    // A label without a definition doesn't move.
+    let dangling = markdown::Link::Footnote("nope".into());
+    assert_eq!(follow(cx, &dangling), (82, 0.));
+}
+
 /// Markdown that stresses rendering: multibyte text around styled spans
 /// and links, links nested in lists/quotes/tables/footnotes (each needs its
 /// own ElementId), code, images, math and diagrams.
@@ -786,8 +879,8 @@ fn anchors_account_for_split_tables_lists_code_and_quotes() {
     // the viewport; here we assert the tab's row mapping directly too).
     let mapped = cx.update(|_, cx| {
         let tab = v.read(cx).tabs.active().unwrap();
-        let block_ix = links::heading_index(&tab.doc.blocks, "target-heading").unwrap();
-        tab.rows.row_for_block(block_ix)
+        let place = links::heading_place(&tab.doc.blocks, "target-heading").unwrap();
+        tab.rows.row_for_place(place)
     });
     assert_eq!(mapped, Some(15));
 }

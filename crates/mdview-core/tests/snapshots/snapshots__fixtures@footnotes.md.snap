@@ -7,7 +7,11 @@ footnote [^before]
   paragraph
     "Defined before use."
 paragraph
-  "Uses: before⟦L|[before]⟧, after⟦L|[after]⟧, named⟦L|[named-label]⟧, missing[^nope], twice⟦L|[after]⟧."
+  "Uses: before⟦L0|[before]⟧, after⟦L1|[after]⟧, named⟦L2|[named-label]⟧, missing[^nope], twice⟦L3|[after]⟧."
+  link 0 → footnote [^before]
+  link 1 → footnote [^after]
+  link 2 → footnote [^named-label]
+  link 3 → footnote [^after]
 footnote [^after]
   paragraph
     "Defined after use."
@@ -21,10 +25,12 @@ footnote [^named-label]
       paragraph
         "and a list"
 paragraph
-  "Footnote containing a reference⟦L|[outer]⟧."
+  "Footnote containing a reference⟦L0|[outer]⟧."
+  link 0 → footnote [^outer]
 footnote [^outer]
   paragraph
-    "Outer refers to inner⟦L|[inner]⟧."
+    "Outer refers to inner⟦L0|[inner]⟧."
+    link 0 → footnote [^inner]
 footnote [^inner]
   paragraph
     "Inner."
@@ -33,7 +39,8 @@ footnote [^unused]
     "Never referenced."
 quote
   paragraph
-    "Quote with a footnote⟦L|[q]⟧."
+    "Quote with a footnote⟦L0|[q]⟧."
+    link 0 → footnote [^q]
 footnote [^q]
   paragraph
     "In a quote."

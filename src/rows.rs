@@ -75,6 +75,16 @@ impl Row {
     }
 }
 
+/// Where in a document a jump (an `#anchor`) lands: a top-level block and,
+/// when the target is inside a block that's split into a row per item or
+/// child (a list, a multi-block quote), which item or child holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub block: usize,
+    /// Index into the list's items or the quote's child blocks.
+    pub child: Option<usize>,
+}
+
 /// Virtualized rows for a [`Document`], plus an O(1) map from top-level block
 /// index to its first row index (for `#anchor` navigation).
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -172,6 +182,24 @@ impl Rows {
     /// First list row belonging to top-level block `block_ix`.
     pub fn row_for_block(&self, block_ix: usize) -> Option<usize> {
         self.block_start.get(block_ix).copied()
+    }
+
+    /// The row that draws `place`: the item's row in a list, the child's
+    /// row in a multi-block quote (after its callout title, if any), and the
+    /// block's first row for anything else, including a quote that isn't
+    /// split. `None` when the block doesn't exist; a child past the end
+    /// stays on the block's last row.
+    pub fn row_for_place(&self, place: Place) -> Option<usize> {
+        let start = self.row_for_block(place.block)?;
+        let Some(child) = place.child else {
+            return Some(start);
+        };
+        let row = match self.rows[start] {
+            Row::ListItem { .. } | Row::QuoteBlock { .. } => start + child,
+            Row::QuoteHeader { .. } => start + 1 + child,
+            _ => start,
+        };
+        Some(row.min(start + self.block_row_count(place.block) - 1))
     }
 
     /// Maps a list row index back to `(top_level_block_ix, offset_within_block)`.
@@ -593,6 +621,41 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn places_map_to_the_row_of_their_item_or_child() {
+        let doc = markdown::parse(concat!(
+            "# Top\n\n",                 // 0: row 0
+            "- a\n- b\n- c\n\n",         // 1: rows 1..=3
+            "> [!TIP]\n> A\n>\n> B\n\n", // 2: header 4, rows 5..=6
+            "> C\n>\n> D\n>\n> E\n\n",   // 3: rows 7..=9
+            "> Single\n\n",              // 4: row 10
+            "| x |\n|---|\n| 1 |\n\n",   // 5: rows 11..=12
+            "End\n",                     // 6: row 13
+        ));
+        let rows = Rows::from_document(&doc);
+        let at = |block, child| rows.row_for_place(Place { block, child });
+        assert_eq!(at(0, None), Some(0));
+        assert_eq!(at(1, None), Some(1));
+        assert_eq!(at(1, Some(0)), Some(1));
+        assert_eq!(at(1, Some(2)), Some(3));
+        // The callout's title row comes first.
+        assert_eq!(at(2, None), Some(4));
+        assert_eq!(at(2, Some(0)), Some(5));
+        assert_eq!(at(2, Some(1)), Some(6));
+        assert_eq!(at(3, Some(0)), Some(7));
+        assert_eq!(at(3, Some(2)), Some(9));
+        // A quote with one block isn't split.
+        assert_eq!(at(4, Some(0)), Some(10));
+        // Other blocks ignore `child`.
+        assert_eq!(at(5, Some(1)), Some(11));
+        assert_eq!(at(6, Some(0)), Some(13));
+        // A child past the end stays in its block; a missing block is None.
+        assert_eq!(at(1, Some(9)), Some(3));
+        assert_eq!(at(2, Some(9)), Some(6));
+        assert_eq!(at(7, None), None);
+        assert_eq!(at(7, Some(0)), None);
     }
 
     #[test]

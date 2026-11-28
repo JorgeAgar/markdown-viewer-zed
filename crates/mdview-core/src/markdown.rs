@@ -4,7 +4,7 @@
 //! files). Rendering then only walks this pre-digested tree, so a frame never
 //! touches the raw Markdown again.
 
-use std::{ops::Range, sync::Arc};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use crate::{
     highlight::{Highlight, highlight},
@@ -31,15 +31,34 @@ pub struct Span {
     pub link: Option<u32>,
 }
 
+/// What clicking a span of a [`RichText`] does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Link {
+    /// A link's destination as written (`https://…`, `other.md#x`, `#x`,
+    /// an image's URL), routed by `links::classify_link` in the app.
+    Url(String),
+    /// A footnote reference (`[^label]`): jumps to the `Block::Footnote`
+    /// with that label, matched as pulldown-cmark matches them (ignoring
+    /// case). A variant of its own, so it can't be mistaken for a heading
+    /// anchor or a URL, whatever the label says.
+    Footnote(String),
+}
+
 /// A run of styled text (paragraph, heading, table cell...).
 #[derive(Clone, Debug, Default)]
 pub struct RichText {
     pub text: String,
     pub spans: Vec<Span>,
-    pub links: Vec<String>,
+    pub links: Vec<Link>,
 }
 
 impl RichText {
+    /// Adds `link` to `links` and returns its index for a span.
+    fn add_link(&mut self, link: Link) -> Option<u32> {
+        self.links.push(link);
+        Some(self.links.len() as u32 - 1)
+    }
+
     fn push(&mut self, s: &str, style: u8, link: Option<u32>) {
         if s.is_empty() {
             return;
@@ -101,6 +120,37 @@ impl RichText {
         });
     }
 
+    /// Drops the `links` no span points to (a link whose text was all
+    /// trimmed away, or one carried past display math that ends right
+    /// there) and renumbers the spans' links to match.
+    fn drop_unused_links(&mut self) {
+        let mut used = vec![false; self.links.len()];
+        for s in &self.spans {
+            if let Some(l) = s.link {
+                used[l as usize] = true;
+            }
+        }
+        if used.iter().all(|&u| u) {
+            return;
+        }
+        // New index of each link: how many used links come before it.
+        let renumber: Vec<u32> = used
+            .iter()
+            .scan(0, |n, &u| {
+                let ix = *n;
+                *n += u as u32;
+                Some(ix)
+            })
+            .collect();
+        for s in &mut self.spans {
+            if let Some(l) = s.link.as_mut() {
+                *l = renumber[*l as usize];
+            }
+        }
+        let mut used = used.into_iter();
+        self.links.retain(|_| used.next() == Some(true));
+    }
+
     fn trim_end(&mut self) {
         let trimmed = self.text.trim_end().len();
         self.text.truncate(trimmed);
@@ -145,6 +195,7 @@ pub enum Block {
     Heading {
         level: u8,
         text: RichText,
+        /// Anchor id, unique within the document (see [`P::unique_slug`]).
         slug: String,
     },
     Paragraph(RichText),
@@ -201,7 +252,11 @@ pub fn parse(src: &str) -> Document {
         | Options::ENABLE_GFM
         | Options::ENABLE_MATH;
     let events: Vec<Event> = Parser::new_ext(src, opts).collect();
-    let mut p = P { ev: events, i: 0 };
+    let mut p = P {
+        ev: events,
+        i: 0,
+        slugs: HashMap::new(),
+    };
     let mut blocks = Vec::new();
     p.blocks(&mut blocks);
     Document { blocks }
@@ -210,6 +265,9 @@ pub fn parse(src: &str) -> Document {
 struct P<'a> {
     ev: Vec<Event<'a>>,
     i: usize,
+    /// Every heading slug handed out so far (nested headings included),
+    /// with how many times its base slug was repeated.
+    slugs: HashMap<String, usize>,
 }
 
 fn is_inline(ev: &Event) -> bool {
@@ -283,10 +341,10 @@ impl<'a> P<'a> {
                 self.next(); // End(Paragraph)
             }
             Tag::Heading { level, .. } => {
-                let (mut text, _) = self.inlines(false);
+                let (mut text, _) = self.inlines(false, &mut Open::default());
                 self.next();
                 text.trim_end();
-                let slug = slugify(&text.text);
+                let slug = self.unique_slug(slugify(&text.text));
                 out.push(Block::Heading {
                     level: heading_level(level),
                     text,
@@ -405,6 +463,23 @@ impl<'a> P<'a> {
         }
     }
 
+    /// `base`, or, if a heading earlier in the document (at any level or
+    /// nesting depth) already has that slug, `base-1`, `base-2`... GitHub's
+    /// rule (`github-slugger`): the counter is kept per base slug and skips
+    /// suffixes that are taken already, so `# Setup 1` followed by two
+    /// `# Setup` gives `setup-1`, `setup`, `setup-2`. Every slug in a
+    /// document is unique.
+    fn unique_slug(&mut self, base: String) -> String {
+        let mut slug = base.clone();
+        while self.slugs.contains_key(&slug) {
+            let n = self.slugs.get_mut(&base).expect("base slug was seen");
+            *n += 1;
+            slug = format!("{base}-{n}");
+        }
+        self.slugs.insert(slug.clone(), 0);
+        slug
+    }
+
     fn skip_to_end(&mut self) {
         let mut depth = 0;
         while let Some(ev) = self.next() {
@@ -422,7 +497,7 @@ impl<'a> P<'a> {
         while let Some(ev) = self.next() {
             match ev {
                 Event::Start(Tag::TableCell) => {
-                    let (rich, _) = self.inlines(false);
+                    let (rich, _) = self.inlines(false, &mut Open::default());
                     self.next();
                     cells.push(rich);
                 }
@@ -434,9 +509,11 @@ impl<'a> P<'a> {
 
     /// A paragraph's inline content. Display math (`$$…$$`) splits it: the
     /// text before and after become paragraphs and the math its own block.
+    /// Emphasis and links open across the formula carry on after it.
     fn paragraph(&mut self, out: &mut Vec<Block>) {
+        let mut open = Open::default();
         loop {
-            let (rich, images) = self.inlines(true);
+            let (rich, images) = self.inlines(true, &mut open);
             push_paragraph(out, rich, images);
             match self.peek() {
                 Some(Event::DisplayMath(_)) => {
@@ -460,14 +537,21 @@ impl<'a> P<'a> {
 
     /// Consume inline events. Stops (without consuming) at the first
     /// non-inline event, or at display math when `split_display` is set.
-    fn inlines(&mut self, split_display: bool) -> (RichText, Vec<Image>) {
+    /// Starts with the formatting in `open` and leaves what's still open at
+    /// the end there, for the text after the display math.
+    fn inlines(&mut self, split_display: bool, open: &mut Open) -> (RichText, Vec<Image>) {
         let mut rich = RichText::default();
         let mut images = Vec::new();
-        let mut style = 0u8;
-        // Open strong, emphasis and strikethrough markers. `usize` so that any
-        // nesting depth (issue #39) still matches openers to closers exactly.
-        let mut counts = [0usize; 3];
-        let mut link: Option<u32> = None;
+        // Whether anything visible besides images appeared in this segment.
+        let mut other = false;
+        let Open {
+            mut style,
+            mut counts,
+            link: mut target,
+        } = std::mem::take(open);
+        // A link still open after display math links this text too, with an
+        // entry in this `RichText`'s own `links`.
+        let mut link: Option<u32> = target.clone().and_then(|t| rich.add_link(t));
         let mut image: Option<Image> = None;
         // Images nested inside the open image's description.
         let mut nested_images = 0u32;
@@ -505,8 +589,7 @@ impl<'a> P<'a> {
                         };
                         let label = format!("[{label}]");
                         if link.is_none() {
-                            rich.links.push(img.url.clone());
-                            let l = Some(rich.links.len() as u32 - 1);
+                            let l = rich.add_link(Link::Url(img.url.clone()));
                             rich.push(&label, style | LINK, l);
                         } else {
                             rich.push(&label, style, link);
@@ -530,9 +613,19 @@ impl<'a> P<'a> {
                 }
             };
             match ev {
-                Event::Text(t) => rich.push(&t, style, link),
-                Event::Code(t) => rich.push(&t, style | CODE, link),
-                Event::InlineMath(t) | Event::DisplayMath(t) => rich.push_math(&t, style, link),
+                Event::Text(t) => {
+                    other |= !t.trim().is_empty();
+                    rich.push(&t, style, link)
+                }
+                Event::Code(t) => {
+                    other |= !t.trim().is_empty();
+                    rich.push(&t, style | CODE, link)
+                }
+                Event::InlineMath(t) | Event::DisplayMath(t) => {
+                    let before = rich.text.len();
+                    rich.push_math(&t, style, link);
+                    other |= !rich.text[before..].trim().is_empty();
+                }
                 Event::InlineHtml(h) => {
                     if is_br(&h) {
                         rich.push("\n", style, link);
@@ -541,9 +634,16 @@ impl<'a> P<'a> {
                 Event::SoftBreak => rich.push(" ", style, link),
                 Event::HardBreak => rich.push("\n", style, link),
                 Event::FootnoteReference(l) => {
-                    rich.push(&format!("[{l}]"), style | LINK, link);
+                    // Its own link even inside another link, so it always
+                    // jumps to the footnote; the enclosing link carries on
+                    // after it. (pulldown-cmark doesn't nest them today.)
+                    other = true;
+                    let text = format!("[{l}]");
+                    let l = rich.add_link(Link::Footnote(l.into_string()));
+                    rich.push(&text, style | LINK, l);
                 }
                 Event::TaskListMarker(c) => {
+                    other = true;
                     rich.push(if c { "☑ " } else { "☐ " }, style, link);
                 }
                 Event::Start(Tag::Strong) => toggle(0, true, &mut style),
@@ -559,16 +659,18 @@ impl<'a> P<'a> {
                 }) => {
                     // `<me@example.com>` comes without its scheme; without
                     // one, `render::open_link` would look for a local file.
-                    rich.links.push(if link_type == LinkType::Email {
+                    let t = Link::Url(if link_type == LinkType::Email {
                         format!("mailto:{dest_url}")
                     } else {
                         dest_url.to_string()
                     });
-                    link = Some(rich.links.len() as u32 - 1);
+                    link = rich.add_link(t.clone());
+                    target = Some(t);
                     style |= LINK;
                 }
                 Event::End(TagEnd::Link) => {
                     link = None;
+                    target = None;
                     style &= !LINK;
                 }
                 Event::Start(Tag::Image { dest_url, .. }) => {
@@ -580,8 +682,26 @@ impl<'a> P<'a> {
                 _ => {}
             }
         }
-        (rich, images)
+        *open = Open {
+            style,
+            counts,
+            link: target,
+        };
+        (rich, if other { Vec::new() } else { images })
     }
+}
+
+/// Inline formatting open at some point of a paragraph. Display math splits
+/// a paragraph into several `RichText`s (issue #22); this carries over from
+/// one to the next, so the text after a formula keeps its emphasis and link.
+#[derive(Default)]
+struct Open {
+    style: u8,
+    /// Open strong, emphasis and strikethrough markers. `usize` so that any
+    /// nesting depth (issue #39) still matches openers to closers exactly.
+    counts: [usize; 3],
+    /// The enclosing link's target.
+    link: Option<Link>,
 }
 
 /// Length of the YAML (`---`) or TOML (`+++`) front matter at the start of
@@ -655,21 +775,22 @@ fn cow(s: CowStr) -> String {
 
 fn push_paragraph(out: &mut Vec<Block>, mut rich: RichText, images: Vec<Image>) {
     if !images.is_empty() {
-        // Paragraph made only of images (and whitespace) => image block.
-        let only_images = rich
-            .spans
-            .iter()
-            .all(|s| s.style & LINK != 0 || rich.text[s.range.clone()].trim().is_empty());
-        if only_images {
-            out.push(Block::Images(images));
-            return;
-        }
+        out.push(Block::Images(images));
+        return;
     }
     rich.trim_start();
     rich.trim_end();
+    rich.drop_unused_links();
     if !rich.text.is_empty() {
         out.push(Block::Paragraph(rich));
     }
+}
+
+/// Whether two footnote labels match under pulldown-cmark's Unicode case
+/// folding (`unicase::UniCase::unicode`), matching `ß`/`ẞ` with `SS` without
+/// conflating Turkish dotless `ı` with `i`.
+pub fn footnote_labels_match(a: &str, b: &str) -> bool {
+    unicase::UniCase::unicode(a) == unicase::UniCase::unicode(b)
 }
 
 fn heading_level(l: HeadingLevel) -> u8 {
@@ -699,6 +820,17 @@ pub fn slugify(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `rt.links`, with footnotes written as `[^label]`.
+    fn links(rt: &RichText) -> Vec<String> {
+        rt.links
+            .iter()
+            .map(|l| match l {
+                Link::Url(u) => u.clone(),
+                Link::Footnote(f) => format!("[^{f}]"),
+            })
+            .collect()
+    }
 
     #[test]
     fn parses_basic_document() {
@@ -735,7 +867,7 @@ mod tests {
         }
         if let Block::Paragraph(p) = &doc.blocks[1] {
             assert_eq!(p.text, "Hello bold and code link.");
-            assert_eq!(p.links, ["https://x.y"]);
+            assert_eq!(links(p), ["https://x.y"]);
         }
     }
 
@@ -773,6 +905,125 @@ mod tests {
                 .collect();
             assert_eq!(italic, ["E", "mc"]);
         }
+    }
+
+    /// Each block as `m:tex` or the paragraph's spans as `text@STYLES>link`.
+    fn split_blocks(src: &str) -> Vec<String> {
+        parse(src)
+            .blocks
+            .iter()
+            .map(|b| match b {
+                Block::Math(t) => format!("m:{t}"),
+                Block::Paragraph(p) => {
+                    let all = links(p);
+                    let spans: Vec<String> = p
+                        .spans
+                        .iter()
+                        .map(|s| {
+                            let mut tag = String::new();
+                            for (bit, c) in [(BOLD, 'B'), (ITALIC, 'I'), (STRIKE, 'S'), (LINK, 'L')]
+                            {
+                                if s.style & bit != 0 {
+                                    tag.push(c);
+                                }
+                            }
+                            let link = s
+                                .link
+                                .map_or(String::new(), |l| format!(">{}", all[l as usize]));
+                            format!("{}@{tag}{link}", &p.text[s.range.clone()])
+                        })
+                        .collect();
+                    format!("p:{} links={}", spans.join("|"), all.join(","))
+                }
+                Block::Footnote { .. } => "footnote".into(),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn display_math_keeps_the_surrounding_formatting() {
+        // Issue #22: the text after a `$$…$$` lost the bold, italic,
+        // strikethrough and link it was inside.
+        assert_eq!(
+            split_blocks("**before $$x^2$$ after**"),
+            ["p:before@B links=", "m:x^2", "p:after@B links="]
+        );
+        assert_eq!(
+            split_blocks("*italic $$x^2$$ still italic*"),
+            ["p:italic@I links=", "m:x^2", "p:still italic@I links="]
+        );
+        assert_eq!(
+            split_blocks("~~struck $$x^2$$ still struck~~ plain"),
+            [
+                "p:struck@S links=",
+                "m:x^2",
+                "p:still struck@S| plain@ links="
+            ]
+        );
+        // The link is registered again in the next paragraph's own links.
+        assert_eq!(
+            split_blocks("[before $$x^2$$ after](docs.md) out"),
+            [
+                "p:before@L>docs.md links=docs.md",
+                "m:x^2",
+                "p:after@L>docs.md| out@ links=docs.md"
+            ]
+        );
+    }
+
+    #[test]
+    fn display_math_keeps_nested_formatting_across_several_formulas() {
+        assert_eq!(
+            split_blocks("**[before $$x^2$$ *mid* $$y^2$$ after](https://e.com)** end"),
+            [
+                "p:before@BL>https://e.com links=https://e.com",
+                "m:x^2",
+                "p:mid@BIL>https://e.com links=https://e.com",
+                "m:y^2",
+                "p:after@BL>https://e.com| end@ links=https://e.com",
+            ]
+        );
+        // Formulas right at the start or end of the formatting.
+        assert_eq!(
+            split_blocks("a **$$x$$ b** c"),
+            ["p:a@ links=", "m:x", "p:b@B| c@ links="]
+        );
+        assert_eq!(
+            split_blocks("a **b $$x$$** c"),
+            ["p:a @|b@B links=", "m:x", "p:c@ links="]
+        );
+        assert_eq!(
+            split_blocks("[$$x$$ b](u) c"),
+            ["m:x", "p:b@L>u| c@ links=u"]
+        );
+        assert_eq!(
+            split_blocks("[b $$x$$](u) c"),
+            ["p:b@L>u links=u", "m:x", "p:c@ links="]
+        );
+        // A footnote reference and a link between two formulas keep their
+        // own targets inside the carried emphasis.
+        assert_eq!(
+            split_blocks("*a $$x$$ b[^n] [l](u) $$y$$ c*\n\n[^n]: N\n"),
+            [
+                "p:a@I links=",
+                "m:x",
+                "p:b@I|[n]@IL>[^n]| @I|l@IL>u links=[^n],u",
+                "m:y",
+                "p:c@I links=",
+                "footnote",
+            ]
+        );
+        // A link whose carried text is all trimmed away leaves no entry.
+        assert_eq!(
+            split_blocks("[a $$x$$ ](u) c"),
+            ["p:a@L>u links=u", "m:x", "p:c@ links="]
+        );
+        // Nothing leaks into the next paragraph.
+        assert_eq!(
+            split_blocks("**a $$x$$\n\nb"),
+            ["p:**a@ links=", "m:x", "p:b@ links="]
+        );
     }
 
     #[test]
@@ -839,7 +1090,7 @@ mod tests {
             panic!("expected a paragraph")
         };
         assert_eq!(p.text, "see [a b] [c] d");
-        assert_eq!(p.links, ["i.png", "u"]);
+        assert_eq!(links(p), ["i.png", "u"]);
     }
 
     #[test]
@@ -853,7 +1104,7 @@ mod tests {
             "me@example.com mailto:you@example.com https://x.y m"
         );
         assert_eq!(
-            p.links,
+            links(p),
             [
                 "mailto:me@example.com",
                 "mailto:you@example.com",
@@ -962,6 +1213,174 @@ mod tests {
         assert_eq!(p.text, "Text \u{feff} kept.");
     }
 
+    /// Slugs of every heading, nested ones too, in document order.
+    fn slugs(blocks: &[Block], out: &mut Vec<String>) {
+        for b in blocks {
+            match b {
+                Block::Heading { slug, .. } => out.push(slug.clone()),
+                Block::Quote { blocks, .. } | Block::Footnote { blocks, .. } => slugs(blocks, out),
+                Block::List { items, .. } => {
+                    for item in items {
+                        slugs(&item.blocks, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn all_slugs(src: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        slugs(&parse(src).blocks, &mut out);
+        out
+    }
+
+    #[test]
+    fn repeated_headings_get_numbered_slugs() {
+        // Issue #20: every repeat used to get the same slug, so `#setup-1`
+        // led nowhere. The level doesn't matter.
+        assert_eq!(
+            all_slugs("# Setup\n\n## Setup\n\n### Setup\n\n#### setup\n"),
+            ["setup", "setup-1", "setup-2", "setup-3"]
+        );
+        // A changelog repeats its section names per release.
+        assert_eq!(
+            all_slugs("## 1.1\n### Added\n### Fixed\n## 1.0\n### Added\n### Fixed\n"),
+            ["11", "added", "fixed", "10", "added-1", "fixed-1"]
+        );
+        // Nested headings share the count with top-level ones.
+        assert_eq!(
+            all_slugs("# Setup\n\n> ## Setup\n\n- ### Setup\n\n[^n]: # Setup\n\nx[^n]\n"),
+            ["setup", "setup-1", "setup-2", "setup-3"]
+        );
+    }
+
+    #[test]
+    fn numbered_slugs_never_collide_with_literal_ones() {
+        // github-slugger: the counter skips suffixes already taken by a
+        // heading that really says "Setup 1".
+        assert_eq!(
+            all_slugs("# Setup 1\n# Setup\n# Setup\n# Setup 1\n# Setup-2\n# Setup\n"),
+            [
+                "setup-1",
+                "setup",
+                "setup-2",
+                "setup-1-1",
+                "setup-2-1",
+                "setup-3"
+            ]
+        );
+        assert_eq!(
+            all_slugs("# A\n# A-1\n# A\n# A\n"),
+            ["a", "a-1", "a-2", "a-3"]
+        );
+    }
+
+    #[test]
+    fn empty_slugs_are_numbered_too() {
+        // Headings without letters or digits slug to "", as on GitHub.
+        assert_eq!(
+            all_slugs("# ???\n## !\n#\n# -1\n"),
+            ["", "-1", "-2", "-1-1"]
+        );
+    }
+
+    /// `(text, link)` of each span, with the link written as in `links`.
+    fn linked_spans(rt: &RichText) -> Vec<(&str, Option<String>)> {
+        let all = links(rt);
+        rt.spans
+            .iter()
+            .map(|s| {
+                (
+                    &rt.text[s.range.clone()],
+                    s.link.map(|l| all[l as usize].clone()),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn footnote_references_link_to_their_footnote() {
+        // Issue #23: references were styled as links but led nowhere.
+        let doc =
+            parse("A[^n] b[^Why] [w](#why) c[^missing].\n\n[^n]: N.\n\n[^why]: W.\n\n# why\n");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected a paragraph")
+        };
+        assert_eq!(p.text, "A[n] b[Why] w c[^missing].");
+        assert_eq!(
+            p.links,
+            [
+                Link::Footnote("n".into()),
+                Link::Footnote("Why".into()),
+                Link::Url("#why".into()),
+            ]
+        );
+        assert_eq!(
+            linked_spans(p),
+            [
+                ("A", None),
+                ("[n]", Some("[^n]".into())),
+                (" b", None),
+                ("[Why]", Some("[^Why]".into())),
+                (" ", None),
+                ("w", Some("#why".into())),
+                // Without a definition it's plain text (pulldown-cmark).
+                (" c[^missing].", None),
+            ]
+        );
+        assert!(p.spans[1].style & LINK != 0);
+    }
+
+    #[test]
+    fn footnote_reference_inside_a_link_keeps_its_own_target() {
+        // GFM (and pulldown-cmark) don't let a link contain a footnote
+        // reference: the brackets stay text, and only the reference is a
+        // link.
+        let doc = parse("[see note[^1]](https://example.com)\n\n[^1]: x\n");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected a paragraph")
+        };
+        assert_eq!(p.text, "[see note[1]](https://example.com)");
+        assert_eq!(links(p), ["[^1]"]);
+
+        // Should a parser ever emit one inside a link, the reference still
+        // jumps to its footnote and the rest of the link text still goes to
+        // the URL, styles and all.
+        let link = Event::Start(Tag::Link {
+            link_type: LinkType::Inline,
+            dest_url: "https://example.com".into(),
+            title: "".into(),
+            id: "".into(),
+        });
+        let mut p = P {
+            ev: vec![
+                Event::Start(Tag::Strong),
+                link,
+                Event::Text("see ".into()),
+                Event::FootnoteReference("1".into()),
+                Event::Text(" more".into()),
+                Event::End(TagEnd::Link),
+                Event::Text(" after".into()),
+                Event::End(TagEnd::Strong),
+            ],
+            i: 0,
+            slugs: HashMap::new(),
+        };
+        let (rt, _) = p.inlines(false, &mut Open::default());
+        assert_eq!(
+            linked_spans(&rt),
+            [
+                ("see ", Some("https://example.com".into())),
+                ("[1]", Some("[^1]".into())),
+                (" more", Some("https://example.com".into())),
+                (" after", None),
+            ]
+        );
+        let styles: Vec<u8> = rt.spans.iter().map(|s| s.style).collect();
+        assert_eq!(styles, [BOLD | LINK, BOLD | LINK, BOLD | LINK, BOLD]);
+    }
+
     #[test]
     fn br_tags_are_line_breaks() {
         let doc = parse("a<br>b<br/>c<br />d<BR >e<Br/ >f<br\n/>g<bR\t/>h<brx>i<br x>j</br>k");
@@ -970,5 +1389,30 @@ mod tests {
         };
         // `<Br/ >` isn't an HTML tag for CommonMark, so it stays text.
         assert_eq!(p.text, "a\nb\nc\nd\ne<Br/ >f\ng\nhijk");
+    }
+
+    #[test]
+    fn image_promotion_does_not_drop_footnotes_or_links_after_display_math() {
+        // Footnote reference next to an image must stay a paragraph so the
+        // footnote link isn't lost.
+        let doc = parse("![alt](a.png) [^n]\n\n[^n]: Note.\n");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected paragraph, got {:?}", doc.blocks[0]);
+        };
+        assert!(
+            p.links.contains(&Link::Footnote("n".into())),
+            "footnote link lost: {:?}",
+            p.links
+        );
+
+        // Trailing linked text next to an image after a display-math split
+        // must stay a paragraph and keep its carried link.
+        let doc = parse("[before $$x^2$$ ![alt](a.png) after](other.md)");
+        assert_eq!(doc.blocks.len(), 3, "{:?}", doc.blocks);
+        let Block::Paragraph(after) = &doc.blocks[2] else {
+            panic!("expected trailing paragraph, got {:?}", doc.blocks[2]);
+        };
+        assert_eq!(after.text, "[alt] after");
+        assert_eq!(after.links, [Link::Url("other.md".into())]);
     }
 }

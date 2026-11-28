@@ -47,3 +47,15 @@ paragraph
   "⟦I|xy⟧ across lines."
 paragraph
   "⟦I|Already italic x + y stays italic.⟧"
+paragraph
+  "⟦B|Bold⟧"
+math
+  |x^2
+paragraph
+  "⟦B|still bold⟧ and ⟦L0|link⟧"
+  link 0: u
+math
+  |y
+paragraph
+  "⟦L0|still linked⟧ after."
+  link 0: u

@@ -35,13 +35,23 @@ small recursive-descent parser (`struct P`):
   (`Item, Paragraph, TaskListMarker`).
 - A paragraph made only of images becomes `Block::Images`. In any other
   paragraph, an image appears inline as `[alt]` and links to the image.
+- A footnote reference (`[^note]`) appears as `[note]` and gets its own
+  `Link::Footnote(label)` entry in `RichText::links`, even inside another
+  link (whose text carries on with the outer URL after it). URLs are
+  `Link::Url`, so a footnote can't be mistaken for a `#heading` anchor.
+  pulldown-cmark only emits references that have a definition; any other
+  `[^label]` stays text.
 - HTML blocks and front matter (YAML `---` or TOML `+++`) are skipped.
 - Fenced code blocks are highlighted here, once, by `highlight::highlight`
   (see [Syntax highlighting](#syntax-highlighting)).
 - Inline math (`$…$`) is converted to Unicode text by `latex::to_unicode`
   and pushed into the `RichText`, with variables in italics. Display math
   (`$$…$$`) splits its paragraph: the text before and after become
-  paragraphs, and the formula becomes a `Block::Math`. A ```` ```math ````
+  paragraphs, and the formula becomes a `Block::Math`. Bold, italic,
+  strikethrough and a link that are open across the formula carry on after
+  it (`struct Open`), so in `**a $$x$$ b**` the `b` is still bold, and the
+  link is registered again in the next `RichText`'s own `links`. Link
+  entries that no span uses are dropped. A ```` ```math ````
   code block becomes a `Block::Math` too. See [Math](#math).
 - A ```` ```mermaid ```` code block becomes a `Block::Mermaid`. See
   [Mermaid diagrams](#mermaid-diagrams).
@@ -70,8 +80,10 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
   - `Block::Quote` with multiple child blocks becomes an optional callout title
     row plus one row per child block, keeping a continuous left border.
   - All other top-level blocks stay a single row.
-- `Rows` keeps a `block_start` index so `#anchor` jumps (`links::heading_index`)
-  still resolve to the heading's list row in O(1).
+- `Rows` keeps a `block_start` index so `#anchor` jumps resolve to the
+  heading's list row in O(1). `links::heading_place` finds the heading at any
+  nesting depth and says which list item or quote child holds it;
+  `Rows::row_for_place` maps that to the item's or child's own row.
 - The list measures rows lazily and caches their heights. `800px` of overdraw
   keeps rows just outside the viewport ready, so scrolling stays smooth.
 - Unmeasured rows count as 0 px, so a pixel scroll that crosses them skips
@@ -142,7 +154,10 @@ GPUI's `HighlightStyle` can't change the font family, and inline code needs
 the monospace font. So `rich_text()` builds explicit `TextRun`s instead (each
 run has its own `Font`, color, background, underline and strikethrough), then
 calls `StyledText::with_runs`. If the text contains links, it's wrapped in
-`InteractiveText` with one clickable range per link span.
+`InteractiveText` with one clickable range per link span. A click goes to
+`render::follow_link`: a `Link::Url` is routed by `open_link` (see
+[Links](architecture.md#links)), a `Link::Footnote` calls
+`Viewer::scroll_to_footnote`.
 
 `InteractiveText` needs an `ElementId` that's unique within the row.
 `IdGen(ix * 100_000)` generates them: row `ix` gets ids starting at

@@ -16,9 +16,9 @@ use gpui::{
 
 use crate::{
     links,
-    markdown::{self, Document},
+    markdown::{self, Block, Document},
     render::{self, CodeScrollMap, RenderCx},
-    rows::Rows,
+    rows::{Place, Rows},
     scroll::{self, Measured, Motion, Thumb},
     tabs::Tabs,
     theme::Theme,
@@ -496,7 +496,25 @@ impl Viewer {
         cx.notify();
     }
 
+    /// Scrolls the tab showing `path` (the current tab for `None`) to the
+    /// heading whose slug is `anchor`, wherever it's nested.
     pub fn scroll_to_anchor(&mut self, path: Option<&Path>, anchor: &str, cx: &mut Context<Self>) {
+        self.jump(path, |blocks| links::heading_place(blocks, anchor), cx);
+    }
+
+    /// Scrolls the current tab to the definition of the footnote `label`.
+    pub fn scroll_to_footnote(&mut self, label: &str, cx: &mut Context<Self>) {
+        self.jump(None, |blocks| links::footnote_place(blocks, label), cx);
+    }
+
+    /// Scrolls the tab showing `path` (the current tab for `None`) to the
+    /// row that draws the place `find` picks. Nothing moves if it finds none.
+    fn jump(
+        &mut self,
+        path: Option<&Path>,
+        find: impl FnOnce(&[Block]) -> Option<Place>,
+        cx: &mut Context<Self>,
+    ) {
         let tab = match path {
             Some(p) => {
                 let target = normalize(p);
@@ -505,8 +523,8 @@ impl Viewer {
             None => self.tabs.active_mut(),
         };
         let Some(tab) = tab else { return };
-        if let Some(block_ix) = links::heading_index(&tab.doc.blocks, anchor)
-            && let Some(row_ix) = tab.rows.row_for_block(block_ix)
+        if let Some(place) = find(&tab.doc.blocks)
+            && let Some(row_ix) = tab.rows.row_for_place(place)
         {
             tab.list.scroll_to(ListOffset {
                 item_ix: row_ix,
@@ -1061,7 +1079,7 @@ mod app_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{markdown::Block, test_util::TempDir};
+    use crate::test_util::TempDir;
     #[cfg(unix)]
     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
