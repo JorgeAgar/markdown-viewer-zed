@@ -859,6 +859,7 @@ mod tests {
                 &["a.png", "mailto:me@x.y"],
             ),
             ("![a](a.png) `code`", "[a] code", &["a.png"]),
+            ("![a](a.png) $x$", "[a] x", &["a.png"]),
             ("[![a](a.png) more](u)", "[a] more", &["u"]),
         ] {
             let doc = parse(src);

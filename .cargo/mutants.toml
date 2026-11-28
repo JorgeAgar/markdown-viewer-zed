@@ -4,6 +4,14 @@
 # Exact mutation names keep exclusions scoped to reviewed equivalent substitutions.
 exclude_re = [
 
+    # inlines: `style` never carries CODE (it isn't a toggled bit), so
+    # `style | CODE` and `style ^ CODE` are the same.
+    '''^crates/mdview-core/src/markdown\.rs:548:41: replace \| with \^ in P<'a>::inlines$''',
+
+    # inlines never sees a TaskListMarker: the Tag::List arm of `block` lifts
+    # every marker (tight and loose items) onto ListItem::checked first.
+    '''^crates/mdview-core/src/markdown\.rs:565:17: delete match arm Event::TaskListMarker\(c\) in P<'a>::inlines$''',
+
     # Rust handles single quotes as characters/lifetimes before consulting quotes;
     # BASE only adds single quotes.
     '''^crates/mdview-core/src/highlight\.rs:162:9: delete field quotes from struct Lang expression in lang_def$''',
