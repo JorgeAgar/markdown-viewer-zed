@@ -475,7 +475,9 @@ impl<'a> P<'a> {
         // math, footnote references, task markers.
         let mut other = false;
         let mut style = 0u8;
-        let mut counts = [0u8; 5];
+        // Open strong, emphasis and strikethrough markers. `usize` so that any
+        // nesting depth (issue #39) still matches openers to closers exactly.
+        let mut counts = [0usize; 3];
         let mut link: Option<u32> = None;
         let mut image: Option<Image> = None;
         // Images nested inside the open image's description.
@@ -791,6 +793,33 @@ mod tests {
                 .collect();
             assert_eq!(italic, ["E", "mc"]);
         }
+    }
+
+    #[test]
+    fn deep_emphasis_nesting_keeps_styles() {
+        // Issue #39: the per-style nesting counters were `u8`, so 256 nested
+        // markers overflowed (a panic in debug, styles dropped in release).
+        let n = 300;
+        let style_of = |src: String| {
+            let doc = parse(&src);
+            let Block::Paragraph(p) = &doc.blocks[0] else {
+                panic!("expected a paragraph")
+            };
+            p.spans
+                .iter()
+                .map(|s| (p.text[s.range.clone()].to_string(), s.style))
+                .collect::<Vec<_>>()
+        };
+        let wrap = |m: &str| format!("a {}x{} b", m.repeat(n), m.repeat(n));
+        let expect = |style: u8| vec![("a ".to_string(), 0), ("x".into(), style), (" b".into(), 0)];
+        assert_eq!(style_of(wrap("**")), expect(BOLD));
+        assert_eq!(style_of(wrap("__")), expect(BOLD));
+        // Strikethrough doesn't nest in GFM; check it still applies deep down.
+        let src = format!("a {}~~x~~{} b", "**".repeat(n), "**".repeat(n));
+        assert_eq!(style_of(src), expect(BOLD | STRIKE));
+        // `*` runs mix strong and emphasis: odd counts leave one emphasis.
+        let src = format!("a {}x{} b", "*".repeat(2 * n + 1), "*".repeat(2 * n + 1));
+        assert_eq!(style_of(src), expect(BOLD | ITALIC));
     }
 
     #[test]

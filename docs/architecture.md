@@ -7,7 +7,7 @@
 ├── src/
 │   ├── main.rs        Entry point: IPC/events, key bindings, font choice, window creation
 │   ├── platform/      OS integration; unix.rs owns Unix sockets, windows.rs owns named pipes, mac.rs handles Finder/Dock
-│   ├── cli.rs         Argument parsing, help text, socket path and message format (GUI-free)
+│   ├── cli.rs         Argument parsing, help text, socket directory and message format (GUI-free)
 │   ├── viewer.rs      The `Viewer` view: tabs, actions, live reload, drag & drop, file loading
 │   ├── tabs.rs        `Tabs<T>`: the tab list and active index (GUI-free, unit-tested)
 │   ├── graphics.rs    Display math and Mermaid → images: background rendering + LRU cache
@@ -33,7 +33,7 @@
 ```mermaid
 flowchart TD
     main["main.rs<br/>startup, IPC, key bindings"]
-    cli["cli.rs<br/>parse_args(), encode/decode_paths()"]
+    cli["cli.rs<br/>parse_args(), runtime_dir(), fallback_dir(), encode/decode_paths()"]
     viewer["viewer.rs<br/>Viewer: tabs, actions, reload"]
     tabs["tabs.rs<br/>Tabs: list + active index"]
     subgraph core["crates/mdview-core (no GPUI)"]
@@ -197,6 +197,12 @@ classDiagram
 
 - Paths are canonicalized (`normalize`), so opening the same file twice just
   switches to its tab (`Tabs::activate_first`).
+- Opening several paths (at startup, from a second `mdview` launch, or from
+  the open dialog) handles them in order so the last path ends up active,
+  whether it was already open or not (`Viewer::show_path`, used by
+  `Viewer::new` and `Viewer::open_paths`).
+  `Viewer::open_paths` skips directories (whereas startup loads every CLI
+  argument, showing an error tab for a directory).
 - Closing a tab keeps the active tab if it's still open. Closing the active
   tab activates its right neighbor, or its left one if it was the last
   (`Tabs::close`). Next/previous tab wrap around.
@@ -243,13 +249,64 @@ flowchart LR
 
 ## Single-instance protocol
 
-The socket lives at `$XDG_RUNTIME_DIR/mdview.sock`, or
-`$TMPDIR/mdview-$USER.sock` when `XDG_RUNTIME_DIR` isn't set. The protocol is
-deliberately trivial: the client writes absolute paths separated by `\n` and
-closes the connection. An empty message just raises the window.
-`cli::encode_paths` / `cli::decode_paths` implement it. Because it's text,
-it can't carry every path: non-UTF-8 bytes arrive as U+FFFD, a `\n` inside
-a path splits it, and a `\r` before a `\n` is dropped.
+`platform/unix.rs` implements it; `cli.rs` holds the pure parts (where the
+socket lives, the message format).
+
+**Where.** The socket is `mdview-2.sock` in `$XDG_RUNTIME_DIR`
+(`cli::runtime_dir`). The XDG spec makes that directory private to the user,
+but mdview doesn't take it on trust: before every use it strips any trailing
+`/` or `/.`, checks every ancestor up to `/` (owned by the current uid or
+root, and writable by nobody else unless sticky, with no `..` components or
+foreign-owned symlinks), and checks the directory itself with `lstat` (real
+directory, not a symlink, owned by the current uid, mode 0700). When
+`XDG_RUNTIME_DIR` is unset (always on macOS, often over SSH), empty or
+relative, or fails that check (mdview then prints why), the socket is in
+`$TMPDIR/mdview-$UID/` instead (`cli::fallback_dir`), with the same ancestor
+and `lstat` checks. If a check fails, mdview prints why and runs as a
+separate instance.
+
+Since the directory and its ancestors are safe from other users, other users
+can't connect to the socket or plant one, even in the moment between `bind()`
+and the `chmod` that makes the socket mode 0600. The lock file is opened with
+`O_NOFOLLOW | O_NONBLOCK`, verified via `fstat` as a regular file owned by
+the user with no group or other bits, and `fchmod`-ed to `0600` if a
+restrictive umask stripped owner permissions. This protects against other
+users, not against processes running as the same user.
+
+**Versions.** The `2` in `mdview-2.sock` (and `mdview-2.lock`) is the wire
+protocol version, bumped with every incompatible change to the message.
+mdview 0.2.0 and older used `mdview.sock` with one path per line. With
+different names, an upgraded client and an older running instance (or the
+reverse) don't see each other, so each launch opens its own window instead
+of sending paths the other side would silently drop.
+
+**Message.** The client writes one message and closes the connection: a
+little-endian `u32` body length, then for each absolute path a little-endian
+`u32` byte count and the path's raw OS bytes. An empty list just raises the
+window. Paths are never empty and never contain NUL (neither can be a Unix
+path), and a message carries at most `cli::MAX_PATHS` (65,536) of them; a
+message that breaks these rules is dropped whole.
+`cli::encode_paths` / `cli::decode_paths` implement it. Because it
+carries the bytes and not a display string, every Unix path arrives exactly
+as given: newlines, a trailing `\r` and non-UTF-8 bytes included.
+
+**Limits.** The body is capped at `cli::MAX_MESSAGE` (16 MiB, like the
+Windows pipe): the listener checks the header before it reads anything, and
+a client with more paths than fit (or more than `MAX_PATHS`) opens its own
+window. The listener reads one client at a time and gives each 2 seconds for
+its whole message, so a client that stalls or trickles bytes can't block
+later handoffs. Truncated,
+oversized, malformed or late messages are dropped without stopping the
+listener.
+
+**Taking over.** Only a launch that can't connect takes the lock
+(`flock` on `mdview-2.lock` next to the socket, which is never deleted). Under
+the lock it connects again, because another launch may have just become the
+server; if nobody answers, the socket is stale, so it removes it and binds its
+own. Two launches started together therefore elect one server instead of
+unlinking each other's socket. At exit, `cleanup()` takes the lock (and
+leaves everything alone if it can't) and removes the socket only if its `(dev, inode)` is still the one this process
+bound, so it can't delete a newer instance's socket.
 
 ```mermaid
 sequenceDiagram
@@ -258,15 +315,22 @@ sequenceDiagram
     participant L as IPC listener thread
     participant UI as Main thread (Viewer)
 
-    C->>S: connect()
+    C->>S: connect() (no lock)
     alt An instance is running
-        C->>S: write("/abs/path/b.md")
+        C->>S: write(len, [len, bytes of /abs/path/b.md])
         C-->>C: exit(0) (~4 ms total)
-        S->>L: accept() + read_to_string
+        S->>L: accept() + read the frames (2 s deadline, 16 MiB cap)
         L->>UI: unbounded_send(paths)
         UI->>UI: open_paths() → new tab, activate_window()
-    else Nothing is listening (or a stale socket)
-        C->>C: remove the stale file, bind(), become the server
+    else Nothing answered
+        C->>C: flock(mdview-2.lock)
+        C->>S: connect() again
+        alt Another launch became the server meanwhile
+            C->>S: unlock, write(message), exit(0)
+        else Still nobody (missing or stale socket)
+            C->>C: remove the stale file, bind() mode 0600, record (dev, inode), unlock
+            C->>C: become the server
+        end
     end
 ```
 

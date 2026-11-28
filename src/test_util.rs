@@ -6,7 +6,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-/// A fresh, empty directory under the system temp dir, removed on drop.
+/// A fresh, empty directory under the system temp dir, removed on drop. On
+/// Unix it's mode 0700, so it passes as a private `XDG_RUNTIME_DIR`.
 pub struct TempDir(PathBuf);
 
 impl TempDir {
@@ -19,6 +20,11 @@ impl TempDir {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
         Self(dir)
     }
 }
