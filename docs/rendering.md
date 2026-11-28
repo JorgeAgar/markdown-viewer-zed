@@ -174,7 +174,10 @@ uncolored.
 
 ### Markdown images
 
-Standalone local images resolve relative to the document folder. HTTP(S)
+Standalone local images resolve relative to the document folder, without a
+`#fragment` or `?query` (so `logo.png#gh-dark-mode-only` loads `logo.png`,
+while an escaped `a%23b.png` loads `a#b.png`). URI schemes are matched
+case-insensitively (`HTTPS://`, `DATA:`). HTTP(S)
 images use GPUI's asynchronous image loader and asset cache. `http.rs` adapts
 GPUI's existing reqwest dependency, with TLS verification, redirects (up to
 10 hops), and a 30-second timeout. Client creation and downloads run on smol's

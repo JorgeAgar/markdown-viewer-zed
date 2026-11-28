@@ -551,7 +551,10 @@ fn standalone_remote_image_is_requested_by_the_viewer() {
         Viewer::new(
             vec![(
                 PathBuf::from("/docs/image.md"),
-                parsed("![secure](https://example.com/a%20b.svg)\n\n![plain](http://example.com/a.svg)"),
+                parsed(
+                    "![secure](https://example.com/a%20b.svg)\n\n![plain](http://example.com/a.svg)\n\n\
+                     ![upper](HTTPS://example.com/upper.svg)",
+                ),
             )],
             fonts(),
             window,
@@ -563,7 +566,11 @@ fn standalone_remote_image_is_requested_by_the_viewer() {
     requests.sort();
     assert_eq!(
         requests,
-        ["http://example.com/a.svg", "https://example.com/a%20b.svg"]
+        [
+            "http://example.com/a.svg",
+            "https://example.com/a%20b.svg",
+            "https://example.com/upper.svg"
+        ]
     );
 }
 
