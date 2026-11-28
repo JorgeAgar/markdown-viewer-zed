@@ -1,10 +1,11 @@
 //! Unix single-instance transport. Keep the handoff ahead of GPUI startup.
 //!
-//! The warm path is one `lstat` of the socket directory, one `connect` and
-//! one `write` (plus a `stat` of the temp dir when it falls back to
-//! `$TMPDIR/mdview-$UID`). Only a launch that finds nobody listening takes
-//! the lock file, so two launches can't both decide the socket is stale and
-//! unlink each other's live socket.
+//! The warm path is an `lstat` and a `stat` of each ancestor of the socket
+//! directory (three for `/run/user/$UID`), an `lstat` of the directory
+//! itself, then one `connect` and one `write`. The checks only read cached
+//! metadata: they don't measurably slow the handoff. Only a launch that finds
+//! nobody listening takes the lock file, so two launches can't both decide
+//! the socket is stale and unlink each other's live socket.
 use crate::cli;
 use std::{
     ffi::OsString,
