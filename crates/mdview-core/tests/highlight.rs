@@ -589,6 +589,70 @@ fn config_section_header_ends_at_its_bracket() {
     );
 }
 
+/// A backslash escapes the next character in a triple-quoted string (#28),
+/// so `\"""` doesn't close it, while `\\"""` does. Python raw strings
+/// (`r"""`) follow the same rule. Kotlin and Scala `"""` strings are raw:
+/// a backslash is just a character.
+#[test]
+fn triple_quote_escapes() {
+    for q in ["\"", "'"] {
+        let qqq = q.repeat(3);
+        assert_eq!(
+            toks("python", &format!("x = {qqq}a\\{qqq}b{qqq}\nprint(x)")),
+            [
+                t(&format!("{qqq}a\\{qqq}b{qqq}"), Tok::String),
+                t("print", Tok::Keyword),
+            ],
+            "{qqq}"
+        );
+        assert_eq!(
+            toks("python", &format!("x = {qqq}a\\\\{qqq} if\n{qqq}")),
+            [
+                t(&format!("{qqq}a\\\\{qqq}"), Tok::String),
+                t("if", Tok::Keyword),
+                t(&qqq, Tok::String),
+            ],
+            "{qqq}"
+        );
+        // An escaped quote right before the closing ones.
+        assert_eq!(
+            toks("python", &format!("r{qqq}a\\{q}{qqq} or")),
+            [
+                t(&format!("{qqq}a\\{q}{qqq}"), Tok::String),
+                t("or", Tok::Keyword),
+            ],
+            "{qqq}"
+        );
+        // A backslash at the very end.
+        assert_eq!(
+            toks("python", &format!("{qqq}a\\")),
+            [t(&format!("{qqq}a\\"), Tok::String)]
+        );
+    }
+    for (lang, kw) in [("swift", "let"), ("dart", "var"), ("elixir", "end")] {
+        assert_eq!(
+            toks(lang, &format!("\"\"\"a\\\"\"\"b\"\"\"\n{kw}")),
+            [
+                t("\"\"\"a\\\"\"\"b\"\"\"", Tok::String),
+                t(kw, Tok::Keyword)
+            ],
+            "{lang}"
+        );
+    }
+    for lang in ["kotlin", "scala"] {
+        assert_eq!(
+            toks(lang, "val p = \"\"\"C:\\\"\"\"\nval q = 1"),
+            [
+                t("val", Tok::Keyword),
+                t("\"\"\"C:\\\"\"\"", Tok::String),
+                t("val", Tok::Keyword),
+                t("1", Tok::Number),
+            ],
+            "{lang}"
+        );
+    }
+}
+
 #[test]
 fn generic_details() {
     // SQL keywords are case-insensitive; other languages' aren't.

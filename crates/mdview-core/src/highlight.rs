@@ -90,6 +90,9 @@ struct Lang {
     quotes: &'static [u8],
     /// `"""` / `'''` strings (Python, Kotlin, Swift...).
     triple_quotes: bool,
+    /// Backslashes don't escape anything in triple-quoted strings (Kotlin,
+    /// Scala).
+    raw_triple_quotes: bool,
     /// Identifiers starting with an uppercase letter are types.
     caps_are_types: bool,
     /// Keywords match case-insensitively (SQL).
@@ -118,6 +121,7 @@ const BASE: Lang = Lang {
     block_comment: None,
     quotes: b"\"'",
     triple_quotes: false,
+    raw_triple_quotes: false,
     caps_are_types: false,
     ignore_case: false,
     at_attrs: false,
@@ -234,6 +238,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
         triple_quotes: true,
+        raw_triple_quotes: true,
         caps_are_types: true,
         at_attrs: true,
         fn_keywords: "fun",
@@ -277,6 +282,7 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         line_comments: &["//"],
         block_comment: Some(("/*", "*/")),
         triple_quotes: true,
+        raw_triple_quotes: true,
         caps_are_types: true,
         at_attrs: true,
         fn_keywords: "def",
@@ -540,6 +546,25 @@ fn string_end(b: &[u8], i: usize, q: u8, escapes: bool) -> usize {
     b.len()
 }
 
+/// End of a `"""` / `'''` string starting at `i`: after the closing
+/// quotes, or the end of the code. With `escapes`, a backslash escapes the
+/// next byte, so `\"""` doesn't close the string and `\\"""` does
+/// (Python's rule for raw strings too).
+fn triple_end(b: &[u8], i: usize, q: u8, escapes: bool) -> usize {
+    let mut j = i + 3;
+    while j < b.len() {
+        if escapes && b[j] == b'\\' {
+            j += 2;
+            continue;
+        }
+        if b[j..].starts_with(&[q, q, q]) {
+            return j + 3;
+        }
+        j += 1;
+    }
+    b.len()
+}
+
 fn find(b: &[u8], from: usize, pat: &str) -> Option<usize> {
     let p = pat.as_bytes();
     if p.is_empty() || from > b.len() {
@@ -695,8 +720,7 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
         if l.quotes.contains(&c) {
             let triple = [c, c, c];
             let end = if l.triple_quotes && b[i..].starts_with(&triple) {
-                let close = std::str::from_utf8(&triple).unwrap();
-                find(b, i + 3, close).map_or(b.len(), |e| e + 3)
+                triple_end(b, i, c, !l.raw_triple_quotes)
             } else {
                 string_end(b, i, c, true)
             };
