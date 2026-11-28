@@ -50,7 +50,7 @@ pub fn highlight(lang: &str, code: &str) -> Vec<Highlight> {
         | "terminal" => shell(code, &mut out),
         "html" | "xml" | "svg" | "xhtml" | "vue" | "plist" => markup(code, &mut out),
         "yaml" | "yml" | "toml" | "ini" | "cfg" | "conf" | "properties" | "editorconfig"
-        | "gitconfig" | "desktop" => config(code, &mut out),
+        | "gitconfig" | "desktop" => config(code, lang == "toml", &mut out),
         _ => {
             if let Some(def) = lang_def(&lang) {
                 generic(code, def, &mut out)
@@ -384,6 +384,10 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         ignore_case: true,
         ..BASE
     };
+    static PSQL: Lang = Lang {
+        nested_comments: true,
+        ..SQL
+    };
     static CSS: Lang = Lang {
         keywords: "important",
         constants: "",
@@ -477,7 +481,8 @@ fn lang_def(lang: &str) -> Option<&'static Lang> {
         "rb" | "ruby" => &RUBY,
         "php" => &PHP,
         "lua" => &LUA,
-        "sql" | "psql" | "mysql" | "sqlite" | "postgresql" | "plsql" => &SQL,
+        "sql" | "mysql" | "sqlite" | "plsql" => &SQL,
+        "psql" | "postgresql" => &PSQL,
         "css" | "scss" | "sass" | "less" => &CSS,
         "json" | "jsonc" | "json5" | "geojson" => &JSON,
         "haskell" | "hs" => &HASKELL,
@@ -679,8 +684,8 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
         // Rust specifics.
         if l.rust {
             if c == b'#' {
-                let end = if b[i + 1..].starts_with(b"[") || b[i + 1..].starts_with(b"![") {
-                    Some(rust_attr_end(code, i))
+                let end = if let Some(open) = rust_attr_open(b, i) {
+                    Some(rust_attr_end(code, open))
                 } else if i == 0 && b.get(1) == Some(&b'!') {
                     // A shebang line.
                     Some(line_end(b, 0))
@@ -846,9 +851,36 @@ fn generic(code: &str, l: &Lang, out: &mut Out) {
     }
 }
 
-/// End of the Rust attribute (`#[...]` / `#![...]`) starting at `i`: after
-/// the `]` that balances its first `[`, or the end of the code. Brackets in
-/// strings, character literals and comments don't count.
+/// Skips ASCII whitespace and Rust line/block comments starting at `j`.
+fn skip_rust_trivia(b: &[u8], mut j: usize) -> usize {
+    while j < b.len() {
+        if b[j].is_ascii_whitespace() {
+            j += 1;
+        } else if b[j..].starts_with(b"//") {
+            j = line_end(b, j);
+        } else if b[j..].starts_with(b"/*") {
+            j = block_comment_end(b, j + 2, ("/*", "*/"), true);
+        } else {
+            break;
+        }
+    }
+    j
+}
+
+/// Position of the opening `[` if `b[i]` (`#`) starts a Rust outer (`#[...]`)
+/// or inner (`#![...]`) attribute, allowing whitespace and comments between
+/// `#`, `!`, and `[`.
+fn rust_attr_open(b: &[u8], i: usize) -> Option<usize> {
+    let mut j = skip_rust_trivia(b, i + 1);
+    if b.get(j) == Some(&b'!') {
+        j = skip_rust_trivia(b, j + 1);
+    }
+    (b.get(j) == Some(&b'[')).then_some(j)
+}
+
+/// End of the Rust attribute (`#[...]` / `#![...]`) whose opening `[` is at
+/// `i`: after the matching `]`, or the end of the code. Brackets in strings,
+/// character literals and comments don't count.
 fn rust_attr_end(code: &str, i: usize) -> usize {
     let b = code.as_bytes();
     let mut depth = 0;
@@ -896,11 +928,11 @@ fn rust_string_end(b: &[u8], i: usize) -> usize {
     b.len()
 }
 
-/// End of the Rust raw string (`r".."`, `r#".."#`, `br".."`) starting at
-/// `i`, if one starts there.
+/// End of the Rust raw string (`r".."`, `r#".."#`, `br".."`, `cr".."`)
+/// starting at `i`, if one starts there.
 fn rust_raw_string_end(b: &[u8], i: usize) -> Option<usize> {
     let mut j = match b[i] {
-        b'b' if b.get(i + 1) == Some(&b'r') => i + 2,
+        b'b' | b'c' if b.get(i + 1) == Some(&b'r') => i + 2,
         b'r' => i + 1,
         _ => return None,
     };
@@ -1153,7 +1185,7 @@ fn markup(code: &str, out: &mut Out) {
 
 /// YAML, TOML and INI: comments, `[sections]`, `key:` / `key =`, and
 /// scalar values.
-fn config(code: &str, out: &mut Out) {
+fn config(code: &str, quoted_sections: bool, out: &mut Out) {
     let mut pos = 0;
     for line in code.split_inclusive('\n') {
         let start = pos;
@@ -1173,9 +1205,13 @@ fn config(code: &str, out: &mut Out) {
         }
         if b[i] == b'[' {
             // TOML/INI section header.
-            let end = section_end(b, i);
+            let end = section_end(b, i, quoted_sections);
             out.push(start + i..start + end, Tok::Type);
-            value(line, end, start, out);
+            if b.get(end) == Some(&b'#') {
+                out.push(start + end..start + b.len(), Tok::Comment);
+            } else {
+                value(line, end, start, out);
+            }
             continue;
         }
         if line[i..].starts_with("---") || line[i..].starts_with("...") {
@@ -1224,9 +1260,9 @@ fn config(code: &str, out: &mut Out) {
 }
 
 /// End of the `[section]` or `[[array.of.tables]]` header opening at `i`:
-/// its matching `]`, skipping quoted keys (`[a."b]"]`), or the end of the
-/// line if it's unclosed.
-fn section_end(b: &[u8], i: usize) -> usize {
+/// its matching `]`, skipping TOML quoted keys (`[a."b]"]`) when
+/// `quoted_sections` is set, or the end of the line if it's unclosed.
+fn section_end(b: &[u8], i: usize, quoted_sections: bool) -> usize {
     let mut depth = 0;
     let mut j = i;
     while j < b.len() {
@@ -1239,7 +1275,7 @@ fn section_end(b: &[u8], i: usize) -> usize {
                 }
             }
             // TOML basic strings have escapes, literal strings don't.
-            q @ (b'"' | b'\'') => {
+            q @ (b'"' | b'\'') if quoted_sections => {
                 j = string_end(b, j, q, q == b'"');
                 continue;
             }

@@ -803,11 +803,6 @@ fn config_section_header_ends_at_its_bracket() {
     for (code, header, comment) in [
         ("[package] # see [section]", "[package]", "# see [section]"),
         ("[[bin]] # [[x]]", "[[bin]]", "# [[x]]"),
-        ("[a.\"b]c\"] # ]", "[a.\"b]c\"]", "# ]"),
-        ("[a.'b]c'] # ]", "[a.'b]c']", "# ]"),
-        // Basic strings have escapes, literal strings don't.
-        ("[a.\"b\\\"]\"] # ]", "[a.\"b\\\"]\"]", "# ]"),
-        ("[a.'b\\'] # ]", "[a.'b\\']", "# ]"),
     ] {
         for lang in ["toml", "ini"] {
             assert_eq!(
@@ -821,6 +816,24 @@ fn config_section_header_ends_at_its_bracket() {
                 "{lang}: {code}"
             );
         }
+    }
+    // TOML quoted keys (basic strings have escapes, literal strings don't).
+    for (code, header, comment) in [
+        ("[a.\"b]c\"] # ]", "[a.\"b]c\"]", "# ]"),
+        ("[a.'b]c'] # ]", "[a.'b]c']", "# ]"),
+        ("[a.\"b\\\"]\"] # ]", "[a.\"b\\\"]\"]", "# ]"),
+        ("[a.'b\\'] # ]", "[a.'b\\']", "# ]"),
+    ] {
+        assert_eq!(
+            toks("toml", &format!("  {code}\nk = 1")),
+            [
+                t(header, Tok::Type),
+                t(comment, Tok::Comment),
+                t("k", Tok::Property),
+                t("1", Tok::Number),
+            ],
+            "toml: {code}"
+        );
     }
     // Unclosed headers (or quotes) run to the end of the line.
     for code in ["[a # b", "[[a] # b", "[a.\"b] # c", "[a.\"b\\\"] # c"] {
@@ -1087,4 +1100,75 @@ fn probe_every_language() {
         dump::source(&mut out, &dump::tokens(PROBE, &hs), 0);
     }
     insta::assert_snapshot!(out);
+}
+
+#[test]
+fn review_edge_cases_rust_attrs_ini_toml_and_psql() {
+    // Raw C-string inside a Rust attribute must not close the attribute early.
+    assert_eq!(
+        toks("rust", " #[x(cr#\"\" ]\"#)] fn main() {}"),
+        [
+            t("#[x(cr#\"\" ]\"#)]", Tok::Attr),
+            t("fn", Tok::Keyword),
+            t("main", Tok::Function),
+        ]
+    );
+    // Whitespace and comments between `#`, `!`, and `[` still form attributes
+    // (including `#! /* keep */ [...]` at byte 0 instead of a shebang).
+    assert_eq!(
+        toks("rust", "# [doc = \"hello\"]\nfn f() {}"),
+        [
+            t("# [doc = \"hello\"]", Tok::Attr),
+            t("fn", Tok::Keyword),
+            t("f", Tok::Function),
+        ]
+    );
+    assert_eq!(
+        toks("rust", "#! /* keep */ [allow(dead_code)]\nfn f() {}"),
+        [
+            t("#! /* keep */ [allow(dead_code)]", Tok::Attr),
+            t("fn", Tok::Keyword),
+            t("f", Tok::Function),
+        ]
+    );
+    // INI section names with apostrophes must not trigger TOML quoted-key parsing.
+    assert_eq!(
+        toks("ini", "[owner's settings] # note\nk = 1"),
+        [
+            t("[owner's settings]", Tok::Type),
+            t("# note", Tok::Comment),
+            t("k", Tok::Property),
+            t("1", Tok::Number),
+        ]
+    );
+    // TOML comment directly after a section header without space.
+    assert_eq!(
+        toks("toml", "[a]# note [b]\nk = 1"),
+        [
+            t("[a]", Tok::Type),
+            t("# note [b]", Tok::Comment),
+            t("k", Tok::Property),
+            t("1", Tok::Number),
+        ]
+    );
+    // PostgreSQL supports nested block comments; generic SQL does not.
+    for pg in ["psql", "postgresql"] {
+        assert_eq!(
+            toks(pg, "/* outer /* inner */ SELECT 1; */\nSELECT 2;"),
+            [
+                t("/* outer /* inner */ SELECT 1; */", Tok::Comment),
+                t("SELECT", Tok::Keyword),
+                t("2", Tok::Number),
+            ],
+            "{pg}"
+        );
+    }
+    assert_eq!(
+        toks("sql", "/* outer /* inner */ SELECT 1;"),
+        [
+            t("/* outer /* inner */", Tok::Comment),
+            t("SELECT", Tok::Keyword),
+            t("1", Tok::Number),
+        ]
+    );
 }
