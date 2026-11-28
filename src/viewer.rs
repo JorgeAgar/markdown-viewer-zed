@@ -487,7 +487,7 @@ impl Viewer {
         }
     }
 
-    fn open_dialog_directory(&self) -> Option<PathBuf> {
+    pub fn open_dialog_directory(&self) -> Option<PathBuf> {
         resolve_open_directory(
             self.tabs.active().map(|t| t.path.as_path()),
             self.last_open_dir.as_deref(),
@@ -976,17 +976,6 @@ impl Render for Viewer {
             .font_family(self.fonts.ui.clone())
             .text_size(px(render::BASE_SIZE))
             .line_height(gpui::relative(1.6))
-            // Handling `Open` here stops it before the app-level handler in
-            // `main.rs`, so a focused viewer shows exactly one dialog.
-            .on_action(cx.listener(|this, _: &Open, _, cx| {
-                let chosen = prompt_open(this.open_dialog_directory(), cx);
-                cx.spawn(async move |this, cx| {
-                    if let Some(paths) = chosen.await {
-                        this.update(cx, |this, cx| this.open_paths(paths, cx)).ok();
-                    }
-                })
-                .detach();
-            }))
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
                 if this.tabs.is_empty() {
                     window.remove_window();

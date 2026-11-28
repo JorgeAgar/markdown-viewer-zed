@@ -384,14 +384,17 @@ LaunchServices file-open events and Dock reopen events before the application
 runs, queueing them on the same foreground channel as IPC. File URLs are
 decoded with the existing URL library. Event delivery (`deliver_paths`)
 reuses the current window; if it was closed, it creates the same Viewer
-again, skipping directories as `Viewer::open_paths` does. Either way it calls
-`cx.activate(true)`, because raising a window doesn't bring the app in front
-of the Terminal or Finder that sent the paths (on Linux and Windows the call
-does nothing). Closing the last window keeps the macOS app running; Quit
-exits and cleans up its Unix socket. `File → Open…` and `Cmd+O` keep working
-then: `Open` also has an app-level handler, which keeps the menu item enabled
-and feeds the chosen files into the same channel, so the one tracked window
-handle is recreated once and reused by later Finder, Dock and IPC events.
+again, skipping directories as `Viewer::open_paths` does. On macOS it also
+calls `cx.activate(true)`, because raising a window doesn't bring the app in
+front of the Terminal or Finder that sent the paths (gated to macOS and tests
+so Linux doesn't log unimplemented activation). Closing the last window keeps
+the macOS app running; Quit exits and cleans up its Unix socket.
+`File → Open…` and `Cmd+O` keep working then: `serve_paths` registers a single
+app-level `Open` handler, which keeps the menu item enabled, picks the starting
+directory from the tracked viewer if open (else the working directory), drops
+empty or directory-only results, and feeds chosen files into the same channel
+so the one tracked window handle is reused—or recreated even if the window was
+closed while the dialog was up.
 Event-registration hooks delegate to GPUI and let headless tests
 exercise event delivery. Shared `viewer_window_options` preserves the native
 window contract across initial opens and reopens. Command shortcuts and native
@@ -402,7 +405,7 @@ Helvetica Neue and Menlo are available as native font fallbacks.
 flowchart LR
     finder["Finder: file URLs"] --> events["Decode paths and queue event"]
     dock["Dock: reopen"] --> events
-    menu["File → Open… / Cmd+O<br/>with no focused viewer"] --> dialog["Open dialog"]
+    menu["File → Open… / Cmd+O"] --> dialog["Open dialog"]
     dialog -->|chosen files| events
     events --> foreground["Foreground event handler"]
     foreground --> exists{"Window exists?"}

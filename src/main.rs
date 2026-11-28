@@ -22,13 +22,13 @@ mod test_util;
 mod theme;
 mod viewer;
 
-use std::path::PathBuf;
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use futures::{StreamExt, channel::mpsc};
 // Re-exported at the crate root so the rest of the app can keep writing
 // `crate::markdown`.
 use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds,
+    App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WeakEntity, WindowBounds,
     WindowDecorations, WindowHandle, WindowOptions, px, size,
 };
 use mdview_core::{highlight, markdown};
@@ -131,30 +131,53 @@ fn main() {
 }
 
 /// Every source of paths after startup (IPC, Finder, the Dock, and the Open
-/// dialog when no viewer handles `Open`) goes through `rx`, so one handle
-/// tracks the window and none of them opens a second one.
+/// dialog) goes through `rx`, so one handle tracks the window and none of
+/// them opens a second one—even if the window is closed while the Open dialog
+/// is still up.
 fn serve_paths(
-    mut window: WindowHandle<Viewer>,
+    window: WindowHandle<Viewer>,
     tx: mpsc::UnboundedSender<Vec<PathBuf>>,
     mut rx: mpsc::UnboundedReceiver<Vec<PathBuf>>,
     cx: &mut App,
 ) {
-    // A focused viewer handles `Open` itself. This runs when none does: on
-    // macOS after the last window closed (File → Open… and Cmd+O stay in the
-    // menu bar), or when focus left the viewer.
+    let viewer = window
+        .entity(cx)
+        .map(|e| e.downgrade())
+        .unwrap_or_else(|_| WeakEntity::new_invalid());
+    let tracked = Rc::new(RefCell::new((window, viewer)));
+    let open_tracked = tracked.clone();
     cx.on_action(move |_: &Open, cx| {
-        let chosen = viewer::prompt_open(viewer::default_open_directory(), cx);
+        // Read via `WeakEntity` rather than `WindowHandle` so dispatching
+        // `Open` from a focused window doesn't re-borrow that window.
+        let dir = open_tracked
+            .borrow()
+            .1
+            .read_with(cx, |viewer, _| viewer.open_dialog_directory())
+            .ok()
+            .flatten()
+            .or_else(viewer::default_open_directory);
+        let chosen = viewer::prompt_open(dir, cx);
         let tx = tx.clone();
         cx.spawn(async move |_| {
             if let Some(paths) = chosen.await {
-                tx.unbounded_send(paths).ok();
+                let paths: Vec<_> = viewer::openable(paths).collect();
+                if !paths.is_empty() {
+                    tx.unbounded_send(paths).ok();
+                }
             }
         })
         .detach();
     });
     cx.spawn(async move |cx| {
         while let Some(paths) = rx.next().await {
-            cx.update(|cx| deliver_paths(&mut window, paths, cx)).ok();
+            cx.update(|cx| {
+                let mut t = tracked.borrow_mut();
+                deliver_paths(&mut t.0, paths, cx);
+                if let Ok(entity) = t.0.entity(cx) {
+                    t.1 = entity.downgrade();
+                }
+            })
+            .ok();
         }
     })
     .detach();
@@ -176,7 +199,9 @@ fn deliver_paths(window: &mut WindowHandle<Viewer>, paths: Vec<PathBuf>, cx: &mu
         *window = open_viewer(loaded, cx);
     }
     // Raising the window alone doesn't bring a macOS app in front of the
-    // Terminal or Finder that sent the paths. A no-op on Linux and Windows.
+    // Terminal or Finder that sent the paths. Gate to macOS (and tests) so
+    // Linux doesn't log an unimplemented-activation info message.
+    #[cfg(any(target_os = "macos", test))]
     cx.activate(true);
 }
 

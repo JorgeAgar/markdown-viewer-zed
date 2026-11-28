@@ -753,11 +753,11 @@ fn open_without_a_window_prompts_and_feeds_the_tracked_window() {
     assert_eq!(only_window_titles(&cx), ["b.md", "a.md"]);
     assert_eq!(cx.activations(), [true, true]);
 
-    // Now the focused viewer handles Open: exactly one dialog, starting in
-    // the active tab's directory rather than the app-level default.
+    // Now with the viewer open, Open still opens a single dialog starting in
+    // the active tab's directory, and delivers through the same channel.
     cx.update(|cx| cx.dispatch_action(&Open));
     cx.run_until_parked();
-    assert_eq!(cx.pending_paths_prompts(), 1, "no second, app-level dialog");
+    assert_eq!(cx.pending_paths_prompts(), 1, "exactly one dialog");
     cx.simulate_paths_selection(|options| {
         assert_eq!(options.directory.as_deref(), a.parent());
         Some(vec![c.clone()])
@@ -765,7 +765,7 @@ fn open_without_a_window_prompts_and_feeds_the_tracked_window() {
     cx.run_until_parked();
     assert_eq!(cx.pending_paths_prompts(), 0);
     assert_eq!(only_window_titles(&cx), ["b.md", "a.md", "c.md"]);
-    assert_eq!(cx.activations(), [true, true], "the viewer opened c itself");
+    assert_eq!(cx.activations(), [true, true, true]);
 
     // Cancelling the dialog changes nothing.
     cx.update(|cx| cx.dispatch_action(&Open));
@@ -773,6 +773,47 @@ fn open_without_a_window_prompts_and_feeds_the_tracked_window() {
     cx.simulate_paths_selection(|_| None);
     cx.run_until_parked();
     assert_eq!(only_window_titles(&cx), ["b.md", "a.md", "c.md"]);
+
+    // Closing the window while a dialog opened from it is still up still
+    // recreates the window with the chosen file instead of dropping it.
+    cx.update(|cx| cx.dispatch_action(&Open));
+    cx.run_until_parked();
+    cx.update(|cx| {
+        cx.windows()[0]
+            .update(cx, |_, w, _| w.remove_window())
+            .unwrap();
+    });
+    cx.run_until_parked();
+    assert!(cx.update(|cx| cx.windows().is_empty()));
+    cx.simulate_paths_selection(|_| Some(vec![a.clone()]));
+    cx.run_until_parked();
+    assert_eq!(only_window_titles(&cx), ["a.md"]);
+}
+
+#[test]
+fn open_with_empty_or_folder_only_selection_does_not_open_window() {
+    let dir = TempDir::new("open-empty-selection");
+    let mut cx = TestAppContext::single();
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    cx.update(|cx| {
+        let handle = crate::open_viewer(Vec::new(), cx);
+        crate::serve_paths(handle, tx, rx, cx);
+        handle.update(cx, |_, w, _| w.remove_window()).unwrap();
+    });
+    cx.run_until_parked();
+    assert!(cx.update(|cx| cx.windows().is_empty()));
+
+    for bad in [Vec::new(), vec![dir.to_path_buf()]] {
+        cx.update(|cx| cx.dispatch_action(&Open));
+        cx.run_until_parked();
+        assert_eq!(cx.pending_paths_prompts(), 1);
+        cx.simulate_paths_selection(move |_| Some(bad.clone()));
+        cx.run_until_parked();
+        assert!(
+            cx.update(|cx| cx.windows().is_empty()),
+            "empty/folder-only picker result must not open a window"
+        );
+    }
 }
 
 /// Issue #57: a window that isn't key (minimized, or behind another app's)
