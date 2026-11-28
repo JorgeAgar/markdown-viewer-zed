@@ -22,13 +22,13 @@ mod test_util;
 mod theme;
 mod viewer;
 
-use std::path::PathBuf;
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use futures::{StreamExt, channel::mpsc};
 // Re-exported at the crate root so the rest of the app can keep writing
 // `crate::markdown`.
 use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds,
+    App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WeakEntity, WindowBounds,
     WindowDecorations, WindowHandle, WindowOptions, px, size,
 };
 use mdview_core::{highlight, markdown};
@@ -64,7 +64,7 @@ fn main() {
     // Parse in parallel with GPUI start-up.
     let preload = std::thread::spawn(move || paths.into_iter().map(viewer::load).collect());
 
-    let (tx, mut rx) = mpsc::unbounded::<Vec<PathBuf>>();
+    let (tx, rx) = mpsc::unbounded::<Vec<PathBuf>>();
     let app = Application::new().with_http_client(std::sync::Arc::new(http::ImageHttpClient));
     #[cfg(target_os = "macos")]
     platform::mac::configure(
@@ -112,9 +112,10 @@ fn main() {
         .detach();
 
         let loaded = preload.join().unwrap_or_default();
-        let mut window = open_viewer(loaded, cx);
+        let window = open_viewer(loaded, cx);
         #[cfg(target_os = "macos")]
         cx.activate(true);
+        serve_paths(window, tx.clone(), rx, cx);
 
         // Single-instance server: other `mdview` invocations send us paths.
         if let Some(listener) = listener {
@@ -122,12 +123,6 @@ fn main() {
                 listener.serve(|paths| tx.unbounded_send(paths).is_ok());
             });
         }
-        cx.spawn(async move |cx| {
-            while let Some(paths) = rx.next().await {
-                cx.update(|cx| deliver_paths(&mut window, paths, cx)).ok();
-            }
-        })
-        .detach();
     });
 
     if owns_socket {
@@ -135,7 +130,63 @@ fn main() {
     }
 }
 
-/// Reuse the current window, or recreate it after a macOS window close.
+/// Every source of paths after startup (IPC, Finder, the Dock, and the Open
+/// dialog) goes through `rx`, so one handle tracks the window and none of
+/// them opens a second one—even if the window is closed while the Open dialog
+/// is still up.
+fn serve_paths(
+    window: WindowHandle<Viewer>,
+    tx: mpsc::UnboundedSender<Vec<PathBuf>>,
+    mut rx: mpsc::UnboundedReceiver<Vec<PathBuf>>,
+    cx: &mut App,
+) {
+    let viewer = window
+        .entity(cx)
+        .map(|e| e.downgrade())
+        .unwrap_or_else(|_| WeakEntity::new_invalid());
+    let tracked = Rc::new(RefCell::new((window, viewer)));
+    let open_tracked = tracked.clone();
+    cx.on_action(move |_: &Open, cx| {
+        // Read via `WeakEntity` rather than `WindowHandle` so dispatching
+        // `Open` from a focused window doesn't re-borrow that window.
+        let dir = open_tracked
+            .borrow()
+            .1
+            .read_with(cx, |viewer, _| viewer.open_dialog_directory())
+            .ok()
+            .flatten()
+            .or_else(viewer::default_open_directory);
+        let chosen = viewer::prompt_open(dir, cx);
+        let tx = tx.clone();
+        cx.spawn(async move |_| {
+            if let Some(paths) = chosen.await {
+                let paths: Vec<_> = viewer::openable(paths).collect();
+                if !paths.is_empty() {
+                    tx.unbounded_send(paths).ok();
+                }
+            }
+        })
+        .detach();
+    });
+    cx.spawn(async move |cx| {
+        while let Some(paths) = rx.next().await {
+            cx.update(|cx| {
+                let mut t = tracked.borrow_mut();
+                deliver_paths(&mut t.0, paths, cx);
+                if let Ok(entity) = t.0.entity(cx) {
+                    t.1 = entity.downgrade();
+                }
+            })
+            .ok();
+        }
+    })
+    .detach();
+}
+
+/// Reuse the current window, or recreate it after a macOS window close, and
+/// bring the app to the front either way. Directories are skipped in both
+/// cases, so a window recreated with nothing to show (a Dock reopen, or only
+/// folders) is empty.
 fn deliver_paths(window: &mut WindowHandle<Viewer>, paths: Vec<PathBuf>, cx: &mut App) {
     if window
         .update(cx, |viewer, window, cx| {
@@ -144,12 +195,14 @@ fn deliver_paths(window: &mut WindowHandle<Viewer>, paths: Vec<PathBuf>, cx: &mu
         })
         .is_err()
     {
-        let loaded = paths
-            .into_iter()
-            .map(|p| viewer::load(viewer::normalize(&p)))
-            .collect();
+        let loaded = viewer::openable(paths).map(viewer::load).collect();
         *window = open_viewer(loaded, cx);
     }
+    // Raising the window alone doesn't bring a macOS app in front of the
+    // Terminal or Finder that sent the paths. Gate to macOS (and tests) so
+    // Linux doesn't log an unimplemented-activation info message.
+    #[cfg(any(target_os = "macos", test))]
+    cx.activate(true);
 }
 
 /// All entry points (CLI, Finder and Dock) create the same viewer.

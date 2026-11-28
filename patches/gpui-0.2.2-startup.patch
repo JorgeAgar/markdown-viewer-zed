@@ -1,3 +1,32 @@
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/app/test_context.rs gpui-0.2.2-mdview/src/app/test_context.rs
+--- gpui-0.2.2/src/app/test_context.rs
++++ gpui-0.2.2-mdview/src/app/test_context.rs
+@@ -292,6 +292,25 @@
+     }
+ 
+     /// Simulates reading from the platform clipboard.
++    // mdview: test hooks for `prompt_for_paths` and `activate`.
++    /// How many open-file prompts (`prompt_for_paths`) are still unanswered.
++    pub fn pending_paths_prompts(&self) -> usize {
++        self.test_platform.pending_paths_prompts()
++    }
++
++    /// Simulates choosing files in the oldest pending open-file prompt.
++    pub fn simulate_paths_selection(
++        &self,
++        select_paths: impl FnOnce(&crate::PathPromptOptions) -> Option<Vec<std::path::PathBuf>>,
++    ) {
++        self.test_platform.simulate_paths_selection(select_paths);
++    }
++
++    /// The `ignoring_other_apps` argument of every `App::activate` call so far.
++    pub fn activations(&self) -> Vec<bool> {
++        self.test_platform.activations.borrow().clone()
++    }
++
+     /// This will return the most recent value from `write_to_clipboard`.
+     pub fn read_from_clipboard(&self) -> Option<ClipboardItem> {
+         self.test_platform.read_from_clipboard()
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/elements/list.rs gpui-0.2.2-mdview/src/elements/list.rs
 --- gpui-0.2.2/src/elements/list.rs
 +++ gpui-0.2.2-mdview/src/elements/list.rs
@@ -610,6 +639,97 @@ diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platf
          }: WindowParams,
          executor: ForegroundExecutor,
          renderer_context: renderer::Context,
+diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/test/platform.rs gpui-0.2.2-mdview/src/platform/test/platform.rs
+--- gpui-0.2.2/src/platform/test/platform.rs
++++ gpui-0.2.2-mdview/src/platform/test/platform.rs
+@@ -33,6 +33,8 @@
+     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+     current_primary_item: Mutex<Option<ClipboardItem>>,
+     pub(crate) prompts: RefCell<TestPrompts>,
++    // mdview: record `activate` calls so tests can check the app comes forward.
++    pub(crate) activations: RefCell<Vec<bool>>,
+     screen_capture_sources: RefCell<Vec<TestScreenCaptureSource>>,
+     pub opened_url: RefCell<Option<String>>,
+     pub text_system: Arc<dyn PlatformTextSystem>,
+@@ -88,6 +90,11 @@
+ pub(crate) struct TestPrompts {
+     multiple_choice: VecDeque<TestPrompt>,
+     new_path: VecDeque<(PathBuf, oneshot::Sender<Result<Option<PathBuf>>>)>,
++    // mdview: open-file prompts, answered with `simulate_paths_selection`.
++    paths: VecDeque<(
++        crate::PathPromptOptions,
++        oneshot::Sender<Result<Option<Vec<PathBuf>>>>,
++    )>,
+ }
+ 
+ impl TestPlatform {
+@@ -108,6 +115,7 @@
+             background_executor: executor,
+             foreground_executor,
+             prompts: Default::default(),
++            activations: Default::default(),
+             screen_capture_sources: Default::default(),
+             active_cursor: Default::default(),
+             active_display: Rc::new(TestDisplay::new()),
+@@ -137,6 +145,27 @@
+         tx.send(Ok(select_path(&path))).ok();
+     }
+ 
++    // mdview: answer the oldest pending `prompt_for_paths`, like
++    // `simulate_new_path_selection` does for `prompt_for_new_path`.
++    pub(crate) fn simulate_paths_selection(
++        &self,
++        select_paths: impl FnOnce(&crate::PathPromptOptions) -> Option<Vec<PathBuf>>,
++    ) {
++        let (options, tx) = self
++            .prompts
++            .borrow_mut()
++            .paths
++            .pop_front()
++            .expect("no pending paths prompt");
++        self.background_executor().set_waiting_hint(None);
++        tx.send(Ok(select_paths(&options))).ok();
++    }
++
++    // mdview: how many `prompt_for_paths` calls are still unanswered.
++    pub(crate) fn pending_paths_prompts(&self) -> usize {
++        self.prompts.borrow().paths.len()
++    }
++
+     #[track_caller]
+     pub(crate) fn simulate_prompt_answer(&self, response: &str) {
+         let prompt = self
+@@ -254,8 +283,9 @@
+         //
+     }
+ 
+-    fn activate(&self, _ignoring_other_apps: bool) {
+-        //
++    fn activate(&self, ignoring_other_apps: bool) {
++        // mdview: record the call instead of ignoring it.
++        self.activations.borrow_mut().push(ignoring_other_apps);
+     }
+ 
+     fn hide(&self) {
+@@ -331,11 +361,16 @@
+         unimplemented!()
+     }
+ 
++    // mdview: queue the prompt instead of panicking, so tests can answer it.
+     fn prompt_for_paths(
+         &self,
+-        _options: crate::PathPromptOptions,
++        options: crate::PathPromptOptions,
+     ) -> oneshot::Receiver<Result<Option<Vec<std::path::PathBuf>>>> {
+-        unimplemented!()
++        let (tx, rx) = oneshot::channel();
++        self.background_executor()
++            .set_waiting_hint(Some(format!("PROMPT FOR PATHS: {:?}", options)));
++        self.prompts.borrow_mut().paths.push_back((options, tx));
++        rx
+     }
+ 
+     fn prompt_for_new_path(
 diff -ru -x Cargo.lock -x .cargo_vcs_info.json -x MDVIEW.md gpui-0.2.2/src/platform/windows/platform.rs gpui-0.2.2-mdview/src/platform/windows/platform.rs
 --- gpui-0.2.2/src/platform/windows/platform.rs
 +++ gpui-0.2.2-mdview/src/platform/windows/platform.rs

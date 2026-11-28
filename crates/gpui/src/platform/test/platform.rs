@@ -33,6 +33,8 @@ pub(crate) struct TestPlatform {
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     current_primary_item: Mutex<Option<ClipboardItem>>,
     pub(crate) prompts: RefCell<TestPrompts>,
+    // mdview: record `activate` calls so tests can check the app comes forward.
+    pub(crate) activations: RefCell<Vec<bool>>,
     screen_capture_sources: RefCell<Vec<TestScreenCaptureSource>>,
     pub opened_url: RefCell<Option<String>>,
     pub text_system: Arc<dyn PlatformTextSystem>,
@@ -88,6 +90,11 @@ struct TestPrompt {
 pub(crate) struct TestPrompts {
     multiple_choice: VecDeque<TestPrompt>,
     new_path: VecDeque<(PathBuf, oneshot::Sender<Result<Option<PathBuf>>>)>,
+    // mdview: open-file prompts, answered with `simulate_paths_selection`.
+    paths: VecDeque<(
+        crate::PathPromptOptions,
+        oneshot::Sender<Result<Option<Vec<PathBuf>>>>,
+    )>,
 }
 
 impl TestPlatform {
@@ -108,6 +115,7 @@ impl TestPlatform {
             background_executor: executor,
             foreground_executor,
             prompts: Default::default(),
+            activations: Default::default(),
             screen_capture_sources: Default::default(),
             active_cursor: Default::default(),
             active_display: Rc::new(TestDisplay::new()),
@@ -135,6 +143,27 @@ impl TestPlatform {
             .expect("no pending new path prompt");
         self.background_executor().set_waiting_hint(None);
         tx.send(Ok(select_path(&path))).ok();
+    }
+
+    // mdview: answer the oldest pending `prompt_for_paths`, like
+    // `simulate_new_path_selection` does for `prompt_for_new_path`.
+    pub(crate) fn simulate_paths_selection(
+        &self,
+        select_paths: impl FnOnce(&crate::PathPromptOptions) -> Option<Vec<PathBuf>>,
+    ) {
+        let (options, tx) = self
+            .prompts
+            .borrow_mut()
+            .paths
+            .pop_front()
+            .expect("no pending paths prompt");
+        self.background_executor().set_waiting_hint(None);
+        tx.send(Ok(select_paths(&options))).ok();
+    }
+
+    // mdview: how many `prompt_for_paths` calls are still unanswered.
+    pub(crate) fn pending_paths_prompts(&self) -> usize {
+        self.prompts.borrow().paths.len()
     }
 
     #[track_caller]
@@ -254,8 +283,9 @@ impl Platform for TestPlatform {
         //
     }
 
-    fn activate(&self, _ignoring_other_apps: bool) {
-        //
+    fn activate(&self, ignoring_other_apps: bool) {
+        // mdview: record the call instead of ignoring it.
+        self.activations.borrow_mut().push(ignoring_other_apps);
     }
 
     fn hide(&self) {
@@ -331,11 +361,16 @@ impl Platform for TestPlatform {
         unimplemented!()
     }
 
+    // mdview: queue the prompt instead of panicking, so tests can answer it.
     fn prompt_for_paths(
         &self,
-        _options: crate::PathPromptOptions,
+        options: crate::PathPromptOptions,
     ) -> oneshot::Receiver<Result<Option<Vec<std::path::PathBuf>>>> {
-        unimplemented!()
+        let (tx, rx) = oneshot::channel();
+        self.background_executor()
+            .set_waiting_hint(Some(format!("PROMPT FOR PATHS: {:?}", options)));
+        self.prompts.borrow_mut().paths.push_back((options, tx));
+        rx
     }
 
     fn prompt_for_new_path(
