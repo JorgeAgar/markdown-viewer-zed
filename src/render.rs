@@ -569,7 +569,7 @@ fn render_block(block: &Block, rcx: &RenderCx, c: &mut Cx, depth: usize) -> AnyE
             .flex()
             .flex_wrap()
             .gap_2()
-            .children(images.iter().map(|i| image(i, rcx)))
+            .children(images.iter().map(|i| image(i, rcx, &mut c.ids)))
             .into_any_element(),
         Block::Code {
             lang,
@@ -701,7 +701,7 @@ fn checkbox(done: bool, t: &Theme) -> gpui::Div {
     )
 }
 
-fn image(i: &Image, rcx: &RenderCx) -> AnyElement {
+fn image(i: &Image, rcx: &RenderCx, ids: &mut IdGen) -> AnyElement {
     let t = rcx.theme;
     let alt: SharedString = if i.alt.is_empty() {
         i.url.clone().into()
@@ -712,7 +712,7 @@ fn image(i: &Image, rcx: &RenderCx) -> AnyElement {
         // Unsupported URI schemes remain clickable.
         let url = i.url.clone();
         return div()
-            .id(SharedString::from(i.url.clone()))
+            .id(ids.next())
             .text_color(t.link)
             .cursor_pointer()
             .child(format!("[image: {alt}]"))

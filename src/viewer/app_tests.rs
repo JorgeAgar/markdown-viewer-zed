@@ -1905,3 +1905,37 @@ fn a_wheel_step_covers_a_fraction_left_at_the_bottom() {
     settle(&v, cx);
     assert!(gap(&v, cx).abs() < 0.01, "{}", gap(&v, cx));
 }
+
+/// Where the first line of an image block that starts the document is: its
+/// left edge and the middle of its line.
+fn first_row_origin(cx: &mut VisualTestContext) -> (f32, f32) {
+    let w = cx.update(|window, _| f32::from(window.viewport_size().width));
+    let column = w.min(render::CONTENT_MAX_WIDTH);
+    // Centered column, `px_8` side padding, `pt_8` above the first row.
+    ((w - column) / 2. + 32., TAB_BAR_HEIGHT + 32. + 10.)
+}
+
+/// Clicks `dx` px right of the first row's left edge, in a new window
+/// showing `src`, and returns the URL handed to the system, if any.
+fn click_first_row(src: &str, dx: f32) -> Option<String> {
+    let (_, cx) = open(vec![(PathBuf::from("/docs/images.md"), parsed(src))]);
+    cx.run_until_parked();
+    let (x, y) = first_row_origin(cx);
+    cx.simulate_click(point(px(x + dx), px(y)), Default::default());
+    cx.run_until_parked();
+    cx.opened_url()
+}
+
+#[test]
+fn repeated_unsupported_scheme_images_are_each_clickable() {
+    // Two identical `ftp://` images used the URL as their ElementId, so
+    // they shared click state and only one of them could be clicked.
+    let src = "![a](ftp://x/a.png) ![a much longer alt text for the second one](ftp://x/a.png)";
+    for dx in [5., 200.] {
+        assert_eq!(
+            click_first_row(src, dx).as_deref(),
+            Some("ftp://x/a.png"),
+            "click at +{dx}px"
+        );
+    }
+}
