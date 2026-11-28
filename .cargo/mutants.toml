@@ -22,6 +22,10 @@ exclude_re = [
     '''^crates/mdview-core/src/highlight\.rs:388:9: delete field keywords from struct Lang expression in lang_def$''',
     '''^crates/mdview-core/src/highlight\.rs:389:9: delete field constants from struct Lang expression in lang_def$''',
 
+    # At j == len the remaining slice is empty: neither delimiter matches, and
+    # j += 1 ends the loop with the same b.len().
+    '''^crates/mdview-core/src/highlight\.rs:584:13: replace < with <= in block_comment_end$''',
+
     # Every find caller supplies a nonempty delimiter and from <= len. At from ==
     # len, windows already returns None.
     '''^crates/mdview-core/src/highlight\.rs:603:29: replace > with == in find$''',

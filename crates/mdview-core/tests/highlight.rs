@@ -302,6 +302,9 @@ fn rust_attributes() {
         "#[cfg(/* ] */ unix)]",
         "#[cfg(/* /* ] */ ] */ unix)]",
         "#[x(a / b)]",
+        // A `/` or `*` after a comment or operator doesn't start a comment.
+        "#[x(/* a *//b)]",
+        "#[x(a */ b)]",
         "#[a[b][c]]",
         "#![doc = \"[\"]",
     ] {
@@ -360,6 +363,16 @@ fn rust_attributes() {
     assert_eq!(
         toks("rust", "#[a(\"]\"\nfn x() {}"),
         [t("#[a(\"]\"\nfn x() {}", Tok::Attr)]
+    );
+    // `r"` only starts a raw string after a non-identifier: in `ar"\")]`
+    // the `\"` is an escaped quote, so the string (and attribute) is open.
+    assert_eq!(
+        toks("rust", "#[x(r\"\\\")]\nfn"),
+        [t("#[x(r\"\\\")]", Tok::Attr), t("fn", Tok::Keyword)]
+    );
+    assert_eq!(
+        toks("rust", "#[x(ar\"\\\")]\nfn"),
+        [t("#[x(ar\"\\\")]\nfn", Tok::Attr)]
     );
 }
 
