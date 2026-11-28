@@ -1254,6 +1254,116 @@ fn reload_keeps_shrunk_code_block_visible_instead_of_hiding_above_viewport() {
     );
 }
 
+/// A 30 px tall list of five 20 px rows.
+struct FixedRows(ListState);
+
+impl Render for FixedRows {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        list(self.0.clone(), |_, _, _| {
+            div().h(px(20.)).w_full().into_any_element()
+        })
+        .w(px(100.))
+        .h(px(30.))
+    }
+}
+
+/// The GPUI fork's list (`layout_items`, fix 7 in `crates/gpui/MDVIEW.md`):
+/// an offset at or past the end of the scroll-top item starts at its top.
+#[test]
+fn list_starts_at_the_top_of_an_item_shorter_than_the_offset() {
+    let state = ListState::new(5, ListAlignment::Top, px(10.));
+    let cx = Box::leak(Box::new(TestAppContext::single()));
+    let (view, cx) = cx.add_window_view(|_, _| FixedRows(state.clone()));
+    let mut draw = |offset: f32| {
+        state.scroll_to(ListOffset {
+            item_ix: 1,
+            offset_in_item: px(offset),
+        });
+        cx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(100.)),
+                AvailableSpace::Definite(px(30.)),
+            ),
+            |_, _| AnyView::from(view.clone()),
+        );
+        let top = state.logical_scroll_top();
+        let row = state.bounds_for_item(1).unwrap();
+        (
+            top.item_ix,
+            f32::from(top.offset_in_item),
+            f32::from(row.top()),
+        )
+    };
+    // Inside the item: kept, and the item is drawn that far up.
+    assert_eq!(draw(15.), (1, 15., -15.));
+    // At or past its end: the item's top.
+    assert_eq!(draw(20.), (1, 0., 0.));
+    assert_eq!(draw(500.), (1, 0., 0.));
+}
+
+/// Issue #34: a heading, a tall paragraph and many short ones.
+fn tall_paragraph_doc(paragraph: &str) -> String {
+    let mut s = format!("# Heading\n\n{paragraph}\n\n");
+    for i in 0..40 {
+        s.push_str(&format!("Short paragraph {i}.\n\n"));
+    }
+    s
+}
+
+/// The bounds of row `ix` and of the list's viewport, as last drawn.
+fn row_and_viewport(
+    v: &Entity<Viewer>,
+    cx: &mut VisualTestContext,
+    ix: usize,
+) -> (gpui::Bounds<Pixels>, gpui::Bounds<Pixels>) {
+    cx.update(|_, cx| {
+        let list = v.read(cx).active_list().unwrap();
+        (list.bounds_for_item(ix).unwrap(), list.viewport_bounds())
+    })
+}
+
+#[test]
+fn reload_shows_a_shortened_paragraph_at_the_top_instead_of_above_it() {
+    // Issue #34: scrolled 500 px into a tall paragraph, which is then cut
+    // to one line. The row kept the 500 px offset, so the list drew the
+    // paragraph (and the text after it) above the viewport.
+    let tall = "Long paragraph text that wraps over many lines. ".repeat(80);
+    let dir = TempDir::new("reload-shortened-paragraph");
+    let path = normalize(&dir.join("tall.md"));
+    std::fs::write(&path, tall_paragraph_doc(&tall)).unwrap();
+    let (v, cx) = open(vec![load(path.clone())]);
+    cx.run_until_parked();
+    with_tab(&v, cx, |tab| {
+        tab.list.scroll_to(ListOffset {
+            item_ix: 1,
+            offset_in_item: px(500.),
+        })
+    });
+    redraw(&v, cx);
+    assert_eq!(scroll_top(&v, cx), (1, 500.));
+    let (tall_row, _) = row_and_viewport(&v, cx, 1);
+    assert!(tall_row.size.height > px(1000.), "{tall_row:?}");
+
+    // A typo fixed: the paragraph keeps its height, and the reader their place.
+    let fixed = tall.replacen("Long", "Lung", 1);
+    std::fs::write(&path, tall_paragraph_doc(&fixed)).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (1, 500.));
+
+    // Cut to one line: it's shown at the top of the viewport.
+    std::fs::write(&path, tall_paragraph_doc("Now one short line.")).unwrap();
+    cx.dispatch_action(Reload);
+    cx.run_until_parked();
+    assert_eq!(scroll_top(&v, cx), (1, 0.));
+    let (row, viewport) = row_and_viewport(&v, cx, 1);
+    assert!(
+        row.size.height < px(100.) && row.top() == viewport.top(),
+        "the shortened paragraph is at the top: row={row:?}, viewport={viewport:?}"
+    );
+}
+
 #[test]
 fn tall_window_page_up_returns_to_top_and_protects_after_jump() {
     // 1. Long paragraph document in a 1500px-tall window: PageDown (1420px)

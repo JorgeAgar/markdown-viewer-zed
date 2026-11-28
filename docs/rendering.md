@@ -149,6 +149,12 @@ Each `Tab` builds a `rows::Rows` projection from `Document::blocks` and owns a
     index.
   - `offset_in_item` is reset to 0 when the row was removed, clamped (the
     block has fewer rows), changed kind, or is a code chunk that lost lines.
+    Otherwise it's kept, also for an edited block: fixing a typo in a tall
+    paragraph leaves the reader where they were. Whether a kept offset still
+    fits is only known once the row is laid out, so the GPUI fork's list
+    checks it then: an offset at or past the end of the scroll-top row
+    starts the row at the top of the viewport instead of drawing it above
+    (a paragraph cut from 50 lines to one stays in view).
 
 ## 3. Elements (`src/render.rs`)
 

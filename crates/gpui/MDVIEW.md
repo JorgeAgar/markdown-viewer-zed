@@ -76,6 +76,21 @@ can animate the scroll itself with `ListState::scroll_by`.
 measured and their height, so a scrollbar can estimate the rest. No startup
 cost: nothing runs until a scroll event or a scrollbar is drawn.
 
+## 7. Clamp a stale offset into the scroll-top item
+
+`elements/list.rs`
+
+`ListState::scroll_to` keeps any `offset_in_item`, and `layout_items` drew the
+item at the scroll top shifted up by it, even when the item turned out
+shorter than the offset: the item was then above the viewport although it
+was still the scroll top. That happens when an offset is restored after a
+`reset` (mdview reloading a file whose paragraph at the top got shorter), or
+after the item shrank (a width change). When the scroll-top item is measured
+and the offset is at or past its end, `layout_items` now starts at the item's
+top. Offsets reached by scrolling are always inside their item, so they're
+unaffected. Tested in mdview's `src/viewer/app_tests.rs`
+(`list_starts_at_the_top_of_an_item_shorter_than_the_offset`).
+
 ## Measurements
 
 Time from `main()` to the first frame submitted and presented. Medians;

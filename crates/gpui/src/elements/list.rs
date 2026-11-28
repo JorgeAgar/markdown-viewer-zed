@@ -691,6 +691,17 @@ impl StateInner {
             }
 
             let size = size.unwrap();
+            // mdview: an offset past the end of the item at the scroll top
+            // (kept from before a reset, or from before the item shrank)
+            // would draw it above the viewport while it's still the scroll
+            // top. Start at the item's top instead.
+            if ix == 0
+                && scroll_top.offset_in_item > px(0.)
+                && scroll_top.offset_in_item >= size.height
+            {
+                scroll_top.offset_in_item = px(0.);
+                self.logical_scroll_top = Some(scroll_top);
+            }
             rendered_height += size.height;
             max_item_width = max_item_width.max(size.width);
             measured_items.push_back(ListItem::Measured {
