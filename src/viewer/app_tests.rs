@@ -1934,3 +1934,175 @@ fn a_step_back_is_not_absorbed_by_a_carried_rest() {
         scrolled_px(&v, cx)
     );
 }
+
+/// A touchpad delta handled with no frame drawn first.
+fn touch_now(v: &Entity<Viewer>, cx: &mut VisualTestContext, dy: f32) {
+    cx.update(|_, cx| {
+        v.update(cx, |v, cx| {
+            v.wheel(
+                &ScrollWheelEvent {
+                    position: point(px(300.), px(300.)),
+                    delta: ScrollDelta::Pixels(point(px(0.), px(dy))),
+                    touch_phase: TouchPhase::Moved,
+                    ..Default::default()
+                },
+                cx,
+            )
+        })
+    });
+}
+
+/// Pixels between two scroll positions, through measured rows only: the
+/// rows in between must all be measured, or a scroll skipped some.
+fn measured_distance(
+    v: &Entity<Viewer>,
+    cx: &mut VisualTestContext,
+    from: (usize, f32),
+    to: (usize, f32),
+) -> f32 {
+    with_tab(v, cx, |tab| {
+        let (a, b) = if from <= to { (from, to) } else { (to, from) };
+        let (lo, hi) = (measured(&tab.list, a.0), measured(&tab.list, b.0));
+        assert_eq!(
+            hi.measured - lo.measured,
+            b.0 - a.0,
+            "unmeasured rows between {a:?} and {b:?}"
+        );
+        let d = hi.height + b.1 - lo.height - a.1;
+        if from <= to { d } else { -d }
+    })
+}
+
+#[test]
+fn touchpad_does_not_cross_the_unmeasured_rows_left_by_bottom() {
+    let (v, cx) = tall_doc();
+    // Rows 0..~30 are measured; Bottom measures the last ~30 and leaves a
+    // gap of 0 px rows in between.
+    cx.dispatch_action(Bottom);
+    redraw(&v, cx);
+    let bottom = scroll_top(&v, cx);
+    assert!(bottom.0 > 370, "{bottom:?}");
+    // One big swipe up: it stops at the gap instead of jumping over it to
+    // the rows measured at the top.
+    touch_now(&v, cx, 3000.);
+    let up = scroll_top(&v, cx);
+    assert!(
+        up.0 > 330 && up < bottom,
+        "jumped from {bottom:?} to {up:?}"
+    );
+    assert!(measured_distance(&v, cx, bottom, up) < -LIST_OVERDRAW + 40.);
+    // Going on, frame by frame, it moves through every row.
+    redraw(&v, cx);
+    touch_now(&v, cx, 3000.);
+    let more = scroll_top(&v, cx);
+    assert!(more < up);
+    assert!(measured_distance(&v, cx, up, more) < 0.);
+    // The same down from the top, toward the rows Bottom measured.
+    cx.dispatch_action(Top);
+    redraw(&v, cx);
+    touch_now(&v, cx, -3000.);
+    let down = scroll_top(&v, cx);
+    assert!(down.0 > 0 && down.0 < 60, "jumped to {down:?}");
+    measured_distance(&v, cx, (0, 0.), down);
+}
+
+fn touch_event(dy: f32) -> ScrollWheelEvent {
+    ScrollWheelEvent {
+        position: point(px(300.), px(300.)),
+        delta: ScrollDelta::Pixels(point(px(0.), px(dy))),
+        touch_phase: TouchPhase::Moved,
+        ..Default::default()
+    }
+}
+
+/// Runs `f` on the Viewer and returns the scroll top after it, with no
+/// frame drawn in between (an event can come before the next frame).
+fn in_one_update(
+    v: &Entity<Viewer>,
+    cx: &mut VisualTestContext,
+    f: impl FnOnce(&mut Viewer, &mut Context<Viewer>),
+) -> (usize, f32) {
+    cx.update(|_, cx| {
+        v.update(cx, |v, cx| {
+            f(v, cx);
+            let top = v.active_list().unwrap().logical_scroll_top();
+            (top.item_ix, f32::from(top.offset_in_item))
+        })
+    })
+}
+
+#[test]
+fn touchpad_waits_for_the_rows_after_a_jump() {
+    let (v, cx) = tall_doc();
+    // Rows 0..~30 are measured, but not the ones around the anchor yet.
+    let top = in_one_update(&v, cx, |v, cx| {
+        v.scroll_to_anchor(None, "heading-150", cx);
+        v.wheel(&touch_event(100.), cx);
+        v.wheel(&touch_event(-100.), cx);
+    });
+    assert_eq!(top, (300, 0.), "scrolled before the layout");
+    // Once laid out, it scrolls from there.
+    with_tab(&v, cx, |tab| assert!(!tab.unmeasured()));
+    let anchor = scroll_top(&v, cx);
+    assert_eq!(anchor, (300, 0.));
+    touch_now(&v, cx, 100.);
+    let up = scroll_top(&v, cx);
+    assert!(
+        (measured_distance(&v, cx, anchor, up) + 100.).abs() < 0.01,
+        "{up:?}"
+    );
+    // The same after a scrollbar jump.
+    let mut jumped = (0, 0.);
+    let top = in_one_update(&v, cx, |v, cx| {
+        let tab = v.tabs.active_mut().unwrap();
+        tab.scroll_to_estimate(12_000., 60.);
+        let t = tab.list.logical_scroll_top();
+        jumped = (t.item_ix, f32::from(t.offset_in_item));
+        v.wheel(&touch_event(100.), cx);
+        v.wheel(&touch_event(-100.), cx);
+    });
+    assert!(jumped.0 > 100, "{jumped:?}");
+    assert_eq!(top, jumped);
+}
+
+#[test]
+fn motion_waits_for_the_rows_after_a_jump() {
+    let (v, cx) = tall_doc();
+    let vh = viewport_height(cx);
+    let t0 = Instant::now();
+    let top = in_one_update(&v, cx, |v, cx| {
+        v.scroll_to_anchor(None, "heading-150", cx);
+        let tab = v.tabs.active_mut().unwrap();
+        tab.motion.wheel(-2000., t0);
+        assert!(tab.advance_motion(at(t0, 200), vh), "kept for the layout");
+    });
+    assert_eq!(top, (300, 0.));
+    // Laid out: it goes on from the anchor, through measured rows.
+    let anchor = scroll_top(&v, cx);
+    assert_eq!(anchor, (300, 0.));
+    with_tab(&v, cx, |tab| tab.motion.stop());
+    let going = with_tab(&v, cx, |tab| {
+        tab.motion.wheel(-2000., t0);
+        tab.advance_motion(at(t0, 200), vh)
+    });
+    assert!(going);
+    let up = scroll_top(&v, cx);
+    assert!(
+        (measured_distance(&v, cx, anchor, up) + MEASURED_STEP).abs() < 0.01,
+        "{up:?}"
+    );
+}
+
+#[test]
+fn a_wheel_glide_after_bottom_moves_through_every_row() {
+    let (v, cx) = tall_doc();
+    cx.dispatch_action(Bottom);
+    redraw(&v, cx);
+    let bottom = scroll_top(&v, cx);
+    // 150 lines up: 3000 px, over several frames.
+    wheel_lines(cx, 150.);
+    settle(&v, cx);
+    let up = scroll_top(&v, cx);
+    let d = measured_distance(&v, cx, bottom, up);
+    assert!((d + 3000.).abs() < 0.5, "{d}");
+}

@@ -5,6 +5,7 @@
 
 use std::{
     collections::VecDeque,
+    ops::Range,
     time::{Duration, Instant},
 };
 
@@ -175,7 +176,14 @@ impl Motion {
 
     /// The pixels to scroll in the frame drawn at `now`, at most `max_step`
     /// either way; the rest waits for the next frame.
+    #[cfg(test)]
     pub fn tick(&mut self, now: Instant, max_step: f32) -> f32 {
+        self.tick_within(now, -max_step, max_step)
+    }
+
+    /// The pixels to scroll in the frame drawn at `now`, within
+    /// `min..=max` (`min <= 0 <= max`); the rest waits for the next frame.
+    pub fn tick_within(&mut self, now: Instant, min: f32, max: f32) -> f32 {
         let mut step = std::mem::take(&mut self.carry);
         match &mut self.anim {
             Some(Anim::Glide {
@@ -207,11 +215,9 @@ impl Motion {
             }
             None => {}
         }
-        if step.abs() > max_step {
-            self.carry = step - max_step.copysign(step);
-            step = max_step.copysign(step);
-        }
-        step
+        let capped = step.clamp(min, max);
+        self.carry = step - capped;
+        capped
     }
 }
 
@@ -282,6 +288,29 @@ pub fn position_for_thumb(
         0.
     };
     frac * (content - viewport).max(0.)
+}
+
+/// The rows around row `ix` that are all measured: `start..end` with
+/// `start <= ix <= end`, as far as it goes both ways. `measured(i)` is how
+/// many of the first `i` rows are measured, for `i` in `0..=count`. It ends
+/// at `ix` when row `ix` itself isn't measured, or is past the end.
+pub fn measured_run(ix: usize, count: usize, measured: impl Fn(usize) -> usize) -> Range<usize> {
+    let ix = ix.min(count);
+    let all = |a: usize, b: usize| measured(b) - measured(a) == b - a;
+    // Smallest start with rows start..ix all measured.
+    let (mut lo, mut hi) = (0, ix);
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if all(mid, ix) { hi = mid } else { lo = mid + 1 }
+    }
+    let start = lo;
+    // Largest end with rows ix..end all measured.
+    let (mut lo, mut hi) = (ix, count);
+    while lo < hi {
+        let mid = hi - (hi - lo) / 2;
+        if all(ix, mid) { lo = mid } else { hi = mid - 1 }
+    }
+    start..lo
 }
 
 /// The row containing position `pos` and the offset into it, given the
@@ -531,6 +560,27 @@ mod tests {
     }
 
     #[test]
+    fn tick_within_caps_each_way_on_its_own() {
+        let t0 = Instant::now();
+        let mut m = Motion::default();
+        m.wheel(-500., t0);
+        // Room for 300 px up, none down: 300 now, the rest later.
+        assert_eq!(m.tick_within(ms(t0, 150), -300., 0.), -300.);
+        assert_eq!(m.carry, -200.);
+        // No room at all: everything waits.
+        assert_eq!(m.tick_within(ms(t0, 166), 0., 1000.), 0.);
+        assert_eq!(m.carry, -200.);
+        assert!(m.is_active());
+        assert_eq!(m.tick_within(ms(t0, 182), -1000., 0.), -200.);
+        assert!(!m.is_active());
+        // Down the same.
+        let mut m = Motion::default();
+        m.wheel(500., t0);
+        assert_eq!(m.tick_within(ms(t0, 150), -1000., 120.), 120.);
+        assert_eq!(m.carry, 380.);
+    }
+
+    #[test]
     fn limit_trims_the_carry_of_a_finished_glide() {
         let t0 = Instant::now();
         // The glide is over, but a capped tick held back 1240 px.
@@ -734,6 +784,53 @@ mod tests {
         assert_eq!(position_for_thumb(-5., 100., 2000., 500., 400.), 0.);
         assert_eq!(position_for_thumb(900., 100., 2000., 500., 400.), 1500.);
         assert_eq!(position_for_thumb(10., 400., 2000., 500., 400.), 0.);
+    }
+
+    /// `measured_run` over rows measured (`true`) or not.
+    fn run_of(rows: &[bool], ix: usize) -> Range<usize> {
+        measured_run(ix, rows.len(), |i| rows[..i].iter().filter(|&&m| m).count())
+    }
+
+    #[test]
+    fn measured_run_finds_the_measured_rows_around_a_row() {
+        let rows = [true, true, false, true, true, true, false, false, true];
+        assert_eq!(run_of(&rows, 0), 0..2);
+        assert_eq!(run_of(&rows, 1), 0..2);
+        assert_eq!(run_of(&rows, 3), 3..6);
+        assert_eq!(run_of(&rows, 4), 3..6);
+        assert_eq!(run_of(&rows, 5), 3..6);
+        assert_eq!(run_of(&rows, 8), 8..9);
+        // An unmeasured row: only the measured ones right above it.
+        assert_eq!(run_of(&rows, 2), 0..2);
+        assert_eq!(run_of(&rows, 6), 3..6);
+        assert_eq!(run_of(&rows, 7), 7..7);
+        // Past the end: the measured rows right above the end.
+        assert_eq!(run_of(&rows, 9), 8..9);
+        assert_eq!(run_of(&rows, 50), 8..9);
+        assert_eq!(run_of(&[false, false], 2), 2..2);
+        // All or nothing.
+        assert_eq!(run_of(&[true; 5], 2), 0..5);
+        assert_eq!(run_of(&[false; 5], 2), 2..2);
+        assert_eq!(run_of(&[], 0), 0..0);
+    }
+
+    #[test]
+    fn measured_run_matches_a_linear_scan() {
+        // Every pattern of 7 rows, from every row.
+        for bits in 0u32..128 {
+            let rows: Vec<bool> = (0..7).map(|i| bits & (1 << i) != 0).collect();
+            for ix in 0..=7 {
+                let mut start = ix;
+                while start > 0 && rows[start - 1] {
+                    start -= 1;
+                }
+                let mut end = ix;
+                while end < 7 && rows[end] {
+                    end += 1;
+                }
+                assert_eq!(run_of(&rows, ix), start..end, "{rows:?} from {ix}");
+            }
+        }
     }
 
     #[test]

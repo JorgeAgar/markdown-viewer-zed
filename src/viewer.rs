@@ -213,21 +213,34 @@ impl Tab {
         (above, all.estimate(avg), avg)
     }
 
-    /// Scrolls `dy` px but stays within the measured rows, like GPUI's own
-    /// wheel handler: unmeasured rows count as 0 px, so going further could
-    /// skip them. Does nothing right after a reload or reset, before any row
-    /// has a height.
-    fn scroll_measured(&mut self, dy: f32) {
+    /// How far the list can scroll up and down from here without crossing a
+    /// row that isn't measured: `scroll_by` counts unmeasured rows as 0 px,
+    /// so it would skip them. That's the measured rows around the scroll
+    /// top, wherever they are (a jump to `Bottom` or an anchor leaves a gap
+    /// of unmeasured rows above it), keeping the viewport inside them going
+    /// down. Nothing at all while the row at the scroll top has no height.
+    fn room(&self) -> (f32, f32) {
         if self.unmeasured() {
-            return;
+            return (0., 0.);
         }
         let top = self.list.logical_scroll_top();
-        let now = measured(&self.list, top.item_ix).height + f32::from(top.offset_in_item);
+        let run = scroll::measured_run(top.item_ix, self.list.item_count(), |ix| {
+            measured(&self.list, ix).measured
+        });
+        let height = |ix| measured(&self.list, ix).height;
+        let now = height(top.item_ix) + f32::from(top.offset_in_item);
         let viewport = f32::from(self.list.viewport_bounds().size.height);
-        let max = measured(&self.list, usize::MAX).height - viewport;
         // Never pulled back: `Bottom` parks the top past the last row.
-        let target = (now + dy).min(max.max(now)).max(0.);
-        self.list.scroll_by(px(target - now));
+        let down = (height(run.end) - viewport - now).max(0.);
+        ((now - height(run.start)).max(0.), down)
+    }
+
+    /// Scrolls `dy` px but stays within the measured rows (`Tab::room`),
+    /// like GPUI's own wheel handler. Does nothing right after a reload,
+    /// reset or jump, before the rows at the scroll top have a height.
+    fn scroll_measured(&mut self, dy: f32) {
+        let (up, down) = self.room();
+        self.list.scroll_by(px(dy.clamp(-up, down)));
     }
 
     /// Limits the running glide to the room left to the document's edges,
@@ -239,10 +252,15 @@ impl Tab {
             .limit(-above, (content - above - viewport).max(0.));
     }
 
-    /// True when the document has rows but none is measured yet.
+    /// True when the row at the scroll top has no height yet: right after a
+    /// reload or resize, or a jump to rows no frame has laid out. Scrolling
+    /// by pixels from there would skip rows; the next frame measures them.
     fn unmeasured(&self) -> bool {
-        let all = measured(&self.list, usize::MAX);
-        all.count > 0 && all.measured == 0
+        let ix = self.list.logical_scroll_top().item_ix;
+        ix < self.list.item_count() && {
+            let m = |end| measured(&self.list, end).measured;
+            m(ix + 1) == m(ix)
+        }
     }
 
     /// Called at the start of each frame: scrolls this frame's part of a
@@ -252,7 +270,8 @@ impl Tab {
             return false;
         }
         if self.unmeasured() {
-            // Just reset (resized, reloaded): wait for the rows' heights.
+            // Just reset (resized, reloaded) or jumped: wait for the rows'
+            // heights.
             return true;
         }
         let dir = self.motion.direction();
@@ -269,8 +288,12 @@ impl Tab {
         }
         // Only cross rows the last frame measured (its overdraw reaches
         // `LIST_OVERDRAW` past both edges): unmeasured rows count as 0 px,
-        // so a longer step could skip them, like a split PageUp.
-        let step = self.motion.tick(now, MEASURED_STEP);
+        // so a longer step could skip them, like a split PageUp. The rest
+        // waits for the next frame to measure the rows it will cross.
+        let (up, down) = self.room();
+        let step = self
+            .motion
+            .tick_within(now, -up.min(MEASURED_STEP), down.min(MEASURED_STEP));
         self.list.scroll_by(px(step));
         self.motion.is_active()
     }
