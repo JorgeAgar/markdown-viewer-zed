@@ -89,8 +89,12 @@ pub fn percent_decode(s: &str) -> String {
 }
 
 /// Index of the top-level heading whose slug is `anchor`, compared
-/// case-insensitively (slugs are lowercase).
+/// case-insensitively (slugs are lowercase). A bare `#` (an empty anchor)
+/// matches nothing, not a heading without letters or digits.
 pub fn heading_index(blocks: &[Block], anchor: &str) -> Option<usize> {
+    if anchor.is_empty() {
+        return None;
+    }
     let anchor = anchor.to_lowercase();
     blocks
         .iter()
@@ -337,5 +341,29 @@ mod tests {
         assert_eq!(heading_index(blocks, "intro-text"), None);
         assert_eq!(heading_index(blocks, ""), None);
         assert_eq!(heading_index(&[], "x"), None);
+    }
+
+    #[test]
+    fn repeated_headings_are_reached_by_suffixed_anchors() {
+        // Issue #20.
+        let doc = markdown::parse(
+            "# Setup 1\n\n# Setup\n\n## Setup\n\n### setup\n\n## Added\n\n## Added\n",
+        );
+        let blocks = &doc.blocks;
+        assert_eq!(heading_index(blocks, "setup-1"), Some(0));
+        assert_eq!(heading_index(blocks, "setup"), Some(1));
+        assert_eq!(heading_index(blocks, "setup-2"), Some(2));
+        assert_eq!(heading_index(blocks, "Setup-3"), Some(3));
+        assert_eq!(heading_index(blocks, "setup-4"), None);
+        assert_eq!(heading_index(blocks, "added"), Some(4));
+        assert_eq!(heading_index(blocks, "added-1"), Some(5));
+    }
+
+    #[test]
+    fn bare_hash_does_not_match_an_empty_slug() {
+        let doc = markdown::parse("Intro\n\n# ???\n\n# !!!\n");
+        assert_eq!(heading_index(&doc.blocks, ""), None);
+        // The repeat is still reachable, as on GitHub.
+        assert_eq!(heading_index(&doc.blocks, "-1"), Some(2));
     }
 }

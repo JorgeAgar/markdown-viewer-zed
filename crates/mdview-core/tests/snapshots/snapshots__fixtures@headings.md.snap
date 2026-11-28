@@ -32,7 +32,7 @@ heading h2 #inline-markup-code-link-gone
   link 0: #anchor
 heading h2 #duplicate
   "Duplicate"
-heading h2 #duplicate
+heading h2 #duplicate-1
   "Duplicate"
 heading h2 #emoji--rocket--dev
   "Emoji 🚀 rocket 👩⟨U+200D⟩💻 dev"

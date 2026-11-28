@@ -4,7 +4,7 @@
 //! files). Rendering then only walks this pre-digested tree, so a frame never
 //! touches the raw Markdown again.
 
-use std::{ops::Range, sync::Arc};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use crate::{
     highlight::{Highlight, highlight},
@@ -145,6 +145,7 @@ pub enum Block {
     Heading {
         level: u8,
         text: RichText,
+        /// Anchor id, unique within the document (see [`P::unique_slug`]).
         slug: String,
     },
     Paragraph(RichText),
@@ -201,7 +202,11 @@ pub fn parse(src: &str) -> Document {
         | Options::ENABLE_GFM
         | Options::ENABLE_MATH;
     let events: Vec<Event> = Parser::new_ext(src, opts).collect();
-    let mut p = P { ev: events, i: 0 };
+    let mut p = P {
+        ev: events,
+        i: 0,
+        slugs: HashMap::new(),
+    };
     let mut blocks = Vec::new();
     p.blocks(&mut blocks);
     Document { blocks }
@@ -210,6 +215,9 @@ pub fn parse(src: &str) -> Document {
 struct P<'a> {
     ev: Vec<Event<'a>>,
     i: usize,
+    /// Every heading slug handed out so far (nested headings included),
+    /// with how many times its base slug was repeated.
+    slugs: HashMap<String, usize>,
 }
 
 fn is_inline(ev: &Event) -> bool {
@@ -286,7 +294,7 @@ impl<'a> P<'a> {
                 let (mut text, _) = self.inlines(false);
                 self.next();
                 text.trim_end();
-                let slug = slugify(&text.text);
+                let slug = self.unique_slug(slugify(&text.text));
                 out.push(Block::Heading {
                     level: heading_level(level),
                     text,
@@ -403,6 +411,23 @@ impl<'a> P<'a> {
             // Anything else we don't specifically render: keep its children.
             _ => self.blocks(out),
         }
+    }
+
+    /// `base`, or, if a heading earlier in the document (at any level or
+    /// nesting depth) already has that slug, `base-1`, `base-2`... GitHub's
+    /// rule (`github-slugger`): the counter is kept per base slug and skips
+    /// suffixes that are taken already, so `# Setup 1` followed by two
+    /// `# Setup` gives `setup-1`, `setup`, `setup-2`. Every slug in a
+    /// document is unique.
+    fn unique_slug(&mut self, base: String) -> String {
+        let mut slug = base.clone();
+        while self.slugs.contains_key(&slug) {
+            let n = self.slugs.get_mut(&base).expect("base slug was seen");
+            *n += 1;
+            slug = format!("{base}-{n}");
+        }
+        self.slugs.insert(slug.clone(), 0);
+        slug
     }
 
     fn skip_to_end(&mut self) {
@@ -960,6 +985,78 @@ mod tests {
         };
         // Only a leading BOM is a BOM.
         assert_eq!(p.text, "Text \u{feff} kept.");
+    }
+
+    /// Slugs of every heading, nested ones too, in document order.
+    fn slugs(blocks: &[Block], out: &mut Vec<String>) {
+        for b in blocks {
+            match b {
+                Block::Heading { slug, .. } => out.push(slug.clone()),
+                Block::Quote { blocks, .. } | Block::Footnote { blocks, .. } => slugs(blocks, out),
+                Block::List { items, .. } => {
+                    for item in items {
+                        slugs(&item.blocks, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn all_slugs(src: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        slugs(&parse(src).blocks, &mut out);
+        out
+    }
+
+    #[test]
+    fn repeated_headings_get_numbered_slugs() {
+        // Issue #20: every repeat used to get the same slug, so `#setup-1`
+        // led nowhere. The level doesn't matter.
+        assert_eq!(
+            all_slugs("# Setup\n\n## Setup\n\n### Setup\n\n#### setup\n"),
+            ["setup", "setup-1", "setup-2", "setup-3"]
+        );
+        // A changelog repeats its section names per release.
+        assert_eq!(
+            all_slugs("## 1.1\n### Added\n### Fixed\n## 1.0\n### Added\n### Fixed\n"),
+            ["11", "added", "fixed", "10", "added-1", "fixed-1"]
+        );
+        // Nested headings share the count with top-level ones.
+        assert_eq!(
+            all_slugs("# Setup\n\n> ## Setup\n\n- ### Setup\n\n[^n]: # Setup\n\nx[^n]\n"),
+            ["setup", "setup-1", "setup-2", "setup-3"]
+        );
+    }
+
+    #[test]
+    fn numbered_slugs_never_collide_with_literal_ones() {
+        // github-slugger: the counter skips suffixes already taken by a
+        // heading that really says "Setup 1".
+        assert_eq!(
+            all_slugs("# Setup 1\n# Setup\n# Setup\n# Setup 1\n# Setup-2\n# Setup\n"),
+            [
+                "setup-1",
+                "setup",
+                "setup-2",
+                "setup-1-1",
+                "setup-2-1",
+                "setup-3"
+            ]
+        );
+        assert_eq!(
+            all_slugs("# A\n# A-1\n# A\n# A\n"),
+            ["a", "a-1", "a-2", "a-3"]
+        );
+    }
+
+    #[test]
+    fn empty_slugs_are_numbered_too() {
+        // Headings without letters or digits slug to "", as on GitHub.
+        assert_eq!(
+            all_slugs("# ???\n## !\n#\n# -1\n"),
+            ["", "-1", "-2", "-1-1"]
+        );
     }
 
     #[test]

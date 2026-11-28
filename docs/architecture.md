@@ -286,7 +286,12 @@ for benchmarks and debugging.
 | Any other local file | Open with the system handler (percent-encoded `file://…`) |
 
 Anchor slugs follow GitHub's rules (`markdown::slugify`) and are matched
-case-insensitively (`links::heading_index`). Only top-level headings can be
+case-insensitively (`links::heading_index`). A repeated slug gets a numbered
+suffix, as `github-slugger` does: the parser counts every heading in the
+document, at any level or nesting depth, so the first `# Setup` is `#setup`,
+the next `#setup-1`, then `#setup-2`, and a suffix that a heading already
+uses (a literal `# Setup 1`) is skipped. Every slug in a document is
+unique. A bare `#` matches no heading. Only top-level headings can be
 anchor targets. The path and the anchor are percent-decoded separately, so
 `a%23b.md` is a file named `a#b.md`. Only `://` and `mailto:` count as
 external; a query string (`b.md?x=1`) stays part of the file name.

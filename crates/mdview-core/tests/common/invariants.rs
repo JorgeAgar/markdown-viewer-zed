@@ -8,7 +8,7 @@
 
 #![allow(dead_code)]
 
-use std::ops::Range;
+use std::{collections::HashSet, ops::Range};
 
 use mdview_core::{
     highlight::{Highlight, highlight},
@@ -26,12 +26,14 @@ pub fn parse_and_check(src: &str) -> Document {
 }
 
 pub fn check_document(doc: &Document) {
+    let mut slugs = HashSet::new();
     for (i, b) in doc.blocks.iter().enumerate() {
-        check_block(b, &format!("blocks[{i}]"));
+        check_block(b, &format!("blocks[{i}]"), &mut slugs);
     }
 }
 
-fn check_block(b: &Block, at: &str) {
+/// `slugs` collects every heading slug in the document, nested ones too.
+fn check_block(b: &Block, at: &str, slugs: &mut HashSet<String>) {
     match b {
         Block::Heading { level, text, slug } => {
             assert!((1..=6).contains(level), "{at}: heading level {level}");
@@ -41,11 +43,18 @@ fn check_block(b: &Block, at: &str) {
                 text.text,
                 "{at}: heading text has trailing whitespace"
             );
-            assert_eq!(
-                *slug,
-                markdown::slugify(&text.text),
-                "{at}: slug isn't slugify(text)"
+            // A repeated slug gets a `-N` suffix, so every anchor can be
+            // reached.
+            let base = markdown::slugify(&text.text);
+            let suffix = slug.strip_prefix(&base);
+            assert!(
+                suffix == Some("")
+                    || suffix
+                        .and_then(|s| s.strip_prefix('-'))
+                        .is_some_and(|n| n.parse::<usize>().is_ok_and(|n| n > 0)),
+                "{at}: slug {slug:?} isn't slugify(text) ({base:?}) or that plus -N"
             );
+            assert!(slugs.insert(slug.clone()), "{at}: slug {slug:?} repeats");
             check_slug(slug, at);
         }
         Block::Paragraph(text) => {
@@ -82,14 +91,14 @@ fn check_block(b: &Block, at: &str) {
         }
         Block::Quote { blocks, .. } | Block::Footnote { blocks, .. } => {
             for (i, b) in blocks.iter().enumerate() {
-                check_block(b, &format!("{at}/{i}"));
+                check_block(b, &format!("{at}/{i}"), slugs);
             }
         }
         Block::List { items, .. } => {
             assert!(!items.is_empty(), "{at}: list without items");
             for (i, item) in items.iter().enumerate() {
                 for (j, b) in item.blocks.iter().enumerate() {
-                    check_block(b, &format!("{at}/item{i}/{j}"));
+                    check_block(b, &format!("{at}/item{i}/{j}"), slugs);
                 }
             }
         }
